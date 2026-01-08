@@ -1,0 +1,41 @@
+# Build output
+dist/
+
+# Node modules
+node_modules/
+
+# Environment files (keep .env.example)
+.env
+.env.local
+.env.development
+.env.production
+!.env.example
+
+# Prisma
+.prisma/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Test coverage
+coverage/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vercel
+.vercel/
+
+# Temporary files
+tmp/
+temp/

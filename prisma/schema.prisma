@@ -1,0 +1,528 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  password      String? // For email/password auth
+  emailVerified DateTime?
+  image         String?
+  role          Role      @default(PLAYER)
+
+  // Player related information
+  gender           Gender?
+  level            Level?
+  levelDescription String?
+  phone            String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  playerRecords     Player[]
+  hostedSessions    Session[]          @relation("HostedSessions")
+  accounts          Account[]
+  sessions          AuthSession[]
+  hostedTournaments Tournament[]       @relation("HostedTournaments")
+  tournamentPlayers TournamentPlayer[] @relation("TournamentPlayers")
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model AuthSession {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("auth_sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Session {
+  id                 String        @id @default(cuid())
+  name               String
+  hostId             String
+  numberOfCourts     Int           @default(2)
+  sessionDuration    Int           @default(120)
+  maxPlayersPerCourt Int           @default(8)
+  requirePlayerInfo  Boolean       @default(true)
+  status             SessionStatus @default(PREPARING)
+  startTime          DateTime?
+  endTime            DateTime?
+
+  // Guest access settings
+  allowGuestJoin  Boolean @default(true) // Allow joining without account
+  allowNewPlayers Boolean @default(true) // Allow new players to join via session QR
+
+  // Player level requirements (empty array = all levels allowed)
+  requiredLevels Level[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  courts    Court[]
+  matches   Match[]
+  players   Player[]
+  host      User     @relation("HostedSessions", fields: [hostId], references: [id])
+
+  @@map("sessions")
+}
+
+model Player {
+  id                 String       @id @default(cuid())
+  sessionId          String
+  userId             String? // Linked user account (optional for guests)
+  playerNumber       Int
+  name               String?
+  gender             Gender?
+  level              Level?
+  levelDescription   String?
+  desire             String?
+  phone              String?
+  preFilledByHost    Boolean      @default(false)
+  confirmedByPlayer  Boolean      @default(false)
+  requireConfirmInfo Boolean      @default(false)
+  currentWaitTime    Int          @default(0)
+  totalWaitTime      Int          @default(0)
+  matchesPlayed      Int          @default(0)
+  status             PlayerStatus @default(WAITING)
+  currentCourtId     String?
+  courtPosition      Int? // Position on court (0-3), null when not on court
+
+  // Player-specific join fields
+  joinCode   String    @unique // Unique join code for this player slot
+  qrCodeData String? // QR code data for this player
+  isJoined   Boolean   @default(false) // Whether someone has joined this slot
+  isGuest    Boolean   @default(true) // True if joined without account
+  joinedAt   DateTime? // When the slot was filled
+
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  matchPlayers MatchPlayer[]
+  currentCourt Court?        @relation(fields: [currentCourtId], references: [id])
+  session      Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user         User?         @relation(fields: [userId], references: [id])
+
+  @@unique([sessionId, playerNumber])
+  @@map("players")
+}
+
+model Court {
+  id                 String         @id @default(cuid())
+  sessionId          String
+  courtNumber        Int
+  courtName          String?
+  direction          CourtDirection @default(HORIZONTAL)
+  status             CourtStatus    @default(EMPTY)
+  currentMatchId     String?        @unique
+  preSelectedPlayers Json? // JSON array of pre-selected players with positions
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  currentMatch       Match?         @relation("CurrentMatch", fields: [currentMatchId], references: [id])
+  session            Session        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  matches            Match[]        @relation("CourtMatches")
+  currentPlayers     Player[]
+
+  @@unique([sessionId, courtNumber])
+  @@map("courts")
+}
+
+model Match {
+  id           String        @id @default(cuid())
+  sessionId    String
+  courtId      String
+  status       MatchStatus   @default(IN_PROGRESS)
+  startTime    DateTime      @default(now())
+  endTime      DateTime?
+  isExtra      Boolean       @default(false) // Indicates match started after session endTime
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  currentCourt Court?        @relation("CurrentMatch")
+  players      MatchPlayer[]
+  court        Court         @relation("CourtMatches", fields: [courtId], references: [id])
+  session      Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  // Match result
+  score     String?
+  winnerIds String?
+  isDraw    Boolean? @default(false)
+  notes     String?
+
+  @@map("matches")
+}
+
+model MatchPlayer {
+  id       String @id @default(cuid())
+  matchId  String
+  playerId String
+  position Int
+  match    Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  player   Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, playerId])
+  @@unique([matchId, position])
+  @@map("match_players")
+}
+
+enum Role {
+  HOST
+  PLAYER
+}
+
+enum SessionStatus {
+  PREPARING
+  IN_PROGRESS
+  FINISHED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum Level {
+  Y
+  Y_PLUS
+  TBY
+  TB_MINUS
+  TB
+  TB_PLUS
+  Y_MINUS
+  K
+}
+
+enum PlayerStatus {
+  WAITING
+  PLAYING
+  FINISHED
+  READY
+  INACTIVE
+}
+
+enum CourtStatus {
+  EMPTY
+  IN_USE
+  READY
+}
+
+enum CourtDirection {
+  HORIZONTAL
+  VERTICAL
+}
+
+enum MatchStatus {
+  IN_PROGRESS
+  FINISHED
+  SCHEDULED
+  CANCELLED
+}
+
+// Tournament Management Models
+
+model Tournament {
+  id        String           @id @default(cuid())
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  hostId    String
+  status    TournamentStatus @default(PREPARING)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  // Relations
+  host           User                      @relation("HostedTournaments", fields: [hostId], references: [id])
+  categories     Category[]
+  umpires        TournamentUmpire[]
+  scoringDevices TournamentScoringDevice[]
+  courts         TournamentCourt[]
+  players        TournamentPlayer[]
+  pairs          TournamentPair[]
+
+  @@map("tournaments")
+}
+
+enum TournamentStatus {
+  PREPARING
+  IN_PROGRESS
+  FINISHED
+  CANCELLED
+}
+
+model Category {
+  id                   String       @id @default(cuid())
+  tournamentId         String
+  name                 String
+  type                 CategoryType
+  hasGroupStage        Boolean      @default(false)
+  averageMatchDuration Int?
+  groupCount           Int?
+  winnersPerGroup      Int?
+  playersPerGroup      Int?
+  matchFormat          MatchFormat  @default(BEST_OF_3)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  // Relations
+  tournament    Tournament             @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  registrations CategoryRegistration[]
+  groups        CategoryGroup[]
+  matches       CategoryMatch[]
+
+  @@unique([tournamentId, name])
+  @@map("categories")
+}
+
+enum MatchFormat {
+  BEST_OF_1
+  BEST_OF_3
+}
+
+enum CategoryType {
+  MENS_SINGLE
+  WOMENS_SINGLE
+  MENS_DOUBLE
+  WOMENS_DOUBLE
+  MIXED_DOUBLE
+}
+
+model CategoryRegistration {
+  id                 String   @id @default(cuid())
+  categoryId         String
+  tournamentPlayerId String?
+  tournamentPairId   String?
+  createdAt          DateTime @default(now())
+
+  // Relations
+  category           Category                    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  player             TournamentPlayer?           @relation(fields: [tournamentPlayerId], references: [id], onDelete: Cascade)
+  pair               TournamentPair?             @relation(fields: [tournamentPairId], references: [id], onDelete: Cascade)
+  groupRegistrations CategoryGroupRegistration[]
+  matchParticipants  CategoryMatchParticipant[]
+
+  @@unique([categoryId, tournamentPlayerId])
+  @@unique([categoryId, tournamentPairId])
+  @@map("category_registrations")
+}
+
+model CategoryGroup {
+  id          String   @id @default(cuid())
+  categoryId  String
+  groupNumber Int
+  name        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  category      Category                    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  registrations CategoryGroupRegistration[]
+  matches       CategoryMatch[]
+
+  @@unique([categoryId, groupNumber])
+  @@map("category_groups")
+}
+
+model CategoryGroupRegistration {
+  id                     String   @id @default(cuid())
+  groupId                String
+  categoryRegistrationId String
+  createdAt              DateTime @default(now())
+
+  // Relations
+  group                CategoryGroup        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  categoryRegistration CategoryRegistration @relation(fields: [categoryRegistrationId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, categoryRegistrationId])
+  @@map("category_group_registrations")
+}
+
+model CategoryMatch {
+  id           String       @id @default(cuid())
+  categoryId   String
+  groupId      String?
+  round        String
+  matchNumber  Int
+  status       MatchStatus  @default(SCHEDULED)
+  startTime    DateTime?
+  endTime      DateTime?
+  courtId      String?
+  score        String?
+  sets         Json?
+  winnerId     String?
+  isDraw       Boolean      @default(false)
+  player1Score Int?
+  player2Score Int?
+  player3Score Int?
+  player4Score Int?
+  matchFormat  MatchFormat? // Match format for this specific match/round
+  notes        String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  // Relations
+  category     Category                   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  group        CategoryGroup?             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  court        TournamentCourt?           @relation(fields: [courtId], references: [id])
+  participants CategoryMatchParticipant[]
+
+  @@map("category_matches")
+}
+
+model CategoryMatchParticipant {
+  id                     String   @id @default(cuid())
+  matchId                String
+  categoryRegistrationId String
+  position               Int
+  createdAt              DateTime @default(now())
+
+  // Relations
+  match                CategoryMatch        @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  categoryRegistration CategoryRegistration @relation(fields: [categoryRegistrationId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, categoryRegistrationId])
+  @@unique([matchId, position])
+  @@map("category_match_participants")
+}
+
+model TournamentUmpire {
+  id           String   @id @default(cuid())
+  tournamentId String
+  name         String
+  email        String?
+  phone        String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@map("tournament_umpires")
+}
+
+model TournamentScoringDevice {
+  id           String   @id @default(cuid())
+  tournamentId String
+  name         String
+  deviceType   String?
+  deviceId     String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@map("tournament_scoring_devices")
+}
+
+model TournamentCourt {
+  id           String   @id @default(cuid())
+  tournamentId String
+  courtNumber  Int
+  courtName    String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  tournament Tournament      @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  matches    CategoryMatch[]
+
+  @@unique([tournamentId, courtNumber])
+  @@map("tournament_courts")
+}
+
+model TournamentPlayer {
+  id               String   @id @default(cuid())
+  tournamentId     String
+  name             String
+  email            String?
+  phone            String?
+  gender           Gender?
+  level            Level?
+  levelDescription String?
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  tournament    Tournament             @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?                  @relation("TournamentPlayers", fields: [userId], references: [id])
+  registrations CategoryRegistration[]
+  pairMembers   TournamentPairMember[]
+
+  @@map("tournament_players")
+}
+
+model TournamentPair {
+  id           String        @id @default(cuid())
+  tournamentId String
+  name         String?
+  type         CategoryType?
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // Relations
+  tournament    Tournament             @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  members       TournamentPairMember[]
+  registrations CategoryRegistration[]
+
+  @@map("tournament_pairs")
+}
+
+model TournamentPairMember {
+  id        String   @id @default(cuid())
+  pairId    String
+  playerId  String
+  position  Int
+  createdAt DateTime @default(now())
+
+  // Relations
+  pair   TournamentPair   @relation(fields: [pairId], references: [id], onDelete: Cascade)
+  player TournamentPlayer @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([pairId, playerId])
+  @@unique([pairId, position])
+  @@map("tournament_pair_members")
+}

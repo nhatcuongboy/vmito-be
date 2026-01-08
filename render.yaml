@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: badminton-backend
+    runtime: node
+    buildCommand: pnpm install && pnpm build
+    startCommand: pnpm start:prod
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+    autoDeploy: true
