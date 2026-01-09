@@ -49,5 +49,3 @@ export class CreatePlayerDto {
   @IsOptional()
   requireConfirmInfo?: boolean;
 }
-
-

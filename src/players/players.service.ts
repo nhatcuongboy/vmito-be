@@ -80,7 +80,7 @@ export class PlayersService {
     if (confirmedByPlayer && existingPlayer.session.requirePlayerInfo) {
       if (!name || !gender || !level) {
         throw new BadRequestException(
-          'Name, gender, and level are required for this session',
+          'Name, gender, and level are required for this session'
         );
       }
     }
@@ -116,7 +116,7 @@ export class PlayersService {
     // Prevent deletion if player is currently playing
     if (existingPlayer.status === 'PLAYING') {
       throw new BadRequestException(
-        'Cannot delete a player who is currently playing',
+        'Cannot delete a player who is currently playing'
       );
     }
 
@@ -145,7 +145,7 @@ export class PlayersService {
 
       if (!name || !gender || !level) {
         throw new BadRequestException(
-          'Name, gender, and level are required for this session',
+          'Name, gender, and level are required for this session'
         );
       }
 
@@ -178,10 +178,7 @@ export class PlayersService {
     }
   }
 
-  async createInSession(
-    sessionId: string,
-    createPlayerDto: CreatePlayerDto,
-  ) {
+  async createInSession(sessionId: string, createPlayerDto: CreatePlayerDto) {
     // Validate session exists and get requiredLevels
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
@@ -201,12 +198,12 @@ export class PlayersService {
     if (session.requiredLevels && session.requiredLevels.length > 0) {
       if (!level) {
         throw new BadRequestException(
-          `This session requires players to have one of these levels: ${session.requiredLevels.join(', ')}. Please provide your level.`,
+          `This session requires players to have one of these levels: ${session.requiredLevels.join(', ')}. Please provide your level.`
         );
       }
       if (!session.requiredLevels.includes(level)) {
         throw new BadRequestException(
-          `Your level (${level}) is not allowed in this session. Required levels: ${session.requiredLevels.join(', ')}`,
+          `Your level (${level}) is not allowed in this session. Required levels: ${session.requiredLevels.join(', ')}`
         );
       }
     }
@@ -221,7 +218,7 @@ export class PlayersService {
 
     if (existingPlayer) {
       throw new BadRequestException(
-        'Player number already exists in this session',
+        'Player number already exists in this session'
       );
     }
 
@@ -259,7 +256,7 @@ export class PlayersService {
     }
 
     // Calculate max players allowed
-    const maxPlayers = session.numberOfCourts * session.maxPlayersPerCourt;
+    // const maxPlayers = session.numberOfCourts * session.maxPlayersPerCourt; // Unused variable removed
 
     // Validate player data
     const errors: string[] = [];
@@ -271,7 +268,7 @@ export class PlayersService {
         typeof playerData.playerNumber !== 'number'
       ) {
         errors.push(
-          `Player ${index + 1}: playerNumber is required and must be a number`,
+          `Player ${index + 1}: playerNumber is required and must be a number`
         );
         continue;
       }
@@ -279,7 +276,7 @@ export class PlayersService {
       // Check for duplicate playerNumber in request
       if (playerNumbers.has(playerData.playerNumber)) {
         errors.push(
-          `Player ${index + 1}: playerNumber ${playerData.playerNumber} already exists in the request`,
+          `Player ${index + 1}: playerNumber ${playerData.playerNumber} already exists in the request`
         );
         continue;
       }
@@ -287,11 +284,11 @@ export class PlayersService {
 
       // Check if playerNumber already exists in session
       const existingPlayer = session.players.find(
-        (p) => p.playerNumber === playerData.playerNumber,
+        (p) => p.playerNumber === playerData.playerNumber
       );
       if (existingPlayer) {
         errors.push(
-          `Player ${index + 1}: playerNumber ${playerData.playerNumber} already exists in the session`,
+          `Player ${index + 1}: playerNumber ${playerData.playerNumber} already exists in the session`
         );
         continue;
       }
@@ -300,11 +297,11 @@ export class PlayersService {
       if (session.requiredLevels && session.requiredLevels.length > 0) {
         if (!playerData.level) {
           errors.push(
-            `Player ${index + 1}: level is required. Required levels: ${session.requiredLevels.join(', ')}`,
+            `Player ${index + 1}: level is required. Required levels: ${session.requiredLevels.join(', ')}`
           );
         } else if (!session.requiredLevels.includes(playerData.level)) {
           errors.push(
-            `Player ${index + 1}: level ${playerData.level} is not allowed. Required levels: ${session.requiredLevels.join(', ')}`,
+            `Player ${index + 1}: level ${playerData.level} is not allowed. Required levels: ${session.requiredLevels.join(', ')}`
           );
         }
       }
@@ -333,8 +330,8 @@ export class PlayersService {
             requireConfirmInfo: playerData.requireConfirmInfo || false,
             status: 'WAITING',
           },
-        }),
-      ),
+        })
+      )
     );
 
     // Get updated session
@@ -375,7 +372,7 @@ export class PlayersService {
       preFilledByHost?: boolean;
       confirmedByPlayer?: boolean;
       requireConfirmInfo?: boolean;
-    },
+    }
   ) {
     // Check if session exists
     const session = await this.prisma.session.findUnique({
@@ -408,8 +405,14 @@ export class PlayersService {
       where: { id: playerId },
       data: {
         name: updateData.name?.trim() ?? existingPlayer.name,
-        gender: updateData.gender !== undefined ? updateData.gender : existingPlayer.gender,
-        level: updateData.level !== undefined ? updateData.level : existingPlayer.level,
+        gender:
+          updateData.gender !== undefined
+            ? updateData.gender
+            : existingPlayer.gender,
+        level:
+          updateData.level !== undefined
+            ? updateData.level
+            : existingPlayer.level,
         levelDescription:
           updateData.levelDescription ?? existingPlayer.levelDescription,
         desire: updateData.desire ?? existingPlayer.desire,
@@ -457,7 +460,7 @@ export class PlayersService {
     // Check if player is currently playing
     if (existingPlayer.status === 'PLAYING') {
       throw new BadRequestException(
-        'Cannot delete player who is currently playing. End their match first.',
+        'Cannot delete player who is currently playing. End their match first.'
       );
     }
 
@@ -477,7 +480,7 @@ export class PlayersService {
       gender?: string;
       level?: string;
       status?: string;
-    },
+    }
   ) {
     const {
       sortBy = 'playerNumber',
@@ -497,10 +500,10 @@ export class PlayersService {
     }
 
     // Build player filters
-    const playerFilters: any = { sessionId };
-    if (gender) playerFilters.gender = gender;
-    if (level) playerFilters.level = level;
-    if (status) playerFilters.status = status;
+    const playerFilters: Record<string, unknown> = { sessionId };
+    if (gender) (playerFilters as { gender?: string }).gender = gender;
+    if (level) (playerFilters as { level?: string }).level = level;
+    if (status) (playerFilters as { status?: string }).status = status;
 
     // Get all players in the session
     const players = await this.prisma.player.findMany({
@@ -519,15 +522,17 @@ export class PlayersService {
     const playerStats = players.map((player) => {
       // Matches played by this player
       const playedMatches = matches.filter((match) =>
-        match.players.some((mp) => mp.playerId === player.id),
+        match.players.some((mp) => mp.playerId === player.id)
       );
       const totalMatches = playedMatches.length;
 
       // Count regular and extra matches
       const regularMatches = playedMatches.filter(
-        (match) => !match.isExtra,
+        (match) => !match.isExtra
       ).length;
-      const extraMatches = playedMatches.filter((match) => match.isExtra).length;
+      const extraMatches = playedMatches.filter(
+        (match) => match.isExtra
+      ).length;
 
       // Wins: player is in winning pair
       const wins = playedMatches.filter((match) => {
@@ -535,8 +540,10 @@ export class PlayersService {
         try {
           const winnerIds =
             typeof match.winnerIds === 'string'
-              ? JSON.parse(match.winnerIds)
-              : match.winnerIds;
+              ? (JSON.parse(match.winnerIds) as string[])
+              : Array.isArray(match.winnerIds)
+                ? (match.winnerIds as string[])
+                : [];
           return Array.isArray(winnerIds) && winnerIds.includes(player.id);
         } catch {
           return false;
@@ -551,7 +558,7 @@ export class PlayersService {
       const totalPlayTime = playedMatches.reduce((total, match) => {
         if (match.startTime && match.endTime) {
           const duration = Math.round(
-            (match.endTime.getTime() - match.startTime.getTime()) / (1000 * 60),
+            (match.endTime.getTime() - match.startTime.getTime()) / (1000 * 60)
           );
           return total + duration;
         }
@@ -579,13 +586,18 @@ export class PlayersService {
 
     // Sort the player statistics
     const sortedPlayerStats = playerStats.sort((a, b) => {
-      let aValue = (a as any)[sortBy];
-      let bValue = (b as any)[sortBy];
+      const aValue = a[sortBy as keyof typeof a];
+      const bValue = b[sortBy as keyof typeof b];
 
       // Handle string comparisons (case-insensitive)
       if (typeof aValue === 'string' && typeof bValue === 'string') {
-        aValue = aValue.toLowerCase();
-        bValue = bValue.toLowerCase();
+        if (aValue.toLowerCase() < bValue.toLowerCase()) {
+          return sortOrder === 'asc' ? -1 : 1;
+        }
+        if (aValue.toLowerCase() > bValue.toLowerCase()) {
+          return sortOrder === 'asc' ? 1 : -1;
+        }
+        return 0;
       }
 
       // Handle null/undefined values
@@ -615,7 +627,11 @@ export class PlayersService {
 
   async linkAccount(playerId: string, userId: string) {
     // TODO: Implement account linking feature
-    throw new BadRequestException('Account linking feature coming soon');
+    void playerId;
+    void userId;
+    return Promise.reject(
+      new BadRequestException('Account linking feature coming soon')
+    );
   }
 
   // ============ Join By Code (Guest) ============
@@ -778,5 +794,46 @@ export class PlayersService {
       session: player.session,
       joinedAt: player.joinedAt,
     };
+  }
+
+  async getMySessions(userId: string) {
+    if (!userId) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    // Find all sessions that the current user has participated in
+    const sessions = await this.prisma.session.findMany({
+      where: {
+        players: {
+          some: {
+            userId: userId,
+            // isJoined: true, // Only get sessions where user actually joined
+          },
+        },
+      },
+      include: {
+        host: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        _count: {
+          select: {
+            players: {
+              where: {
+                isJoined: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return sessions;
   }
 }

@@ -10,6 +10,23 @@ import { UpdateCourtDto } from './dto/update-court.dto';
 import { EndMatchDto } from './dto/end-match.dto';
 import { Prisma } from '@prisma/client';
 
+export interface PreSelectedPlayerInfo {
+  playerId: string;
+  position: number;
+  player?: {
+    id: string;
+    playerNumber: number;
+    name: string | null;
+    gender: string | null;
+    level: string | null;
+    levelDescription: string | null;
+    status: string;
+    currentWaitTime: number;
+    totalWaitTime: number;
+    matchesPlayed: number;
+  };
+}
+
 @Injectable()
 export class CourtsService {
   constructor(private prisma: PrismaService) {}
@@ -73,7 +90,7 @@ export class CourtsService {
     // Prevent updating if session is in progress or finished
     if (existingCourt.session.status !== 'PREPARING') {
       throw new BadRequestException(
-        'Cannot update court configuration when session has started or finished',
+        'Cannot update court configuration when session has started or finished'
       );
     }
 
@@ -123,7 +140,7 @@ export class CourtsService {
       finalPlayerIds = playerIds;
     } else {
       throw new BadRequestException(
-        'Either playerIds or players with position must be provided',
+        'Either playerIds or players with position must be provided'
       );
     }
 
@@ -143,7 +160,7 @@ export class CourtsService {
     // Validate session is in progress
     if (court.session.status !== 'IN_PROGRESS') {
       throw new BadRequestException(
-        'Cannot select players for a session that is not in progress',
+        'Cannot select players for a session that is not in progress'
       );
     }
 
@@ -163,7 +180,7 @@ export class CourtsService {
       const expectedPositions = [0, 1, 2, 3];
       if (!expectedPositions.every((pos) => positions.includes(pos))) {
         throw new BadRequestException(
-          'Position info must include positions 0, 1, 2, and 3',
+          'Position info must include positions 0, 1, 2, and 3'
         );
       }
     }
@@ -180,11 +197,11 @@ export class CourtsService {
     }
 
     const nonWaitingPlayers = validPlayers.filter(
-      (player) => player.status !== 'WAITING',
+      (player) => player.status !== 'WAITING'
     );
     if (nonWaitingPlayers.length > 0) {
       throw new BadRequestException(
-        `Players ${nonWaitingPlayers.map((p) => p.playerNumber).join(', ')} are not in waiting state`,
+        `Players ${nonWaitingPlayers.map((p) => p.playerNumber).join(', ')} are not in waiting state`
       );
     }
 
@@ -193,7 +210,7 @@ export class CourtsService {
       async (tx) => {
         if (positionInfo) {
           const sortedPositionInfo = positionInfo.sort(
-            (a, b) => a.position - b.position,
+            (a, b) => a.position - b.position
           );
 
           for (let i = 0; i < sortedPositionInfo.length; i++) {
@@ -218,7 +235,7 @@ export class CourtsService {
                   courtPosition: index,
                 },
               });
-            },
+            }
           );
           await Promise.all(playerUpdatePromises);
         }
@@ -238,7 +255,7 @@ export class CourtsService {
       {
         maxWait: 10000,
         timeout: 15000,
-      },
+      }
     );
 
     return result;
@@ -259,26 +276,26 @@ export class CourtsService {
 
     if (court.session.status !== 'IN_PROGRESS') {
       throw new BadRequestException(
-        'Cannot deselect players for a session that is not in progress',
+        'Cannot deselect players for a session that is not in progress'
       );
     }
 
     if (court.status !== 'READY') {
       throw new BadRequestException(
-        'Can only deselect players from a court in READY state',
+        'Can only deselect players from a court in READY state'
       );
     }
 
     if (!court.currentPlayers || court.currentPlayers.length === 0) {
       throw new BadRequestException(
-        'No players are currently assigned to this court',
+        'No players are currently assigned to this court'
       );
     }
 
     const result = await this.prisma.$transaction(
       async (tx) => {
         const playersToDeselect = court.currentPlayers.map(
-          (player) => player.id,
+          (player) => player.id
         );
 
         const playerUpdatePromises = playersToDeselect.map(async (playerId) => {
@@ -309,7 +326,7 @@ export class CourtsService {
       {
         maxWait: 10000,
         timeout: 15000,
-      },
+      }
     );
 
     return result;
@@ -330,13 +347,13 @@ export class CourtsService {
 
     if (court.currentPlayers.length !== 4) {
       throw new BadRequestException(
-        'Court must have exactly 4 players to start a match',
+        'Court must have exactly 4 players to start a match'
       );
     }
 
     if (court.session.status !== 'IN_PROGRESS') {
       throw new BadRequestException(
-        'Cannot start a match for a session that is not in progress',
+        'Cannot start a match for a session that is not in progress'
       );
     }
 
@@ -381,7 +398,7 @@ export class CourtsService {
                 currentWaitTime: 0,
               },
             });
-          },
+          }
         );
 
         await Promise.all(playerUpdatePromises);
@@ -406,7 +423,7 @@ export class CourtsService {
       {
         maxWait: 10000,
         timeout: 15000,
-      },
+      }
     );
 
     return result;
@@ -432,7 +449,7 @@ export class CourtsService {
 
     if (court.session.status !== 'IN_PROGRESS') {
       throw new BadRequestException(
-        'Cannot end a match for a session that is not in progress',
+        'Cannot end a match for a session that is not in progress'
       );
     }
 
@@ -444,7 +461,7 @@ export class CourtsService {
         score =
           typeof endMatchDto.score === 'object'
             ? JSON.stringify(endMatchDto.score)
-            : endMatchDto.score;
+            : String(endMatchDto.score);
       }
       if (endMatchDto.winnerIds !== undefined) {
         winnerIds = Array.isArray(endMatchDto.winnerIds)
@@ -481,7 +498,7 @@ export class CourtsService {
                 currentWaitTime: 0,
               },
             });
-          },
+          }
         );
 
         await Promise.all(playerUpdatePromises);
@@ -491,10 +508,14 @@ export class CourtsService {
 
         if (court.preSelectedPlayers) {
           try {
-            const preSelectedData =
+            interface PreSelectedPlayer {
+              playerId: string;
+              position: number;
+            }
+            const preSelectedData: PreSelectedPlayer[] =
               typeof court.preSelectedPlayers === 'string'
-                ? JSON.parse(court.preSelectedPlayers)
-                : court.preSelectedPlayers;
+                ? (JSON.parse(court.preSelectedPlayers) as PreSelectedPlayer[])
+                : (court.preSelectedPlayers as unknown as PreSelectedPlayer[]);
 
             if (
               preSelectedData &&
@@ -502,7 +523,7 @@ export class CourtsService {
               preSelectedData.length > 0
             ) {
               const preSelectedPlayerIds = preSelectedData.map(
-                (p: any) => p.playerId,
+                (p) => p.playerId
               );
 
               const availablePlayers = await tx.player.findMany({
@@ -516,8 +537,8 @@ export class CourtsService {
               if (availablePlayers.length === preSelectedPlayerIds.length) {
                 nextCourtStatus = 'READY';
 
-                const sortedPreSelectedData = preSelectedData.sort(
-                  (a: any, b: any) => a.position - b.position,
+                const sortedPreSelectedData = [...preSelectedData].sort(
+                  (a, b) => a.position - b.position
                 );
 
                 for (let i = 0; i < sortedPreSelectedData.length; i++) {
@@ -580,7 +601,7 @@ export class CourtsService {
       {
         maxWait: 10000,
         timeout: 15000,
-      },
+      }
     );
 
     return result;
@@ -626,7 +647,7 @@ export class CourtsService {
     }
 
     const durationMinutes = Math.floor(
-      (Date.now() - match.startTime.getTime()) / (1000 * 60),
+      (Date.now() - match.startTime.getTime()) / (1000 * 60)
     );
 
     return {
@@ -644,7 +665,7 @@ export class CourtsService {
       playersWithPosition.length !== 4
     ) {
       throw new BadRequestException(
-        'Must provide exactly 4 players with positions',
+        'Must provide exactly 4 players with positions'
       );
     }
 
@@ -656,7 +677,7 @@ export class CourtsService {
         player.position > 3
       ) {
         throw new BadRequestException(
-          'Each player must have playerId and position (0-3)',
+          'Each player must have playerId and position (0-3)'
         );
       }
     }
@@ -675,7 +696,7 @@ export class CourtsService {
 
     if (court.status !== 'IN_USE' || !court.currentMatch) {
       throw new BadRequestException(
-        'Can only pre-select for courts that are currently in use',
+        'Can only pre-select for courts that are currently in use'
       );
     }
 
@@ -690,14 +711,17 @@ export class CourtsService {
 
     if (players.length !== 4) {
       throw new BadRequestException(
-        'All selected players must exist and be in WAITING status',
+        'All selected players must exist and be in WAITING status'
       );
     }
 
     const updatedCourt = await this.prisma.court.update({
       where: { id },
       data: {
-        preSelectedPlayers: playersWithPosition.map((p) => ({ playerId: p.playerId, position: p.position })),
+        preSelectedPlayers: playersWithPosition.map((p) => ({
+          playerId: p.playerId,
+          position: p.position,
+        })),
         updatedAt: new Date(),
       },
       include: {
@@ -774,11 +798,13 @@ export class CourtsService {
       throw new NotFoundException('Court not found');
     }
 
-    let preSelectedPlayersInfo: any[] | null = null;
+    let preSelectedPlayersInfo: PreSelectedPlayerInfo[] | null = null;
     if (court.preSelectedPlayers && Array.isArray(court.preSelectedPlayers)) {
-      const playerIds = (court.preSelectedPlayers as any[]).map(
-        (p) => p.playerId,
-      );
+      const preSelectedArray = court.preSelectedPlayers as unknown as {
+        playerId: string;
+        position: number;
+      }[];
+      const playerIds = preSelectedArray.map((p) => p.playerId);
       const players = await this.prisma.player.findMany({
         where: {
           id: { in: playerIds },
@@ -797,7 +823,7 @@ export class CourtsService {
         },
       });
 
-      preSelectedPlayersInfo = (court.preSelectedPlayers as any[]).map((p) => ({
+      preSelectedPlayersInfo = preSelectedArray.map((p) => ({
         ...p,
         player: players.find((player) => player.id === p.playerId),
       }));
@@ -823,7 +849,7 @@ export class CourtsService {
 
     if (court.session.status !== 'IN_PROGRESS') {
       throw new BadRequestException(
-        'Cannot get suggested players for a session that is not in progress',
+        'Cannot get suggested players for a session that is not in progress'
       );
     }
 
@@ -848,7 +874,7 @@ export class CourtsService {
 
     if (waitingPlayers.length < 4) {
       throw new BadRequestException(
-        'Not enough waiting players to start a match',
+        'Not enough waiting players to start a match'
       );
     }
 
@@ -858,13 +884,13 @@ export class CourtsService {
       throw new BadRequestException('Could not find balanced pairs');
     }
 
-    const pair1TotalScore = balancedPairs.pair1.reduce(
-      (sum, player) => sum + this.getLevelScore(player.level),
-      0,
+    const pair1TotalScore: number = balancedPairs.pair1.reduce(
+      (sum: number, player) => sum + this.getLevelScore(player.level),
+      0
     );
-    const pair2TotalScore = balancedPairs.pair2.reduce(
-      (sum, player) => sum + this.getLevelScore(player.level),
-      0,
+    const pair2TotalScore: number = balancedPairs.pair2.reduce(
+      (sum: number, player) => sum + this.getLevelScore(player.level),
+      0
     );
 
     return {
@@ -897,17 +923,28 @@ export class CourtsService {
     return levelMap[level] || 4;
   }
 
-  private findBalancedPairs(players: any[]): { pair1: any[]; pair2: any[] } | null {
+  private findBalancedPairs(players: { level: string | null }[]): {
+    pair1: { level: string | null }[];
+    pair2: { level: string | null }[];
+  } | null {
     if (players.length < 4) return null;
 
-    let bestPairs: { pair1: any[]; pair2: any[] } | null = null;
+    let bestPairs: {
+      pair1: { level: string | null }[];
+      pair2: { level: string | null }[];
+    } | null = null;
     let smallestDifference = Infinity;
 
     for (let i = 0; i < players.length - 3; i++) {
       for (let j = i + 1; j < players.length - 2; j++) {
         for (let k = j + 1; k < players.length - 1; k++) {
           for (let l = k + 1; l < players.length; l++) {
-            const fourPlayers = [players[i], players[j], players[k], players[l]];
+            const fourPlayers = [
+              players[i],
+              players[j],
+              players[k],
+              players[l],
+            ];
 
             const combinations = [
               {

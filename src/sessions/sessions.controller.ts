@@ -4,6 +4,7 @@ import {
   Post,
   Put,
   Delete,
+  Patch,
   Body,
   Param,
   Query,
@@ -14,6 +15,7 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { SessionsService } from './sessions.service';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
+import { UpdateStatusDto } from './dto/update-status.dto';
 import { UpdateWaitTimesDto } from './dto/update-wait-times.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -26,7 +28,7 @@ import { ConfigService } from '@nestjs/config';
 export class SessionsController {
   constructor(
     private readonly sessionsService: SessionsService,
-    private configService: ConfigService,
+    private configService: ConfigService
   ) {}
 
   @Get()
@@ -42,12 +44,13 @@ export class SessionsController {
   @Post()
   create(
     @Body() createSessionDto: CreateSessionDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: { userId: string }
   ) {
-    const hostId =
+    const hostId: string =
       createSessionDto.hostId ||
       user.userId ||
-      this.configService.get<string>('DEFAULT_HOST_ID');
+      this.configService.get<string>('DEFAULT_HOST_ID') ||
+      '';
     return this.sessionsService.create(createSessionDto, hostId);
   }
 
@@ -76,6 +79,14 @@ export class SessionsController {
     return this.sessionsService.getStatus(id);
   }
 
+  @Patch(':id/status')
+  updateStatus(
+    @Param('id') id: string,
+    @Body() updateStatusDto: UpdateStatusDto
+  ) {
+    return this.sessionsService.updateStatus(id, updateStatusDto.status);
+  }
+
   @Get(':id/players')
   getPlayers(@Param('id') id: string) {
     return this.sessionsService.getPlayers(id);
@@ -93,7 +104,7 @@ export class SessionsController {
   getMatches(
     @Param('id') id: string,
     @Query('playerId') playerId?: string,
-    @Query('courtId') courtId?: string,
+    @Query('courtId') courtId?: string
   ) {
     return this.sessionsService.getMatches(id, { playerId, courtId });
   }
@@ -113,7 +124,7 @@ export class SessionsController {
   @Put(':id/wait-times')
   updateWaitTimes(
     @Param('id') id: string,
-    @Body() updateWaitTimesDto: UpdateWaitTimesDto,
+    @Body() updateWaitTimesDto: UpdateWaitTimesDto
   ) {
     return this.sessionsService.updateWaitTimes(id, updateWaitTimesDto);
   }

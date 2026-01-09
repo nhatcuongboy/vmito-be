@@ -13,7 +13,13 @@ class CategoryDto {
   @IsString()
   name: string;
 
-  @IsIn(['MENS_SINGLES', 'WOMENS_SINGLES', 'MENS_DOUBLES', 'WOMENS_DOUBLES', 'MIXED_DOUBLES'])
+  @IsIn([
+    'MENS_SINGLES',
+    'WOMENS_SINGLES',
+    'MENS_DOUBLES',
+    'WOMENS_DOUBLES',
+    'MIXED_DOUBLES',
+  ])
   type: string;
 }
 

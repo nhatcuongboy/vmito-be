@@ -6,6 +6,16 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateCategoryDto } from './dto/update-category.dto';
+import { MatchFormat } from '@prisma/client';
+
+interface CategoryUpdateData {
+  hasGroupStage?: boolean;
+  averageMatchDuration?: number;
+  groupCount?: number;
+  winnersPerGroup?: number;
+  playersPerGroup?: number;
+  matchFormat?: MatchFormat;
+}
 
 @Injectable()
 export class CategoriesService {
@@ -101,7 +111,7 @@ export class CategoriesService {
       throw new ForbiddenException('You can only manage your own tournaments');
     }
 
-    const updateData: any = {};
+    const updateData: CategoryUpdateData = {};
 
     if (dto.hasGroupStage !== undefined) {
       updateData.hasGroupStage = dto.hasGroupStage;
@@ -109,7 +119,9 @@ export class CategoriesService {
 
     if (dto.averageMatchDuration !== undefined) {
       if (dto.averageMatchDuration < 0) {
-        throw new BadRequestException('Average match duration must be non-negative');
+        throw new BadRequestException(
+          'Average match duration must be non-negative'
+        );
       }
       updateData.averageMatchDuration = dto.averageMatchDuration;
     }
@@ -136,7 +148,7 @@ export class CategoriesService {
     }
 
     if (dto.matchFormat !== undefined) {
-      updateData.matchFormat = dto.matchFormat;
+      updateData.matchFormat = dto.matchFormat as MatchFormat;
     }
 
     const category = await this.prisma.category.update({
@@ -336,13 +348,13 @@ export class CategoriesService {
 
         const standings = groupRegs.map((groupReg) => {
           const reg = groupReg.categoryRegistration;
-          let wins = 0;
-          let losses = 0;
+          const wins = 0;
+          const losses = 0;
           let matchesPlayed = 0;
 
           groupMatches.forEach((match) => {
             const isParticipant = match.participants.some(
-              (p) => p.categoryRegistrationId === reg.id,
+              (p) => p.categoryRegistrationId === reg.id
             );
             if (isParticipant) {
               matchesPlayed++;
@@ -370,7 +382,7 @@ export class CategoriesService {
           groupName: group.name,
           standings,
         };
-      }),
+      })
     );
 
     return {

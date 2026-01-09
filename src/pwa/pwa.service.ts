@@ -7,7 +7,13 @@ export class PwaService {
 
   constructor(private prisma: PrismaService) {}
 
-  async subscribe(subscription: any, userId?: string) {
+  subscribe(
+    subscription: {
+      endpoint?: string;
+      keys?: { p256dh: string; auth: string };
+    },
+    userId?: string
+  ) {
     this.logger.log('Push subscription received for user: ' + userId);
     this.logger.log('Subscription endpoint: ' + subscription?.endpoint);
 
@@ -27,7 +33,7 @@ export class PwaService {
     };
   }
 
-  async unsubscribe(endpoint: string, userId?: string) {
+  unsubscribe(endpoint: string, userId?: string) {
     this.logger.log('Removing push subscription for user: ' + userId);
     this.logger.log('Endpoint: ' + endpoint);
 
@@ -45,7 +51,8 @@ export class PwaService {
     };
   }
 
-  async sync(type: string, data: any) {
+  sync(type: string, _data?: unknown) {
+    void _data; // Reserved for future use
     this.logger.log('Background sync received: ' + type);
 
     switch (type) {
@@ -75,8 +82,10 @@ export class PwaService {
     };
   }
 
-  async getPendingSync(userId?: string, lastSync?: string) {
-    this.logger.log('Getting pending sync data for user: ' + userId + ' since: ' + lastSync);
+  getPendingSync(userId?: string, lastSync?: string) {
+    this.logger.log(
+      'Getting pending sync data for user: ' + userId + ' since: ' + lastSync
+    );
 
     // Return placeholder sync data
     return {

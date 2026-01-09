@@ -42,7 +42,7 @@ export class SessionMatchesController {
   findBySession(
     @Param('sessionId') sessionId: string,
     @Query('playerId') playerId?: string,
-    @Query('courtId') courtId?: string,
+    @Query('courtId') courtId?: string
   ) {
     return this.matchesService.findBySession(sessionId, { playerId, courtId });
   }
@@ -50,12 +50,12 @@ export class SessionMatchesController {
   @Post()
   create(
     @Param('sessionId') sessionId: string,
-    @Body() createMatchDto: CreateMatchDto,
+    @Body() createMatchDto: CreateMatchDto
   ) {
     return this.matchesService.createMatch(
       sessionId,
       createMatchDto.courtId,
-      createMatchDto.playerIds,
+      createMatchDto.playerIds
     );
   }
 }

@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
-import { CategoryType } from '@prisma/client';
+import { CategoryType, TournamentStatus } from '@prisma/client';
 
 @Injectable()
 export class TournamentsService {
@@ -97,7 +97,15 @@ export class TournamentsService {
   }
 
   async create(dto: CreateTournamentDto, hostId: string) {
-    const { name, startDate, endDate, categories, umpires = [], scoringDevices = [], courts = [] } = dto;
+    const {
+      name,
+      startDate,
+      endDate,
+      categories,
+      umpires = [],
+      scoringDevices = [],
+      courts = [],
+    } = dto;
 
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -189,7 +197,12 @@ export class TournamentsService {
       throw new ForbiddenException('You can only update your own tournaments');
     }
 
-    const updateData: any = {};
+    const updateData: {
+      name?: string;
+      startDate?: Date;
+      endDate?: Date;
+      status?: TournamentStatus;
+    } = {};
 
     if (dto.name !== undefined) {
       updateData.name = dto.name;
@@ -212,12 +225,12 @@ export class TournamentsService {
     }
 
     if (dto.status !== undefined) {
-      updateData.status = dto.status;
+      updateData.status = dto.status as TournamentStatus;
     }
 
     // Validate date range
-    const finalStartDate = updateData.startDate || existingTournament.startDate;
-    const finalEndDate = updateData.endDate || existingTournament.endDate;
+    const finalStartDate = updateData.startDate ?? existingTournament.startDate;
+    const finalEndDate = updateData.endDate ?? existingTournament.endDate;
     if (finalStartDate >= finalEndDate) {
       throw new BadRequestException('End date must be after start date');
     }

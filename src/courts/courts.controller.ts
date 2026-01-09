@@ -37,7 +37,7 @@ export class CourtsController {
   @Post(':id/select-players')
   selectPlayers(
     @Param('id') id: string,
-    @Body() selectPlayersDto: SelectPlayersDto,
+    @Body() selectPlayersDto: SelectPlayersDto
   ) {
     return this.courtsService.selectPlayers(id, selectPlayersDto);
   }
@@ -80,7 +80,7 @@ export class CourtsController {
   @Get(':id/suggested-players')
   getSuggestedPlayers(
     @Param('id') id: string,
-    @Query('topCount') topCount?: string,
+    @Query('topCount') topCount?: string
   ) {
     const count = topCount ? parseInt(topCount, 10) : undefined;
     return this.courtsService.getSuggestedPlayers(id, count);

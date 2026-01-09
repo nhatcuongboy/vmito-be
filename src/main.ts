@@ -25,7 +25,7 @@ async function bootstrap() {
   // Global interceptors
   app.useGlobalInterceptors(
     new TransformInterceptor(),
-    new LoggingInterceptor(),
+    new LoggingInterceptor()
   );
 
   // Global validation pipe
@@ -34,7 +34,7 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
-    }),
+    })
   );
 
   // Global prefix (exclude root and health check routes)
@@ -47,7 +47,7 @@ async function bootstrap() {
     .setTitle('Badminton Session Manager API')
     .setDescription(
       'API documentation for the Badminton Session Manager backend. ' +
-      'This API provides endpoints for managing badminton sessions, players, courts, matches, and tournaments.',
+        'This API provides endpoints for managing badminton sessions, players, courts, matches, and tournaments.'
     )
     .setVersion('1.0')
     .addBearerAuth(
@@ -59,7 +59,7 @@ async function bootstrap() {
         description: 'Enter JWT token',
         in: 'header',
       },
-      'JWT-auth',
+      'JWT-auth'
     )
     .addTag('auth', 'Authentication endpoints')
     .addTag('users', 'User management endpoints')
@@ -86,7 +86,8 @@ async function bootstrap() {
   const port = configService.get<number>('app.port') || 3001;
   await app.listen(port);
   console.log(`Application is running on: http://localhost:${port}`);
-  console.log(`Swagger documentation available at: http://localhost:${port}/api/docs`);
+  console.log(
+    `Swagger documentation available at: http://localhost:${port}/api/docs`
+  );
 }
 bootstrap();
-

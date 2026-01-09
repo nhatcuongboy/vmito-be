@@ -1,23 +1,22 @@
 import {
-  Controller,
-  Post,
-  Get,
-  Put,
   Body,
-  UseGuards,
+  Controller,
+  Get,
   HttpCode,
   HttpStatus,
+  Post,
+  Put,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { RegisterDto } from './dto/register.dto';
-import { LoginDto } from './dto/login.dto';
-import { ChangePasswordDto } from './dto/change-password.dto';
-import { ResetPasswordDto } from './dto/reset-password.dto';
-import { LocalAuthGuard } from './guards/local-auth.guard';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -40,15 +39,21 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Put('change-password')
   async changePassword(
-    @CurrentUser() user: any,
-    @Body() changePasswordDto: ChangePasswordDto,
+    @CurrentUser() user: { userId: string },
+    @Body() changePasswordDto: ChangePasswordDto
   ) {
+    if (!user || typeof user.userId !== 'string') {
+      throw new Error('Invalid user object');
+    }
     return this.authService.changePassword(user.userId, changePasswordDto);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get('token')
-  async getToken(@CurrentUser() user: any) {
+  async getToken(@CurrentUser() user: { userId: string }) {
+    if (!user || typeof user.userId !== 'string') {
+      throw new Error('Invalid user object');
+    }
     return this.authService.getToken(user.userId);
   }
 
@@ -58,4 +63,3 @@ export class AuthController {
     return this.authService.resetPassword(resetPasswordDto);
   }
 }
-

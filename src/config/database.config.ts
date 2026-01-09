@@ -4,4 +4,3 @@ export default () => ({
     directUrl: process.env.DIRECT_URL,
   },
 });
-

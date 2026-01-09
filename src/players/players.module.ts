@@ -1,5 +1,8 @@
 import { Module } from '@nestjs/common';
-import { PlayersController, SessionPlayersController } from './players.controller';
+import {
+  PlayersController,
+  SessionPlayersController,
+} from './players.controller';
 import { PlayersService } from './players.service';
 import { PrismaModule } from '../prisma/prisma.module';
 

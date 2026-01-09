@@ -1,8 +1,4 @@
-import {
-  IsString,
-  IsOptional,
-  IsEnum,
-} from 'class-validator';
+import { IsString, IsOptional, IsEnum } from 'class-validator';
 import { Gender, Level } from '@prisma/client';
 
 export class ConfirmPlayerDto {
@@ -30,5 +26,3 @@ export class ConfirmPlayerDto {
   @IsOptional()
   desire?: string;
 }
-
-

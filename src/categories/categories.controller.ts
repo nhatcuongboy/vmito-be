@@ -14,6 +14,14 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 
+interface CurrentUserPayload {
+  userId: string;
+  email: string;
+  name: string;
+  role: string;
+  image: string | null;
+}
+
 @ApiTags('categories')
 @ApiBearerAuth('JWT-auth')
 @Controller('categories')
@@ -31,13 +39,13 @@ export class CategoriesController {
   update(
     @Param('id') id: string,
     @Body() updateCategoryDto: UpdateCategoryDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.update(id, updateCategoryDto, user.userId);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string, @CurrentUser() user: any) {
+  remove(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
     return this.categoriesService.remove(id, user.userId);
   }
 

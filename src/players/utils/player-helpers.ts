@@ -11,5 +11,3 @@ export function validateJoinCode(code: string): boolean {
   // Join code should be 8 characters, alphanumeric
   return /^[A-Z0-9]{8}$/.test(code);
 }
-
-

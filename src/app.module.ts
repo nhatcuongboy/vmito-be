@@ -46,4 +46,3 @@ import configuration from './config';
   ],
 })
 export class AppModule {}
-

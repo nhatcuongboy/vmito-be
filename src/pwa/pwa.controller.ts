@@ -26,7 +26,10 @@ export class PwaController {
     if (!subscribeDto.subscription) {
       throw new BadRequestException('Subscription object is required');
     }
-    return this.pwaService.subscribe(subscribeDto.subscription, subscribeDto.userId);
+    return this.pwaService.subscribe(
+      subscribeDto.subscription,
+      subscribeDto.userId
+    );
   }
 
   @Public()
@@ -35,7 +38,10 @@ export class PwaController {
     if (!unsubscribeDto.endpoint) {
       throw new BadRequestException('Endpoint is required');
     }
-    return this.pwaService.unsubscribe(unsubscribeDto.endpoint, unsubscribeDto.userId);
+    return this.pwaService.unsubscribe(
+      unsubscribeDto.endpoint,
+      unsubscribeDto.userId
+    );
   }
 
   @Public()
@@ -51,7 +57,7 @@ export class PwaController {
   @Get('sync')
   getPendingSync(
     @Query('userId') userId?: string,
-    @Query('lastSync') lastSync?: string,
+    @Query('lastSync') lastSync?: string
   ) {
     return this.pwaService.getPendingSync(userId, lastSync);
   }

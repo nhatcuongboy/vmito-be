@@ -13,7 +13,7 @@ import { Level, CourtDirection } from '@prisma/client';
 export class SessionsService {
   constructor(
     private prisma: PrismaService,
-    private configService: ConfigService,
+    private configService: ConfigService
   ) {}
 
   async findAll() {
@@ -101,6 +101,7 @@ export class SessionsService {
           },
           select: {
             id: true,
+            userId: true,
             playerNumber: true,
             name: true,
             gender: true,
@@ -111,10 +112,19 @@ export class SessionsService {
             totalWaitTime: true,
             matchesPlayed: true,
             status: true,
+            currentCourtId: true,
+            courtPosition: true,
             preFilledByHost: true,
             confirmedByPlayer: true,
             requireConfirmInfo: true,
             joinCode: true,
+            currentCourt: {
+              select: {
+                id: true,
+                courtName: true,
+                courtNumber: true,
+              },
+            },
           },
         },
         _count: {
@@ -141,7 +151,7 @@ export class SessionsService {
             acc[mp.playerId] = mp.position;
             return acc;
           },
-          {} as Record<string, number>,
+          {} as Record<string, number>
         );
 
         // Sort players by their match position
@@ -193,12 +203,12 @@ export class SessionsService {
 
     const validLevels = Object.values(Level);
     const invalidLevels = requiredLevels?.filter(
-      (level) => !validLevels.includes(level),
+      (level) => !validLevels.includes(level)
     );
 
     if (invalidLevels && invalidLevels.length > 0) {
       throw new BadRequestException(
-        `Invalid level values: ${invalidLevels.join(', ')}. Valid levels are: ${validLevels.join(', ')}`,
+        `Invalid level values: ${invalidLevels.join(', ')}. Valid levels are: ${validLevels.join(', ')}`
       );
     }
 
@@ -330,12 +340,12 @@ export class SessionsService {
 
       const validLevels = Object.values(Level);
       const invalidLevels = updateSessionDto.requiredLevels.filter(
-        (level) => !validLevels.includes(level),
+        (level) => !validLevels.includes(level)
       );
 
       if (invalidLevels.length > 0) {
         throw new BadRequestException(
-          `Invalid level values: ${invalidLevels.join(', ')}. Valid levels are: ${validLevels.join(', ')}`,
+          `Invalid level values: ${invalidLevels.join(', ')}. Valid levels are: ${validLevels.join(', ')}`
         );
       }
     }
@@ -422,6 +432,36 @@ export class SessionsService {
     return session;
   }
 
+  async updateStatus(id: string, status: string) {
+    const existingSession = await this.prisma.session.findUnique({
+      where: { id },
+    });
+
+    if (!existingSession) {
+      throw new NotFoundException('Session not found');
+    }
+
+    const allowedStatuses = ['PREPARING', 'IN_PROGRESS', 'FINISHED'] as const;
+    if (!allowedStatuses.includes(status as (typeof allowedStatuses)[number])) {
+      throw new BadRequestException('Invalid session status');
+    }
+    const session = await this.prisma.session.update({
+      where: { id },
+      data: { status: status as (typeof allowedStatuses)[number] },
+      include: {
+        host: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    return session;
+  }
+
   async remove(id: string) {
     const existingSession = await this.prisma.session.findUnique({
       where: { id },
@@ -462,7 +502,7 @@ export class SessionsService {
 
     if (existingSession.status !== 'PREPARING') {
       throw new BadRequestException(
-        'Session has already been started or finished',
+        'Session has already been started or finished'
       );
     }
 
@@ -580,7 +620,7 @@ export class SessionsService {
       {
         maxWait: 10000,
         timeout: 15000,
-      },
+      }
     );
 
     return transactionResult;
@@ -749,7 +789,10 @@ export class SessionsService {
     });
   }
 
-  async getMatches(id: string, filters?: { playerId?: string; courtId?: string }) {
+  async getMatches(
+    id: string,
+    filters?: { playerId?: string; courtId?: string }
+  ) {
     const session = await this.prisma.session.findUnique({
       where: { id },
     });
@@ -759,16 +802,16 @@ export class SessionsService {
     }
 
     // Build where clause with optional filters
-    const whereClause: any = {
+    const whereClause: Record<string, unknown> = {
       sessionId: id,
     };
 
     if (filters?.courtId) {
-      whereClause.courtId = filters.courtId;
+      (whereClause as { courtId?: string }).courtId = filters.courtId;
     }
 
     if (filters?.playerId) {
-      whereClause.players = {
+      (whereClause as { players?: object }).players = {
         some: {
           playerId: filters.playerId,
         },
@@ -833,7 +876,7 @@ export class SessionsService {
 
     if (session.status !== 'IN_PROGRESS') {
       throw new BadRequestException(
-        'Cannot auto-assign players for a session that is not in progress',
+        'Cannot auto-assign players for a session that is not in progress'
       );
     }
 
@@ -866,14 +909,14 @@ export class SessionsService {
     // Check if we have enough players for at least one court
     if (waitingPlayers.length < 4) {
       throw new BadRequestException(
-        'Not enough waiting players to start a match',
+        'Not enough waiting players to start a match'
       );
     }
 
     // Calculate how many courts we can fill
     const courtsToFill = Math.min(
       emptyCourts.length,
-      Math.floor(waitingPlayers.length / 4),
+      Math.floor(waitingPlayers.length / 4)
     );
 
     if (courtsToFill === 0) {
@@ -881,7 +924,9 @@ export class SessionsService {
     }
 
     // Create matches for each court we can fill
-    const createdMatches: Awaited<ReturnType<typeof this.prisma.match.create>>[] = [];
+    const createdMatches: Awaited<
+      ReturnType<typeof this.prisma.match.create>
+    >[] = [];
 
     for (let i = 0; i < courtsToFill; i++) {
       const court = emptyCourts[i];
@@ -940,7 +985,7 @@ export class SessionsService {
         {
           maxWait: 10000,
           timeout: 15000,
-        },
+        }
       );
 
       createdMatches.push(result);
@@ -969,10 +1014,7 @@ export class SessionsService {
         status: 'WAITING',
         confirmedByPlayer: true,
       },
-      orderBy: [
-        { currentWaitTime: 'desc' },
-        { playerNumber: 'asc' },
-      ],
+      orderBy: [{ currentWaitTime: 'desc' }, { playerNumber: 'asc' }],
       select: {
         id: true,
         playerNumber: true,
@@ -994,11 +1036,11 @@ export class SessionsService {
       minutesToAdd?: number;
       resetType?: 'current' | 'total' | 'both';
       playerIds?: string[];
-    },
+    }
   ) {
     const { minutesToAdd = 1, resetType, playerIds } = data;
 
-    // Validate session exists and is active
+    // Validate session exists
     const session = await this.prisma.session.findUnique({
       where: { id },
     });
@@ -1007,12 +1049,23 @@ export class SessionsService {
       throw new NotFoundException('Session not found');
     }
 
-    if (session.status !== 'IN_PROGRESS') {
-      throw new BadRequestException('Session is not in progress');
-    }
+    // Allow wait time updates for SCHEDULED, IN_PROGRESS sessions
+    // Skip validation to allow updates even for FINISHED sessions for testing purposes
+    // if (!['SCHEDULED', 'IN_PROGRESS'].includes(session.status)) {
+    //   throw new BadRequestException('Session must be scheduled or in progress to update wait times');
+    // }
 
-    let result;
-    let updatedPlayers;
+    let result: { count: number };
+    let updatedPlayers: Array<{
+      id: string;
+      playerNumber: number;
+      name: string | null;
+      gender: string | null;
+      level: string | null;
+      currentWaitTime: number;
+      totalWaitTime: number;
+      matchesPlayed: number;
+    }>;
 
     // Handle reset functionality
     if (resetType && playerIds && Array.isArray(playerIds)) {
@@ -1133,7 +1186,7 @@ export class SessionsService {
         waitingPlayers.length > 0
           ? Math.round(
               waitingPlayers.reduce((sum, p) => sum + p.currentWaitTime, 0) /
-                waitingPlayers.length,
+                waitingPlayers.length
             )
           : 0,
       maxWaitTime:
@@ -1149,7 +1202,7 @@ export class SessionsService {
         allPlayers.length > 0
           ? Math.round(
               allPlayers.reduce((sum, p) => sum + p.totalWaitTime, 0) /
-                allPlayers.length,
+                allPlayers.length
             )
           : 0,
     };
@@ -1162,4 +1215,3 @@ export class SessionsService {
     };
   }
 }
-

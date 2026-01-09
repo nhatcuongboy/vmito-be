@@ -75,5 +75,3 @@ export class CreateSessionDto {
   @IsOptional()
   courts?: CourtConfigDto[];
 }
-
-

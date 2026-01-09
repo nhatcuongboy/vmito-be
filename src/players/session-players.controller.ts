@@ -16,11 +16,10 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 export class SessionPlayersController {
   constructor(private readonly playersService: PlayersService) {}
 
-
   @Post()
   createPlayer(
     @Param('sessionId') sessionId: string,
-    @Body() createPlayerDto: CreatePlayerDto,
+    @Body() createPlayerDto: CreatePlayerDto
   ) {
     return this.playersService.createInSession(sessionId, createPlayerDto);
   }
@@ -28,9 +27,8 @@ export class SessionPlayersController {
   @Post('bulk')
   createBulkPlayers(
     @Param('sessionId') sessionId: string,
-    @Body() playersData: CreatePlayerDto[],
+    @Body() playersData: CreatePlayerDto[]
   ) {
     return this.playersService.createBulkInSession(sessionId, playersData);
   }
 }
-

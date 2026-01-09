@@ -14,5 +14,3 @@ export class ResetPasswordDto {
   @IsNotEmpty()
   adminKey: string;
 }
-
-

@@ -55,5 +55,3 @@ export class UpdateSessionDto {
   @IsOptional()
   endTime?: string;
 }
-
-

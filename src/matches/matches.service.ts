@@ -53,13 +53,13 @@ export class MatchesService {
     }
 
     // Parse score and winnerIds if they are JSON strings
-    const formattedMatch = { ...match } as any;
+    const formattedMatch: Record<string, unknown> = { ...match };
 
     if (match.score) {
       try {
         formattedMatch.score =
           typeof match.score === 'string'
-            ? JSON.parse(match.score)
+            ? (JSON.parse(match.score) as unknown)
             : match.score;
       } catch {
         // Keep original if parsing fails
@@ -70,8 +70,8 @@ export class MatchesService {
       try {
         formattedMatch.winnerIds =
           typeof match.winnerIds === 'string'
-            ? JSON.parse(match.winnerIds)
-            : match.winnerIds;
+            ? (JSON.parse(match.winnerIds) as string[])
+            : (match.winnerIds as unknown);
       } catch {
         // Keep original if parsing fails
       }
@@ -81,7 +81,7 @@ export class MatchesService {
     if (match.startTime) {
       const endTime = match.endTime || new Date();
       formattedMatch.durationMinutes = Math.floor(
-        (endTime.getTime() - match.startTime.getTime()) / (1000 * 60),
+        (endTime.getTime() - match.startTime.getTime()) / (1000 * 60)
       );
     }
 
@@ -98,13 +98,19 @@ export class MatchesService {
     }
 
     // Prepare data for update
-    const updateData: any = {};
+    const updateData: {
+      score?: string;
+      winnerIds?: string;
+      isDraw?: boolean;
+      notes?: string;
+      isExtra?: boolean;
+    } = {};
 
     if (updateMatchDto.score !== undefined) {
       updateData.score =
         typeof updateMatchDto.score === 'object'
           ? JSON.stringify(updateMatchDto.score)
-          : updateMatchDto.score;
+          : String(updateMatchDto.score);
     }
 
     if (updateMatchDto.winnerIds !== undefined) {
@@ -163,7 +169,7 @@ export class MatchesService {
     options?: {
       playerId?: string;
       courtId?: string;
-    },
+    }
   ) {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
@@ -173,7 +179,11 @@ export class MatchesService {
       throw new NotFoundException('Session not found');
     }
 
-    const whereCondition: any = { sessionId };
+    const whereCondition: {
+      sessionId: string;
+      courtId?: string;
+      players?: { some: { playerId: string } };
+    } = { sessionId };
 
     if (options?.courtId) {
       whereCondition.courtId = options.courtId;
@@ -207,13 +217,13 @@ export class MatchesService {
 
     // Format matches
     const formattedMatches = matches.map((match) => {
-      const formattedMatch = { ...match } as any;
+      const formattedMatch: Record<string, unknown> = { ...match };
 
       if (match.score) {
         try {
           formattedMatch.score =
             typeof match.score === 'string'
-              ? JSON.parse(match.score)
+              ? (JSON.parse(match.score) as unknown)
               : match.score;
         } catch {
           // Keep original
@@ -224,8 +234,8 @@ export class MatchesService {
         try {
           formattedMatch.winnerIds =
             typeof match.winnerIds === 'string'
-              ? JSON.parse(match.winnerIds)
-              : match.winnerIds;
+              ? (JSON.parse(match.winnerIds) as string[])
+              : (match.winnerIds as unknown);
         } catch {
           // Keep original
         }
@@ -244,11 +254,7 @@ export class MatchesService {
     };
   }
 
-  async createMatch(
-    sessionId: string,
-    courtId: string,
-    playerIds: string[],
-  ) {
+  async createMatch(sessionId: string, courtId: string, playerIds: string[]) {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
     });
@@ -259,13 +265,13 @@ export class MatchesService {
 
     if (session.status !== 'IN_PROGRESS') {
       throw new BadRequestException(
-        'Cannot create a match for a session that is not in progress',
+        'Cannot create a match for a session that is not in progress'
       );
     }
 
     if (!playerIds || !Array.isArray(playerIds) || playerIds.length !== 4) {
       throw new BadRequestException(
-        'Exactly 4 players are required to start a match',
+        'Exactly 4 players are required to start a match'
       );
     }
 
@@ -292,7 +298,7 @@ export class MatchesService {
 
     if (players.length !== 4) {
       throw new BadRequestException(
-        'One or more selected players are not available',
+        'One or more selected players are not available'
       );
     }
 
@@ -343,7 +349,7 @@ export class MatchesService {
       {
         maxWait: 10000,
         timeout: 15000,
-      },
+      }
     );
 
     const matchData = await this.prisma.match.findUnique({

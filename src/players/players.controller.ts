@@ -19,6 +19,7 @@ import { UpdatePlayerInSessionDto } from './dto/update-player-in-session.dto';
 import { JoinByCodeDto } from './dto/join-by-code.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Public } from '../auth/decorators/public.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @ApiTags('players')
 @ApiBearerAuth('JWT-auth')
@@ -75,6 +76,17 @@ export class PlayersController {
   linkAccount(@Body() body: { playerId: string; userId: string }) {
     return this.playersService.linkAccount(body.playerId, body.userId);
   }
+
+  @Get('me/sessions')
+  @ApiOperation({
+    summary: 'Get all sessions that the current user has participated in',
+  })
+  getMySessions(@CurrentUser() user: { userId: string }) {
+    if (!user || typeof user.userId !== 'string') {
+      throw new Error('Invalid user object');
+    }
+    return this.playersService.getMySessions(user.userId);
+  }
 }
 
 // Session Players Controller - for endpoints under /sessions/:id/players
@@ -86,7 +98,7 @@ export class SessionPlayersController {
   @Post()
   create(
     @Param('sessionId') sessionId: string,
-    @Body() createPlayerDto: CreatePlayerDto,
+    @Body() createPlayerDto: CreatePlayerDto
   ) {
     return this.playersService.createInSession(sessionId, createPlayerDto);
   }
@@ -94,7 +106,7 @@ export class SessionPlayersController {
   @Post('bulk')
   createBulk(
     @Param('sessionId') sessionId: string,
-    @Body() playersData: CreatePlayerDto[],
+    @Body() playersData: CreatePlayerDto[]
   ) {
     return this.playersService.createBulkInSession(sessionId, playersData);
   }
@@ -103,19 +115,19 @@ export class SessionPlayersController {
   updatePlayerInSession(
     @Param('sessionId') sessionId: string,
     @Param('playerId') playerId: string,
-    @Body() updateDto: UpdatePlayerInSessionDto,
+    @Body() updateDto: UpdatePlayerInSessionDto
   ) {
     return this.playersService.updatePlayerInSession(
       sessionId,
       playerId,
-      updateDto,
+      updateDto
     );
   }
 
   @Delete(':playerId')
   removePlayerFromSession(
     @Param('sessionId') sessionId: string,
-    @Param('playerId') playerId: string,
+    @Param('playerId') playerId: string
   ) {
     return this.playersService.removePlayerFromSession(sessionId, playerId);
   }
@@ -127,7 +139,7 @@ export class SessionPlayersController {
     @Query('sortOrder') sortOrder?: 'asc' | 'desc',
     @Query('gender') gender?: string,
     @Query('level') level?: string,
-    @Query('status') status?: string,
+    @Query('status') status?: string
   ) {
     return this.playersService.getPlayerStatistics(sessionId, {
       sortBy,

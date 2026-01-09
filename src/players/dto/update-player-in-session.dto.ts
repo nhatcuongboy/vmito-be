@@ -1,9 +1,4 @@
-import {
-  IsOptional,
-  IsString,
-  IsBoolean,
-  IsIn,
-} from 'class-validator';
+import { IsOptional, IsString, IsBoolean, IsIn } from 'class-validator';
 import { Gender, Level, PlayerStatus } from '@prisma/client';
 
 export class UpdatePlayerInSessionDto {

@@ -38,7 +38,7 @@ export class TournamentsController {
   @Post()
   create(
     @Body() createTournamentDto: CreateTournamentDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: { userId: string }
   ) {
     return this.tournamentsService.create(createTournamentDto, user.userId);
   }
@@ -47,13 +47,13 @@ export class TournamentsController {
   update(
     @Param('id') id: string,
     @Body() updateTournamentDto: UpdateTournamentDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: { userId: string }
   ) {
     return this.tournamentsService.update(id, updateTournamentDto, user.userId);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string, @CurrentUser() user: any) {
+  remove(@Param('id') id: string, @CurrentUser() user: { userId: string }) {
     return this.tournamentsService.remove(id, user.userId);
   }
 }

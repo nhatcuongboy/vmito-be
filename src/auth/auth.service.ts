@@ -15,15 +15,33 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 
+interface UserWithoutPassword {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  image: string | null;
+  emailVerified: Date | null;
+  gender: string | null;
+  level: string | null;
+  levelDescription: string | null;
+  phone: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
-    private configService: ConfigService,
+    private configService: ConfigService
   ) {}
 
-  async validateUser(email: string, password: string): Promise<any> {
+  async validateUser(
+    email: string,
+    password: string
+  ): Promise<UserWithoutPassword | null> {
     const user = await this.prisma.user.findUnique({
       where: { email },
     });
@@ -37,7 +55,8 @@ export class AuthService {
       return null;
     }
 
-    const { password: _, ...result } = user;
+    const { password: _password, ...result } = user;
+    void _password; // Explicitly ignore password
     return result;
   }
 
@@ -77,7 +96,10 @@ export class AuthService {
   }
 
   async login(loginDto: LoginDto) {
-    const user = await this.validateUser(loginDto.email, loginDto.password);
+    const user: UserWithoutPassword | null = await this.validateUser(
+      loginDto.email,
+      loginDto.password
+    );
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -119,7 +141,7 @@ export class AuthService {
     // Verify current password
     const isCurrentPasswordValid = await bcrypt.compare(
       currentPassword,
-      user.password,
+      user.password
     );
 
     if (!isCurrentPasswordValid) {
@@ -207,4 +229,3 @@ export class AuthService {
     };
   }
 }
-

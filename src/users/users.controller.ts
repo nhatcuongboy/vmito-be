@@ -31,7 +31,7 @@ export class UsersController {
   update(
     @Param('id') id: string,
     @Body() updateUserDto: UpdateUserDto,
-    @CurrentUser() currentUser: any,
+    @CurrentUser() currentUser: { userId: string; role?: string }
   ) {
     // Users can only update their own profile
     if (id !== currentUser.userId && currentUser.role !== 'HOST') {
@@ -40,4 +40,3 @@ export class UsersController {
     return this.usersService.update(id, updateUserDto);
   }
 }
-
