@@ -2,6 +2,8 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePlayerDto } from './dto/create-player.dto';
@@ -9,10 +11,18 @@ import { UpdatePlayerDto } from './dto/update-player.dto';
 import { ConfirmPlayerDto } from './dto/confirm-player.dto';
 import { generatePlayerJoinCode } from './utils/player-helpers';
 import { Level, Gender, PlayerStatus } from '@prisma/client';
+import {
+  SessionsGateway,
+  SessionEventType,
+} from '../sessions/sessions.gateway';
 
 @Injectable()
 export class PlayersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => SessionsGateway))
+    private sessionsGateway: SessionsGateway
+  ) {}
 
   async findOne(id: string) {
     const player = await this.prisma.player.findUnique({
@@ -85,7 +95,7 @@ export class PlayersService {
       }
     }
 
-    return this.prisma.player.update({
+    const updatedPlayer = await this.prisma.player.update({
       where: { id },
       data: {
         name: updatePlayerDto.name,
@@ -99,6 +109,15 @@ export class PlayersService {
         requireConfirmInfo: updatePlayerDto.requireConfirmInfo,
       },
     });
+
+    // Emit realtime event
+    this.sessionsGateway.notifyEvent(
+      existingPlayer.sessionId,
+      SessionEventType.PLAYER_UPDATED,
+      { playerId: id }
+    );
+
+    return updatedPlayer;
   }
 
   async remove(id: string) {
@@ -123,6 +142,13 @@ export class PlayersService {
     await this.prisma.player.delete({
       where: { id },
     });
+
+    // Emit realtime event
+    this.sessionsGateway.notifyEvent(
+      existingPlayer.sessionId,
+      SessionEventType.PLAYER_REMOVED,
+      { playerId: id }
+    );
 
     return { message: 'Player deleted successfully' };
   }
@@ -223,7 +249,7 @@ export class PlayersService {
     }
 
     // Create player
-    return this.prisma.player.create({
+    const newPlayer = await this.prisma.player.create({
       data: {
         sessionId,
         playerNumber,
@@ -240,6 +266,15 @@ export class PlayersService {
         status: 'WAITING',
       },
     });
+
+    // Emit realtime event
+    this.sessionsGateway.notifyEvent(
+      sessionId,
+      SessionEventType.PLAYER_CREATED,
+      { playerId: newPlayer.id }
+    );
+
+    return newPlayer;
   }
 
   async createBulkInSession(sessionId: string, playersData: CreatePlayerDto[]) {

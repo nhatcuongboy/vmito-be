@@ -9,11 +9,14 @@ import { UpdateSessionDto } from './dto/update-session.dto';
 import { ConfigService } from '@nestjs/config';
 import { Level, CourtDirection } from '@prisma/client';
 
+import { SessionsGateway } from './sessions.gateway';
+
 @Injectable()
 export class SessionsService {
   constructor(
     private prisma: PrismaService,
-    private configService: ConfigService
+    private configService: ConfigService,
+    private sessionsGateway: SessionsGateway
   ) {}
 
   async findAll() {
@@ -436,6 +439,7 @@ export class SessionsService {
       }
     }
 
+    this.sessionsGateway.notifySessionUpdate(id);
     return session;
   }
 
@@ -466,6 +470,7 @@ export class SessionsService {
       },
     });
 
+    this.sessionsGateway.notifySessionUpdate(id);
     return session;
   }
 
@@ -517,13 +522,16 @@ export class SessionsService {
       throw new BadRequestException('Cannot start a session with no players');
     }
 
-    return this.prisma.session.update({
+    const session = await this.prisma.session.update({
       where: { id },
       data: {
         status: 'IN_PROGRESS',
         startTime: new Date(),
       },
     });
+
+    this.sessionsGateway.notifySessionUpdate(id);
+    return session;
   }
 
   async end(id: string) {
@@ -630,6 +638,7 @@ export class SessionsService {
       }
     );
 
+    this.sessionsGateway.notifySessionUpdate(id);
     return transactionResult;
   }
 

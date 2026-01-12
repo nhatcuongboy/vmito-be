@@ -2,6 +2,8 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SelectPlayersDto, PlayerWithPosition } from './dto/select-players.dto';
@@ -9,6 +11,10 @@ import { PreSelectDto } from './dto/pre-select.dto';
 import { UpdateCourtDto } from './dto/update-court.dto';
 import { EndMatchDto } from './dto/end-match.dto';
 import { Prisma } from '@prisma/client';
+import {
+  SessionsGateway,
+  SessionEventType,
+} from '../sessions/sessions.gateway';
 
 export interface PreSelectedPlayerInfo {
   playerId: string;
@@ -29,7 +35,11 @@ export interface PreSelectedPlayerInfo {
 
 @Injectable()
 export class CourtsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => SessionsGateway))
+    private sessionsGateway: SessionsGateway
+  ) {}
 
   async findOne(id: string) {
     const court = await this.prisma.court.findUnique({
@@ -258,6 +268,13 @@ export class CourtsService {
       }
     );
 
+    // Emit realtime event
+    this.sessionsGateway.notifyEvent(
+      court.sessionId,
+      SessionEventType.PLAYERS_SELECTED,
+      { courtId: id }
+    );
+
     return result;
   }
 
@@ -327,6 +344,13 @@ export class CourtsService {
         maxWait: 10000,
         timeout: 15000,
       }
+    );
+
+    // Emit realtime event
+    this.sessionsGateway.notifyEvent(
+      court.sessionId,
+      SessionEventType.PLAYERS_DESELECTED,
+      { courtId: id }
     );
 
     return result;
@@ -424,6 +448,13 @@ export class CourtsService {
         maxWait: 10000,
         timeout: 15000,
       }
+    );
+
+    // Emit realtime event
+    this.sessionsGateway.notifyEvent(
+      court.sessionId,
+      SessionEventType.MATCH_STARTED,
+      { courtId: id, matchId: result.match.id }
     );
 
     return result;
@@ -602,6 +633,13 @@ export class CourtsService {
         maxWait: 10000,
         timeout: 15000,
       }
+    );
+
+    // Emit realtime event
+    this.sessionsGateway.notifyEvent(
+      court.sessionId,
+      SessionEventType.MATCH_ENDED,
+      { courtId: id, matchId: result.match.id }
     );
 
     return result;
