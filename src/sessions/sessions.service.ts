@@ -193,6 +193,8 @@ export class SessionsService {
       requiredLevels = [],
       startTime,
       endTime,
+      description,
+      location,
       courts: courtsConfig,
     } = createSessionDto;
 
@@ -233,11 +235,14 @@ export class SessionsService {
         allowGuestJoin,
         allowNewPlayers,
         requiredLevels: requiredLevels || [],
+
         startTime: startTime ? new Date(startTime) : new Date(),
         endTime: endTime
           ? new Date(endTime)
           : new Date(Date.now() + sessionDuration * 60 * 1000),
         status: 'PREPARING',
+        description,
+        location,
       },
       include: {
         host: {
@@ -370,6 +375,8 @@ export class SessionsService {
         endTime: updateSessionDto.endTime
           ? new Date(updateSessionDto.endTime)
           : undefined,
+        description: updateSessionDto.description,
+        location: updateSessionDto.location,
       },
       include: {
         host: {

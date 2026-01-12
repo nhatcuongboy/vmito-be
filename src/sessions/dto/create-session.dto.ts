@@ -29,6 +29,14 @@ export class CreateSessionDto {
 
   @IsString()
   @IsOptional()
+  description?: string;
+
+  @IsString()
+  @IsOptional()
+  location?: string;
+
+  @IsString()
+  @IsOptional()
   hostId?: string;
 
   @IsNumber()

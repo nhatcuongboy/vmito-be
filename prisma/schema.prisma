@@ -79,6 +79,8 @@ model VerificationToken {
 model Session {
   id                 String        @id @default(cuid())
   name               String
+  description        String?
+  location           String?
   hostId             String
   numberOfCourts     Int           @default(2)
   sessionDuration    Int           @default(120)

@@ -15,6 +15,14 @@ export class UpdateSessionDto {
   @IsOptional()
   name?: string;
 
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @IsString()
+  @IsOptional()
+  location?: string;
+
   @IsNumber()
   @Min(1)
   @IsOptional()
