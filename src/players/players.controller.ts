@@ -111,6 +111,14 @@ export class SessionPlayersController {
     return this.playersService.createBulkInSession(sessionId, playersData);
   }
 
+  @Patch('toggle-inactive')
+  toggleInactive(
+    @Param('sessionId') sessionId: string,
+    @Body() body: { playerId: string }
+  ) {
+    return this.playersService.toggleInactive(sessionId, body.playerId);
+  }
+
   @Patch(':playerId')
   updatePlayerInSession(
     @Param('sessionId') sessionId: string,

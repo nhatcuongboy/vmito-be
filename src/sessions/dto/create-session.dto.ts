@@ -71,6 +71,10 @@ export class CreateSessionDto {
   @IsOptional()
   requiredLevels?: Level[];
 
+  @IsString()
+  @IsOptional()
+  courtColor?: string;
+
   @IsDateString()
   @IsOptional()
   startTime?: string;

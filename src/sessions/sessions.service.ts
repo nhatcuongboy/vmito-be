@@ -198,6 +198,7 @@ export class SessionsService {
       endTime,
       description,
       location,
+      courtColor,
       courts: courtsConfig,
     } = createSessionDto;
 
@@ -246,6 +247,7 @@ export class SessionsService {
         status: 'PREPARING',
         description,
         location,
+        courtColor: courtColor || '#179a3b',
       },
       include: {
         host: {
@@ -380,6 +382,7 @@ export class SessionsService {
           : undefined,
         description: updateSessionDto.description,
         location: updateSessionDto.location,
+        courtColor: updateSessionDto.courtColor,
       },
       include: {
         host: {

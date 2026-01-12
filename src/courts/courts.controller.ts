@@ -80,9 +80,11 @@ export class CourtsController {
   @Get(':id/suggested-players')
   getSuggestedPlayers(
     @Param('id') id: string,
-    @Query('topCount') topCount?: string
+    @Query('topCount') topCount?: string,
+    @Query('useAi') useAi?: string
   ) {
     const count = topCount ? parseInt(topCount, 10) : undefined;
-    return this.courtsService.getSuggestedPlayers(id, count);
+    const enableAi = useAi === 'true';
+    return this.courtsService.getSuggestedPlayers(id, count, enableAi);
   }
 }

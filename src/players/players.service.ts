@@ -394,6 +394,63 @@ export class PlayersService {
 
   // ============ Phase 4 Missing Endpoints ============
 
+  async toggleInactive(sessionId: string, playerId: string) {
+    // Check if session exists
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    // Check if player exists in this session
+    const existingPlayer = await this.prisma.player.findFirst({
+      where: {
+        id: playerId,
+        sessionId: sessionId,
+      },
+    });
+
+    if (!existingPlayer) {
+      throw new NotFoundException('Player not found in this session');
+    }
+
+    // Determine new status
+    // If player is INACTIVE, switch to WAITING
+    // Otherwise switch to INACTIVE
+    let newStatus: PlayerStatus = 'INACTIVE';
+    if (existingPlayer.status === 'INACTIVE') {
+      newStatus = 'WAITING';
+    } else {
+      newStatus = 'INACTIVE';
+    }
+
+    // Check if player is currently playing before setting to inactive
+    if (newStatus === 'INACTIVE' && existingPlayer.status === 'PLAYING') {
+      throw new BadRequestException(
+        'Cannot set player to inactive while they are playing'
+      );
+    }
+
+    // Update player status
+    const updatedPlayer = await this.prisma.player.update({
+      where: { id: playerId },
+      data: {
+        status: newStatus,
+      },
+    });
+
+    // Emit realtime event
+    this.sessionsGateway.notifyEvent(
+      sessionId,
+      SessionEventType.PLAYER_UPDATED,
+      { playerId }
+    );
+
+    return updatedPlayer;
+  }
+
   async updatePlayerInSession(
     sessionId: string,
     playerId: string,

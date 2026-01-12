@@ -15,6 +15,7 @@ import {
   SessionsGateway,
   SessionEventType,
 } from '../sessions/sessions.gateway';
+import { GeminiService } from '../ai/gemini.service';
 
 export interface PreSelectedPlayerInfo {
   playerId: string;
@@ -38,7 +39,8 @@ export class CourtsService {
   constructor(
     private prisma: PrismaService,
     @Inject(forwardRef(() => SessionsGateway))
-    private sessionsGateway: SessionsGateway
+    private sessionsGateway: SessionsGateway,
+    private geminiService: GeminiService,
   ) {}
 
   async findOne(id: string) {
@@ -873,7 +875,7 @@ export class CourtsService {
     };
   }
 
-  async getSuggestedPlayers(id: string, topCount?: number) {
+  async getSuggestedPlayers(id: string, topCount?: number, useAi: boolean = false) {
     const court = await this.prisma.court.findUnique({
       where: { id },
       include: {
@@ -916,6 +918,20 @@ export class CourtsService {
       );
     }
 
+    // Use AI-powered suggestions if requested
+    if (useAi) {
+      console.log('[AI Suggestion] useAi=true, attempting AI-powered suggestions...');
+      try {
+        const aiResult = await this.getAiSuggestedPlayers(waitingPlayers, court);
+        console.log('[AI Suggestion] Success! aiReason:', aiResult.aiReason);
+        return aiResult;
+      } catch (error) {
+        console.error('[AI Suggestion] Failed, falling back to standard algorithm:', error);
+        // Fall back to standard algorithm if AI fails
+      }
+    }
+
+    // Standard algorithm
     const balancedPairs = this.findBalancedPairs(waitingPlayers);
 
     if (!balancedPairs) {
@@ -942,6 +958,75 @@ export class CourtsService {
       },
       scoreDifference: Math.abs(pair1TotalScore - pair2TotalScore),
       totalPlayersConsidered: waitingPlayers.length,
+      usedAi: false,
+    };
+  }
+
+  private async getAiSuggestedPlayers(waitingPlayers: any[], court: any) {
+    const playersList = waitingPlayers.map((p, i) => 
+      `${i + 1}. ID:${p.id} - ${p.name || `Player ${p.playerNumber}`} (Level: ${p.level || 'Unknown'}, Wait: ${p.totalWaitTime}s, Matches: ${p.matchesPlayed}, Desire: ${p.desire || 'None'})`
+    ).join('\n');
+
+    const prompt = `
+You are a smart badminton match coordinator. Analyze the following waiting players and suggest the BEST 4 players to create a fair and enjoyable doubles match.
+
+Waiting Players:
+${playersList}
+
+Consider these factors in order of priority:
+1. Wait time fairness - players waiting longer should play first
+2. Skill level balance - teams should be evenly matched
+3. Player preferences (desire field) - respect if they want to play with specific people
+4. Match history - avoid always pairing same players
+
+Return ONLY a raw JSON object in this exact format:
+{
+  "selectedPlayerIds": ["id1", "id2", "id3", "id4"],
+  "pair1Ids": ["id1", "id2"],
+  "pair2Ids": ["id3", "id4"],
+  "reason": "Brief explanation of why these players were selected and paired this way"
+}
+    `;
+
+    const responseText = await this.geminiService.generateText(prompt);
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    
+    if (!jsonMatch) {
+      throw new Error('AI did not return valid JSON');
+    }
+
+    const aiResult = JSON.parse(jsonMatch[0]);
+    
+    // Find the selected players from the waiting list
+    const pair1Players = waitingPlayers.filter(p => aiResult.pair1Ids.includes(p.id));
+    const pair2Players = waitingPlayers.filter(p => aiResult.pair2Ids.includes(p.id));
+
+    if (pair1Players.length !== 2 || pair2Players.length !== 2) {
+      throw new Error('AI returned invalid player selection');
+    }
+
+    const pair1TotalScore = pair1Players.reduce(
+      (sum, player) => sum + this.getLevelScore(player.level),
+      0
+    );
+    const pair2TotalScore = pair2Players.reduce(
+      (sum, player) => sum + this.getLevelScore(player.level),
+      0
+    );
+
+    return {
+      pair1: {
+        players: pair1Players,
+        totalLevelScore: pair1TotalScore,
+      },
+      pair2: {
+        players: pair2Players,
+        totalLevelScore: pair2TotalScore,
+      },
+      scoreDifference: Math.abs(pair1TotalScore - pair2TotalScore),
+      totalPlayersConsidered: waitingPlayers.length,
+      usedAi: true,
+      aiReason: aiResult.reason,
     };
   }
 

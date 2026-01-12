@@ -97,6 +97,8 @@ model Session {
   // Player level requirements (empty array = all levels allowed)
   requiredLevels Level[] @default([])
 
+  courtColor String @default("#179a3b")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   courts    Court[]
