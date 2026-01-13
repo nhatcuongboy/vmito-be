@@ -8,9 +8,15 @@ CREATE TYPE "public"."MatchFormat" AS ENUM ('BEST_OF_1', 'BEST_OF_3');
 CREATE TYPE "public"."CategoryType" AS ENUM ('MENS_SINGLE', 'WOMENS_SINGLE', 'MENS_DOUBLE', 'WOMENS_DOUBLE', 'MIXED_DOUBLE');
 
 -- AlterEnum: Add SCHEDULED to MatchStatus
--- Note: Adding CANCELLED will be done in a separate migration
--- to avoid PostgreSQL enum value addition issues in a single transaction
+-- Note: We need to COMMIT after adding the enum value before using it
+-- PostgreSQL requires new enum values to be committed before they can be used
 ALTER TYPE "public"."MatchStatus" ADD VALUE IF NOT EXISTS 'SCHEDULED';
+
+-- Commit the enum change so it can be used in subsequent statements
+COMMIT;
+
+-- Start a new transaction for the rest of the migration
+BEGIN;
 
 -- CreateTable
 CREATE TABLE "public"."tournaments" (
