@@ -7,7 +7,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 import { ConfigService } from '@nestjs/config';
-import { Level, CourtDirection } from '@prisma/client';
+import { CourtDirection } from '@prisma/client';
+import { VALID_LEVELS } from '../common/constants/level.constants';
 
 import { SessionsGateway } from './sessions.gateway';
 
@@ -207,7 +208,7 @@ export class SessionsService {
       throw new BadRequestException('requiredLevels must be an array');
     }
 
-    const validLevels = Object.values(Level);
+    const validLevels = VALID_LEVELS;
     const invalidLevels = requiredLevels?.filter(
       (level) => !validLevels.includes(level)
     );
@@ -348,7 +349,7 @@ export class SessionsService {
         throw new BadRequestException('requiredLevels must be an array');
       }
 
-      const validLevels = Object.values(Level);
+      const validLevels = VALID_LEVELS;
       const invalidLevels = updateSessionDto.requiredLevels.filter(
         (level) => !validLevels.includes(level)
       );
@@ -1080,7 +1081,7 @@ export class SessionsService {
       playerNumber: number;
       name: string | null;
       gender: string | null;
-      level: string | null;
+      level: number | null;
       currentWaitTime: number;
       totalWaitTime: number;
       matchesPlayed: number;
@@ -1164,13 +1165,25 @@ export class SessionsService {
     }
 
     // Get wait time statistics
-    const waitingPlayers = await this.prisma.player.findMany({
+    const waitingPlayersRaw = await this.prisma.player.findMany({
       where: {
         sessionId: id,
         status: 'WAITING',
       },
-      orderBy: [{ currentWaitTime: 'desc' }, { playerNumber: 'asc' }],
+      orderBy: [{ waitingSince: 'asc' }, { playerNumber: 'asc' }], // Oldest waitingSince first = longest wait
     });
+
+    // Calculate currentWaitTime dynamically from waitingSince
+    const now = Date.now();
+    const waitingPlayers = waitingPlayersRaw.map((p) => {
+      const currentWaitTime = p.waitingSince
+        ? Math.floor((now - new Date(p.waitingSince).getTime()) / 60000)
+        : p.currentWaitTime; // Fallback to stored value for backward compatibility
+      return { ...p, currentWaitTime };
+    });
+
+    // Sort by calculated wait time (descending)
+    waitingPlayers.sort((a, b) => b.currentWaitTime - a.currentWaitTime);
 
     const playingPlayers = await this.prisma.player.findMany({
       where: {
@@ -1196,7 +1209,7 @@ export class SessionsService {
       where: { sessionId: id },
     });
 
-    // Calculate statistics
+    // Calculate statistics using dynamically computed wait times
     const stats = {
       totalPlayers: allPlayers.length,
       waitingPlayers: waitingPlayers.length,

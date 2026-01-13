@@ -1,5 +1,5 @@
-import { IsString, IsOptional, IsBoolean, IsEnum } from 'class-validator';
-import { Gender, Level } from '@prisma/client';
+import { IsString, IsOptional, IsBoolean, IsEnum, IsNumber, Min } from 'class-validator';
+import { Gender } from '@prisma/client';
 
 export class UpdatePlayerDto {
   @IsString()
@@ -10,9 +10,10 @@ export class UpdatePlayerDto {
   @IsOptional()
   gender?: Gender;
 
-  @IsEnum(Level)
+  @IsNumber()
+  @Min(1)
   @IsOptional()
-  level?: Level;
+  level?: number;
 
   @IsString()
   @IsOptional()

@@ -8,6 +8,7 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -19,7 +20,7 @@ model User {
 
   // Player related information
   gender           Gender?
-  level            Level?
+  level            Int?      // 1-7 (Beginner to Pro)
   levelDescription String?
   phone            String?
 
@@ -95,7 +96,7 @@ model Session {
   allowNewPlayers Boolean @default(true) // Allow new players to join via session QR
 
   // Player level requirements (empty array = all levels allowed)
-  requiredLevels Level[] @default([])
+  requiredLevels Int[] @default([]) // Array of level IDs (1-7)
 
   courtColor String @default("#179a3b")
 
@@ -116,7 +117,7 @@ model Player {
   playerNumber       Int
   name               String?
   gender             Gender?
-  level              Level?
+  level              Int?         // 1-7 (Beginner to Pro)
   levelDescription   String?
   desire             String?
   phone              String?
@@ -125,6 +126,7 @@ model Player {
   requireConfirmInfo Boolean      @default(false)
   currentWaitTime    Int          @default(0)
   totalWaitTime      Int          @default(0)
+  waitingSince       DateTime?    // Timestamp when player started waiting (for realtime calculation)
   matchesPlayed      Int          @default(0)
   status             PlayerStatus @default(WAITING)
   currentCourtId     String?
@@ -221,17 +223,6 @@ enum Gender {
   FEMALE
   OTHER
   PREFER_NOT_TO_SAY
-}
-
-enum Level {
-  Y
-  Y_PLUS
-  TBY
-  TB_MINUS
-  TB
-  TB_PLUS
-  Y_MINUS
-  K
 }
 
 enum PlayerStatus {
@@ -482,7 +473,7 @@ model TournamentPlayer {
   email            String?
   phone            String?
   gender           Gender?
-  level            Level?
+  level            Int?
   levelDescription String?
   notes            String?
   createdAt        DateTime @default(now())

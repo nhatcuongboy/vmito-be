@@ -25,7 +25,7 @@ export interface PreSelectedPlayerInfo {
     playerNumber: number;
     name: string | null;
     gender: string | null;
-    level: string | null;
+    level: number | null;
     levelDescription: string | null;
     status: string;
     currentWaitTime: number;
@@ -324,6 +324,7 @@ export class CourtsService {
               status: 'WAITING',
               currentCourtId: null,
               courtPosition: null,
+              waitingSince: new Date(), // Reset waitingSince when player returns to waiting
             },
           });
         });
@@ -414,6 +415,11 @@ export class CourtsService {
               },
             });
 
+            // Calculate wait time from waitingSince and accumulate to totalWaitTime
+            const waitTimeMinutes = player.waitingSince
+              ? Math.floor((Date.now() - new Date(player.waitingSince).getTime()) / 60000)
+              : 0;
+
             return tx.player.update({
               where: { id: player.id },
               data: {
@@ -422,6 +428,10 @@ export class CourtsService {
                 },
                 status: 'PLAYING',
                 currentWaitTime: 0,
+                waitingSince: null, // Clear waitingSince when starting match
+                totalWaitTime: {
+                  increment: waitTimeMinutes,
+                },
               },
             });
           }
@@ -529,6 +539,7 @@ export class CourtsService {
                 status: 'WAITING',
                 currentCourtId: null,
                 currentWaitTime: 0,
+                waitingSince: new Date(), // Set waitingSince when player returns to waiting after match
               },
             });
           }
@@ -1031,30 +1042,20 @@ Return ONLY a raw JSON object in this exact format:
   }
 
   // Helper functions
-  private getLevelScore(level: string | null): number {
-    if (!level) return 4;
-    const levelMap: { [key: string]: number } = {
-      Y_MINUS: 1,
-      Y: 1.5,
-      Y_PLUS: 2,
-      TBY: 3,
-      TB_MINUS: 4,
-      TB: 4.5,
-      TB_PLUS: 5,
-      K: 6,
-    };
-    return levelMap[level] || 4;
+  private getLevelScore(level: number | null): number {
+    if (!level) return 3; // Default to INTERMEDIATE (3)
+    return level;
   }
 
-  private findBalancedPairs(players: { level: string | null }[]): {
-    pair1: { level: string | null }[];
-    pair2: { level: string | null }[];
+  private findBalancedPairs(players: { level: number | null }[]): {
+    pair1: { level: number | null }[];
+    pair2: { level: number | null }[];
   } | null {
     if (players.length < 4) return null;
 
     let bestPairs: {
-      pair1: { level: string | null }[];
-      pair2: { level: string | null }[];
+      pair1: { level: number | null }[];
+      pair2: { level: number | null }[];
     } | null = null;
     let smallestDifference = Infinity;
 

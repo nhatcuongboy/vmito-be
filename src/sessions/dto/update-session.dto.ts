@@ -8,7 +8,7 @@ import {
   IsDateString,
   Min,
 } from 'class-validator';
-import { Level } from '@prisma/client';
+
 
 export class UpdateSessionDto {
   @IsString()
@@ -51,9 +51,10 @@ export class UpdateSessionDto {
   allowNewPlayers?: boolean;
 
   @IsArray()
-  @IsEnum(Level, { each: true })
+  @IsNumber({}, { each: true })
+  @Min(1, { each: true })
   @IsOptional()
-  requiredLevels?: Level[];
+  requiredLevels?: number[];
 
   @IsString()
   @IsOptional()

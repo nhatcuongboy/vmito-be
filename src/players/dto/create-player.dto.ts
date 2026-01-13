@@ -6,7 +6,7 @@ import {
   IsEnum,
   Min,
 } from 'class-validator';
-import { Gender, Level } from '@prisma/client';
+import { Gender } from '@prisma/client';
 
 export class CreatePlayerDto {
   @IsNumber()
@@ -21,9 +21,10 @@ export class CreatePlayerDto {
   @IsOptional()
   gender?: Gender;
 
-  @IsEnum(Level)
+  @IsNumber()
+  @Min(1)
   @IsOptional()
-  level?: Level;
+  level?: number;
 
   @IsString()
   @IsOptional()

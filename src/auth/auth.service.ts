@@ -23,7 +23,7 @@ interface UserWithoutPassword {
   image: string | null;
   emailVerified: Date | null;
   gender: string | null;
-  level: string | null;
+  level: number | null;
   levelDescription: string | null;
   phone: string | null;
   createdAt: Date;

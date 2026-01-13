@@ -1,5 +1,5 @@
-import { IsString, IsOptional, IsEnum, IsNotEmpty } from 'class-validator';
-import { Gender, Level } from '@prisma/client';
+import { IsString, IsOptional, IsEnum, IsNotEmpty, IsNumber, Min } from 'class-validator';
+import { Gender } from '@prisma/client';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class JoinByCodeDto {
@@ -20,10 +20,11 @@ export class JoinByCodeDto {
   @IsOptional()
   gender?: Gender;
 
-  @ApiPropertyOptional({ enum: Level, description: 'Player skill level' })
-  @IsEnum(Level)
+  @ApiPropertyOptional({ description: 'Player skill level (1-7)' })
+  @IsNumber()
+  @Min(1)
   @IsOptional()
-  level?: Level;
+  level?: number;
 
   @ApiPropertyOptional({ description: 'Player phone number' })
   @IsString()

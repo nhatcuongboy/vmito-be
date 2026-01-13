@@ -4,8 +4,10 @@ import {
   IsBoolean,
   IsIn,
   ValidateIf,
+  IsNumber,
+  Min,
 } from 'class-validator';
-import { Gender, Level, PlayerStatus } from '@prisma/client';
+import { Gender, PlayerStatus } from '@prisma/client';
 
 export class UpdatePlayerInSessionDto {
   @IsOptional()
@@ -18,9 +20,10 @@ export class UpdatePlayerInSessionDto {
   gender?: Gender | null;
 
   @IsOptional()
-  @ValidateIf((o: UpdatePlayerInSessionDto) => o.level !== null)
-  @IsIn(['Y', 'Y_PLUS', 'TBY', 'TB_MINUS', 'TB', 'TB_PLUS', 'Y_MINUS', 'K'])
-  level?: Level | null;
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  level?: number | null;
 
   @IsOptional()
   @IsString()

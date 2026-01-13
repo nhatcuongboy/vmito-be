@@ -10,7 +10,7 @@ import { CreatePlayerDto } from './dto/create-player.dto';
 import { UpdatePlayerDto } from './dto/update-player.dto';
 import { ConfirmPlayerDto } from './dto/confirm-player.dto';
 import { generatePlayerJoinCode } from './utils/player-helpers';
-import { Level, Gender, PlayerStatus } from '@prisma/client';
+import { Gender, PlayerStatus } from '@prisma/client';
 import {
   SessionsGateway,
   SessionEventType,
@@ -264,6 +264,7 @@ export class PlayersService {
         confirmedByPlayer: createPlayerDto.confirmedByPlayer || false,
         requireConfirmInfo: createPlayerDto.requireConfirmInfo || false,
         status: 'WAITING',
+        waitingSince: new Date(), // Set waitingSince for realtime wait time calculation
       },
     });
 
@@ -364,6 +365,7 @@ export class PlayersService {
             confirmedByPlayer: playerData.confirmedByPlayer || false,
             requireConfirmInfo: playerData.requireConfirmInfo || false,
             status: 'WAITING',
+            waitingSince: new Date(), // Set waitingSince for realtime wait time calculation
           },
         })
       )
@@ -438,6 +440,8 @@ export class PlayersService {
       where: { id: playerId },
       data: {
         status: newStatus,
+        // Set waitingSince when returning to WAITING, clear when going inactive
+        waitingSince: newStatus === 'WAITING' ? new Date() : null,
       },
     });
 
@@ -457,7 +461,7 @@ export class PlayersService {
     updateData: {
       name?: string;
       gender?: Gender | null;
-      level?: Level | null;
+      level?: number | null;
       levelDescription?: string;
       desire?: string;
       status?: PlayerStatus;
@@ -732,7 +736,7 @@ export class PlayersService {
     sessionCode: string;
     name: string;
     gender?: Gender;
-    level?: Level;
+    level?: number;
     phone?: string;
   }) {
     const { sessionCode, name, gender, level, phone } = joinByCodeDto;
