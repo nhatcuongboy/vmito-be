@@ -1,0 +1,16 @@
+node_modules
+dist
+.git
+.gitignore
+.env
+.env.*
+*.md
+.DS_Store
+.eslintrc*
+.prettierrc*
+eslint.config.mjs
+test
+coverage
+.agent
+render.yaml
+vercel.json
