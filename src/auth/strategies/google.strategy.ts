@@ -20,10 +20,17 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     private configService: ConfigService,
     private authService: AuthService
   ) {
+    const clientID = configService.get<string>('auth.google.clientId');
+    const clientSecret = configService.get<string>('auth.google.clientSecret');
+    
+    if (!clientID || !clientSecret) {
+      console.warn('WARNING: Google Auth credentials (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET) are missing. Google Auth will fail if used.');
+    }
+
     /* eslint-disable @typescript-eslint/no-unsafe-call */
     super({
-      clientID: configService.get<string>('auth.google.clientId')!,
-      clientSecret: configService.get<string>('auth.google.clientSecret')!,
+      clientID: clientID || 'MISSING_CLIENT_ID',
+      clientSecret: clientSecret || 'MISSING_CLIENT_SECRET',
       callbackURL: configService.get<string>('auth.google.callbackURL')!,
       scope: ['email', 'profile'],
       passReqToCallback: true,

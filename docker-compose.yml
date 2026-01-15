@@ -36,6 +36,9 @@ services:
       CORS_ORIGIN: ${FRONTEND_URL}
       CORS_CREDENTIALS: "true"
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL}
     networks:
       - badminton-network
     ports:
