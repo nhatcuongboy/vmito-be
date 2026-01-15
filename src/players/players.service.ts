@@ -646,7 +646,42 @@ export class PlayersService {
         }
       }).length;
 
-      const losses = totalMatches - wins;
+      // Losses: Match is decisive (has winners, not draw) AND player is not a winner
+      const losses = playedMatches.filter((match) => {
+        // If it's a draw, it's not a loss
+        if (match.isDraw) return false;
+
+        let winnerIds: string[] = [];
+        if (match.winnerIds) {
+          try {
+            winnerIds =
+              typeof match.winnerIds === 'string'
+                ? (JSON.parse(match.winnerIds) as string[])
+                : Array.isArray(match.winnerIds)
+                  ? (match.winnerIds as string[])
+                  : [];
+          } catch {
+            // If parsing fails, assume no valid winners
+            return false;
+          }
+        }
+
+        // If no winners recorded, it's a "no result" match, not a loss
+        if (!winnerIds || winnerIds.length === 0) return false;
+
+        // It is a loss if there ARE winners but player is not one of them
+        return !winnerIds.includes(player.id);
+      }).length;
+
+      const results = wins + losses; 
+      // Note: winRate is calculated based on decisive matches or total matches?
+      // Usually Win Rate = Wins / Total Matches * 100. 
+      // If we keep "Total Matches" as denominator, Win Rate will define "winning percentage out of all games played".
+      // If we want "winning percentage excluding draws/no-results", denominator should be (wins + losses).
+      // Given the current simple UI, keeping Total Matches as denominator is safer/standard, 
+      // but users might wonder why Wins + Losses != Total Matches.
+      // However, correcting "Losses" is the priority.
+      
       const winRate =
         totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : 0;
 

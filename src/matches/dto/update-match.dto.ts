@@ -20,4 +20,9 @@ export class UpdateMatchDto {
   @IsOptional()
   @IsBoolean()
   isExtra?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  playerIds?: string[];
 }

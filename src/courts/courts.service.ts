@@ -270,11 +270,11 @@ export class CourtsService {
       }
     );
 
-    // Emit realtime event
+    // Emit realtime event with playerIds so clients can filter relevant notifications
     this.sessionsGateway.notifyEvent(
       court.sessionId,
       SessionEventType.PLAYERS_SELECTED,
-      { courtId: id }
+      { courtId: id, playerIds: finalPlayerIds }
     );
 
     return result;
@@ -311,12 +311,11 @@ export class CourtsService {
       );
     }
 
+    // Extract player IDs before transaction for event emission
+    const playersToDeselect = court.currentPlayers.map((player) => player.id);
+
     const result = await this.prisma.$transaction(
       async (tx) => {
-        const playersToDeselect = court.currentPlayers.map(
-          (player) => player.id
-        );
-
         const playerUpdatePromises = playersToDeselect.map(async (playerId) => {
           return tx.player.update({
             where: { id: playerId },
@@ -349,11 +348,11 @@ export class CourtsService {
       }
     );
 
-    // Emit realtime event
+    // Emit realtime event with playerIds so clients can filter relevant notifications
     this.sessionsGateway.notifyEvent(
       court.sessionId,
       SessionEventType.PLAYERS_DESELECTED,
-      { courtId: id }
+      { courtId: id, playerIds: playersToDeselect }
     );
 
     return result;
