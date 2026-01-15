@@ -15,6 +15,13 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 
+export interface GoogleProfile {
+  googleId: string;
+  email: string;
+  name: string;
+  image?: string;
+}
+
 interface UserWithoutPassword {
   id: string;
   email: string;
@@ -226,6 +233,64 @@ export class AuthService {
       message: 'Password reset successfully',
       userId: user.id,
       email: user.email,
+    };
+  }
+
+  /**
+   * Find or create a user from Google OAuth profile
+   */
+  async findOrCreateGoogleUser(profile: GoogleProfile) {
+    // Try to find existing user by email
+    let user = await this.prisma.user.findUnique({
+      where: { email: profile.email },
+    });
+
+    if (user) {
+      // Update user's image if they don't have one
+      if (!user.image && profile.image) {
+        user = await this.prisma.user.update({
+          where: { id: user.id },
+          data: { image: profile.image },
+        });
+      }
+      return user;
+    }
+
+    // Create new user
+    user = await this.prisma.user.create({
+      data: {
+        email: profile.email,
+        name: profile.name,
+        image: profile.image,
+        role: 'PLAYER',
+        emailVerified: new Date(), // Google emails are verified
+      },
+    });
+
+    return user;
+  }
+
+  /**
+   * Generate JWT token for a user (used for OAuth flows)
+   */
+  generateTokenForUser(user: { id: string; email: string; role: string }) {
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+    };
+
+    const accessToken = this.jwtService.sign(payload);
+
+    return {
+      accessToken,
+      tokenType: 'Bearer',
+      expiresIn: this.configService.get<string>('auth.jwt.expiresIn') || '7d',
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+      },
     };
   }
 }
