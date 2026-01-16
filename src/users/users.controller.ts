@@ -23,11 +23,17 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   /**
-   * Get all users (Admin only)
+   * Get all users (Admin or Host)
    */
   @Get()
-  @UseGuards(AdminGuard)
-  findAll(@Query('search') search?: string, @Query('role') role?: string) {
+  findAll(
+    @CurrentUser() user: { role: string },
+    @Query('search') search?: string,
+    @Query('role') role?: string
+  ) {
+    if (user.role !== 'ADMIN' && user.role !== 'HOST') {
+      throw new ForbiddenException('Admin or Host access required');
+    }
     return this.usersService.findAll({ search, role });
   }
 

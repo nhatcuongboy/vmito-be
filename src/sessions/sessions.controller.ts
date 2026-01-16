@@ -10,6 +10,7 @@ import {
   Query,
   UseGuards,
   Header,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { SessionsService } from './sessions.service';
@@ -32,8 +33,8 @@ export class SessionsController {
   ) {}
 
   @Get()
-  findAll() {
-    return this.sessionsService.findAll();
+  findAll(@CurrentUser() user: { userId: string; role: string }) {
+    return this.sessionsService.findAll(user);
   }
 
   @Get(':id')
@@ -44,14 +45,12 @@ export class SessionsController {
   @Post()
   create(
     @Body() createSessionDto: CreateSessionDto,
-    @CurrentUser() user: { userId: string }
+    @CurrentUser() user: { userId: string; role: string }
   ) {
-    const hostId: string =
-      createSessionDto.hostId ||
-      user.userId ||
-      this.configService.get<string>('DEFAULT_HOST_ID') ||
-      '';
-    return this.sessionsService.create(createSessionDto, hostId);
+    if (user.role !== 'HOST' && user.role !== 'ADMIN') {
+      throw new ForbiddenException('Only HOST or ADMIN can create sessions');
+    }
+    return this.sessionsService.create(createSessionDto, user.userId);
   }
 
   @Put(':id')

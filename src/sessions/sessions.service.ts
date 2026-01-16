@@ -20,8 +20,15 @@ export class SessionsService {
     private sessionsGateway: SessionsGateway
   ) {}
 
-  async findAll() {
+  async findAll(user?: { userId: string; role: string }) {
+    const where: { hostId?: string } = {};
+
+    if (user && user.role === 'HOST') {
+      where.hostId = user.userId;
+    }
+
     return this.prisma.session.findMany({
+      where,
       include: {
         host: {
           select: {
@@ -219,6 +226,12 @@ export class SessionsService {
       );
     }
 
+    // Determine actual number of courts
+    const finalNumberOfCourts =
+      courtsConfig && Array.isArray(courtsConfig) && courtsConfig.length > 0
+        ? courtsConfig.length
+        : numberOfCourts;
+
     // Check if host exists
     const host = await this.prisma.user.findUnique({
       where: { id: hostId },
@@ -233,7 +246,7 @@ export class SessionsService {
       data: {
         name,
         hostId,
-        numberOfCourts,
+        numberOfCourts: finalNumberOfCourts,
         sessionDuration,
         maxPlayersPerCourt,
         requirePlayerInfo,
