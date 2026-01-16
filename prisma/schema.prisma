@@ -131,6 +131,7 @@ model Player {
   status             PlayerStatus @default(WAITING)
   currentCourtId     String?
   courtPosition      Int? // Position on court (0-3), null when not on court
+  registrationStatus RegistrationStatus @default(APPROVED)
 
   // Player-specific join fields
   joinCode   String    @unique // Unique join code for this player slot
@@ -243,6 +244,14 @@ enum CourtStatus {
 enum CourtDirection {
   HORIZONTAL
   VERTICAL
+}
+
+// ... existing enums ...
+
+enum RegistrationStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum MatchStatus {

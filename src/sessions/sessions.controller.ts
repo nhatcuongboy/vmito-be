@@ -37,6 +37,14 @@ export class SessionsController {
     return this.sessionsService.findAll(user);
   }
 
+  @Get('available')
+  getAvailable(
+    @Query('date') date?: string,
+    @Query('level') level?: number
+  ) {
+    return this.sessionsService.findAvailable({ date, level });
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.sessionsService.findOne(id);

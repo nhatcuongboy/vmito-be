@@ -50,6 +50,62 @@ export class SessionsService {
     });
   }
 
+  async findAvailable(filters?: { date?: string; level?: number }) {
+    const where: any = {
+      status: 'PREPARING', // Only show sessions that haven't started (or maybe allow IN_PROGRESS too?)
+      endTime: {
+        gt: new Date(),
+      },
+    };
+
+    if (filters?.date) {
+      const date = new Date(filters.date);
+      const startOfDay = new Date(date.setHours(0, 0, 0, 0));
+      const endOfDay = new Date(date.setHours(23, 59, 59, 999));
+
+      where.startTime = {
+        gte: startOfDay,
+        lte: endOfDay,
+      };
+    }
+
+    if (filters?.level) {
+      // If session has no specific level requirements (empty array), it's open to all
+      // OR if the session's requiredLevels includes the players level
+      // Prisma doesn't support "array contains X OR array is empty" easily in one clause without raw query or careful structure
+      // For now, let's filter in memory or simplify.
+      
+      // Option 1: Filter sessions that include this level in requiredLevels OR requiredLevels is empty
+      where.OR = [
+        { requiredLevels: { has: Number(filters.level) } }, // Array contains level
+        { requiredLevels: { equals: [] } }, // Array is empty (open to all)
+      ];
+    }
+
+    return this.prisma.session.findMany({
+      where,
+      include: {
+        host: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        _count: {
+          select: {
+            players: true, // Count all players
+            courts: true,
+          },
+        },
+        // We might want to see how many approved/pending players there are specifically, but _count gives total.
+      },
+      orderBy: {
+        startTime: 'asc',
+      },
+    });
+  }
+
   async findOne(id: string) {
     const session = await this.prisma.session.findUnique({
       where: { id },

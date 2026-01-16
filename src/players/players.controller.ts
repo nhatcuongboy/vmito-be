@@ -28,6 +28,12 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 export class PlayersController {
   constructor(private readonly playersService: PlayersService) {}
 
+  @Get('pending-requests')
+  @ApiOperation({ summary: 'Get pending player requests for host' })
+  getPendingRequests(@CurrentUser() user: { userId: string }) {
+    return this.playersService.findPendingRequests(user.userId);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.playersService.findOne(id);
@@ -111,12 +117,56 @@ export class SessionPlayersController {
     return this.playersService.createBulkInSession(sessionId, playersData);
   }
 
+  @Get('bulk')
+  @ApiOperation({ summary: 'Get bulk players info for a session' })
+  getBulkPlayersInfo(@Param('sessionId') sessionId: string) {
+    return this.playersService.getBulkPlayersInfo(sessionId);
+  }
+
+  @Patch('bulk-update')
+  @ApiOperation({ summary: 'Bulk update players in a session' })
+  bulkUpdatePlayers(
+    @Param('sessionId') sessionId: string,
+    @Body() body: { players: UpdatePlayerInSessionDto[] }
+  ) {
+    return this.playersService.bulkUpdatePlayers(sessionId, body.players);
+  }
+
+  @Post('register')
+  register(
+    @Param('sessionId') sessionId: string,
+    @Body() body: { players: CreatePlayerDto[] },
+    @CurrentUser() user: { userId: string }
+  ) {
+    return this.playersService.registerPlayers(
+      sessionId,
+      user.userId,
+      body.players
+    );
+  }
+
   @Patch('toggle-inactive')
   toggleInactive(
     @Param('sessionId') sessionId: string,
     @Body() body: { playerId: string }
   ) {
     return this.playersService.toggleInactive(sessionId, body.playerId);
+  }
+
+  @Patch(':playerId/status')
+  @ApiOperation({ summary: 'Approve or reject a player registration' })
+  updatePlayerStatus(
+    @Param('sessionId') sessionId: string,
+    @Param('playerId') playerId: string,
+    @Body() body: { status: 'APPROVED' | 'REJECTED' },
+    @CurrentUser() user: { userId: string }
+  ) {
+    return this.playersService.updatePlayerStatus(
+      sessionId,
+      playerId,
+      body.status,
+      user.userId
+    );
   }
 
   @Patch(':playerId')

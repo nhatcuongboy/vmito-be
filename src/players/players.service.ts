@@ -4,13 +4,14 @@ import {
   BadRequestException,
   Inject,
   forwardRef,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePlayerDto } from './dto/create-player.dto';
 import { UpdatePlayerDto } from './dto/update-player.dto';
 import { ConfirmPlayerDto } from './dto/confirm-player.dto';
 import { generatePlayerJoinCode } from './utils/player-helpers';
-import { Gender, PlayerStatus } from '@prisma/client';
+import { Gender, PlayerStatus, RegistrationStatus } from '@prisma/client';
 import {
   SessionsGateway,
   SessionEventType,
@@ -381,6 +382,321 @@ export class PlayersService {
       session: updatedSession,
       message: `${createdPlayers.length} players created successfully`,
     };
+  }
+
+  async getBulkPlayersInfo(sessionId: string) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      include: {
+        players: {
+          select: { playerNumber: true },
+        },
+      },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    const maxPlayers = session.numberOfCourts * session.maxPlayersPerCourt;
+    const existingPlayerNumbers = session.players.map((p) => p.playerNumber);
+    const availablePlayerNumbers: number[] = [];
+
+    for (let i = 1; i <= maxPlayers; i++) {
+      if (!existingPlayerNumbers.includes(i)) {
+        availablePlayerNumbers.push(i);
+      }
+    }
+
+    return {
+      sessionId: session.id,
+      sessionName: session.name,
+      maxPlayers,
+      currentPlayersCount: session.players.length,
+      availableSlots: maxPlayers - session.players.length,
+      availablePlayerNumbers,
+      existingPlayerNumbers,
+    };
+  }
+
+  async bulkUpdatePlayers(
+    sessionId: string,
+    players: Array<{
+      id?: string;
+      name?: string;
+      gender?: Gender | null;
+      level?: number | null;
+      levelDescription?: string;
+      desire?: string;
+      status?: PlayerStatus;
+      preFilledByHost?: boolean;
+      confirmedByPlayer?: boolean;
+      requireConfirmInfo?: boolean;
+    }>
+  ) {
+    // Check if session exists
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    // Validate that all players have an id
+    for (const player of players) {
+      if (!player.id) {
+        throw new BadRequestException('All players must have an id');
+      }
+    }
+
+    // Update all players in parallel
+    const updatedPlayers = await Promise.all(
+      players.map(async (playerData) => {
+        const { id, ...updateData } = playerData;
+
+        // Verify player belongs to this session
+        const existingPlayer = await this.prisma.player.findFirst({
+          where: { id, sessionId },
+        });
+
+        if (!existingPlayer) {
+          throw new NotFoundException(
+            `Player ${id} not found in this session`
+          );
+        }
+
+        return this.prisma.player.update({
+          where: { id },
+          data: updateData,
+        });
+      })
+    );
+
+    // Emit realtime event
+    this.sessionsGateway.notifyEvent(
+      sessionId,
+      SessionEventType.PLAYER_UPDATED,
+      { bulkUpdate: true, count: updatedPlayers.length }
+    );
+
+    return { updatedPlayers };
+  }
+
+  async registerPlayers(
+    sessionId: string,
+    currentUserId: string,
+    playersData: CreatePlayerDto[]
+  ) {
+    // Validate session exists
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: {
+        id: true,
+        hostId: true,
+        requiredLevels: true,
+        players: {
+           select: { playerNumber: true }
+        }
+      },
+      // Note: we need existing players to check for duplicates, which createdBulkInSession did via include: { players: true }
+      // But let's follow the pattern or optimized one.
+      // createBulkInSession used include: { players: true } to check duplicates in memory.
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session does not exist');
+    }
+
+    // Determine initial status
+    // If request is from Host -> APPROVED
+    // If request is from User -> PENDING (unless we add logic to auto-approve)
+    const isHost = session.hostId === currentUserId;
+    const registrationStatus: RegistrationStatus = isHost
+      ? 'APPROVED'
+      : 'PENDING';
+
+    // Validate player data
+    const errors: string[] = [];
+    const playerNumbers = new Set<number>();
+    
+    // Get existing player numbers
+    // Ideally we should re-fetch `session.players` if we didn't include it fully, 
+    // but the query above `select: { players: ... }` works but returns array of objects.
+    // Let's stick to consistent validation style.
+    // Re-fetch full session players for validation compatibility with createBulk logic or use what we have.
+    // createBulkInSession fetches `include: { players: true }`. Let's do that for simplicity and consistency.
+    
+    // Re-query to get full player list for duplicate check
+    const fullSession = await this.prisma.session.findUnique({
+        where: { id: sessionId },
+        include: { players: true }
+    });
+    
+    if (!fullSession) throw new NotFoundException('Session not found');
+
+    for (const [index, playerData] of playersData.entries()) {
+      // Basic validation
+      if (!playerData.playerNumber || typeof playerData.playerNumber !== 'number') {
+         errors.push(`Player ${index + 1}: playerNumber is required`);
+         continue;
+      }
+
+      // Check for duplicate in request
+      if (playerNumbers.has(playerData.playerNumber)) {
+        errors.push(`Player ${index + 1}: Duplicate player number ${playerData.playerNumber} in request`);
+        continue;
+      }
+      playerNumbers.add(playerData.playerNumber);
+
+      // Check for duplicate in session
+      if (fullSession.players.some(p => p.playerNumber === playerData.playerNumber)) {
+        errors.push(`Player ${index + 1}: Player number ${playerData.playerNumber} already exists in session`);
+        continue;
+      }
+
+      // Validate Level
+      if (fullSession.requiredLevels && fullSession.requiredLevels.length > 0) {
+        if (!playerData.level) {
+           errors.push(`Player ${index + 1}: Level required`);
+        } else if (!fullSession.requiredLevels.includes(playerData.level)) {
+           errors.push(`Player ${index + 1}: Level ${playerData.level} not allowed`);
+        }
+      }
+
+      // Validate UserId linkage
+      if (playerData.userId) {
+          if (playerData.userId !== currentUserId) {
+              errors.push(`Player ${index + 1}: Cannot register for another user`);
+          }
+          // Check if user is already in session?
+          // Only check if it's the SAME session.
+          const alreadyJoined = fullSession.players.some(p => p.userId === currentUserId && p.registrationStatus !== 'REJECTED');
+          if (alreadyJoined) {
+              errors.push(`You have already registered for this session`);
+          }
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new BadRequestException(`Validation errors: ${errors.join('; ')}`);
+    }
+
+    // Create players
+    const createdPlayers = await Promise.all(
+      playersData.map((playerData) =>
+        this.prisma.player.create({
+          data: {
+            sessionId,
+            playerNumber: playerData.playerNumber,
+            name: playerData.name || null,
+            gender: playerData.gender || null,
+            level: playerData.level || null,
+            levelDescription: playerData.levelDescription || null,
+            phone: playerData.phone || null,
+            userId: playerData.userId || null,
+            joinCode: generatePlayerJoinCode(),
+            preFilledByHost: playerData.preFilledByHost || false,
+            confirmedByPlayer: playerData.confirmedByPlayer || false,
+            requireConfirmInfo: playerData.requireConfirmInfo || false,
+            status: 'WAITING',
+            registrationStatus: registrationStatus,
+            waitingSince: new Date(),
+          },
+        })
+      )
+    );
+
+    // Notify
+    // We should probably have a specific event for REGISTER? 
+    // Or just PLAYER_CREATED is fine, but maybe frontend needs to know it's pending.
+    // existing PLAYER_CREATED event sends payload with playerId.
+    // Host will see it.
+    
+    for (const player of createdPlayers) {
+        this.sessionsGateway.notifyEvent(
+            sessionId,
+            SessionEventType.PLAYER_CREATED,
+            { playerId: player.id, registrationStatus }
+        );
+    }
+    
+    // If PENDING, maybe notify Host specifically? (TODO)
+
+    return {
+      createdPlayers,
+      message: isHost ? 'Players added successfully' : 'Registration submitted successfully',
+    };
+  }
+
+  async updatePlayerStatus(
+    sessionId: string,
+    playerId: string,
+    status: 'APPROVED' | 'REJECTED',
+    currentUserId: string
+  ) {
+    // Check if session exists and user is Host
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { hostId: true },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    if (session.hostId !== currentUserId) {
+      throw new ForbiddenException('Only the host can approve/reject players');
+    }
+
+    // Check if player is in this session
+    const existingPlayer = await this.prisma.player.findFirst({
+        where: { id: playerId, sessionId }
+    });
+
+    if (!existingPlayer) {
+        throw new NotFoundException('Player not found in this session');
+    }
+
+    // Update status
+    const updatedPlayer = await this.prisma.player.update({
+      where: { id: playerId },
+      data: {
+        registrationStatus: status,
+        // If Approved, effectively they are Waiting to play.
+        // If Rejected, they stay in DB but marked Rejected.
+      },
+    });
+
+    // Notify
+    this.sessionsGateway.notifyEvent(
+      sessionId,
+      SessionEventType.PLAYER_UPDATED,
+      { playerId, registrationStatus: status }
+    );
+
+    return updatedPlayer;
+  }
+
+  async findPendingRequests(hostId: string) {
+    return this.prisma.player.findMany({
+      where: {
+        registrationStatus: 'PENDING',
+        session: {
+          hostId: hostId,
+          // Only show for future sessions? Maybe.
+          // status: { not: 'FINISHED' }
+        },
+      },
+      include: {
+        session: {
+          select: { name: true, startTime: true },
+        },
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+    });
   }
 
   async checkCode(code: string) {
@@ -957,6 +1273,15 @@ export class PlayersService {
                 isJoined: true,
               },
             },
+          },
+        },
+        players: {
+          where: { userId: userId },
+          select: {
+            id: true,
+            status: true,
+            registrationStatus: true,
+            playerNumber: true,
           },
         },
       },
