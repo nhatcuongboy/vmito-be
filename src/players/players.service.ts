@@ -702,11 +702,106 @@ export class PlayersService {
   async checkCode(code: string) {
     const player = await this.prisma.player.findUnique({
       where: { joinCode: code },
-      select: { id: true },
+      select: { id: true, sessionId: true },
     });
 
     return {
       isPlayerCode: !!player,
+      playerId: player?.id || null,
+      sessionId: player?.sessionId || null,
+    };
+  }
+
+  async getPlayerForGuest(playerId: string) {
+    const player = await this.prisma.player.findUnique({
+      where: { id: playerId },
+      select: {
+        id: true,
+        playerNumber: true,
+        name: true,
+        gender: true,
+        level: true,
+        levelDescription: true,
+        phone: true,
+        desire: true,
+        confirmedByPlayer: true,
+        requireConfirmInfo: true,
+        joinCode: true,
+        session: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!player) {
+      throw new NotFoundException('Player not found');
+    }
+
+    return player;
+  }
+
+  async getPlayerStatusById(playerId: string, joinCode: string) {
+    if (!joinCode) {
+      throw new BadRequestException('Join code is required');
+    }
+
+    const player = await this.prisma.player.findUnique({
+      where: { id: playerId },
+      select: {
+        id: true,
+        joinCode: true,
+        sessionId: true,
+      },
+    });
+
+    if (!player) {
+      throw new NotFoundException('Player not found');
+    }
+
+    if (player.joinCode !== joinCode) {
+      throw new ForbiddenException('Invalid join code');
+    }
+
+    // Fetch full session data for guest
+    const session = await this.prisma.session.findUnique({
+      where: { id: player.sessionId },
+      include: {
+        courts: {
+          include: {
+            currentMatch: {
+              include: {
+                players: {
+                  include: {
+                    player: true,
+                  },
+                },
+              },
+            },
+            currentPlayers: true,
+          },
+          orderBy: { courtNumber: 'asc' },
+        },
+        players: {
+          include: {
+            currentCourt: true,
+          },
+          orderBy: { playerNumber: 'asc' },
+        },
+      },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    return {
+      playerId: player.id,
+      sessionId: player.sessionId,
+      verified: true,
+      session,
     };
   }
 

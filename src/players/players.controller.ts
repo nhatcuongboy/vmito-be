@@ -28,11 +28,71 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 export class PlayersController {
   constructor(private readonly playersService: PlayersService) {}
 
+  // ============ Public Endpoints (must come before :id routes) ============
+
+  @Public()
+  @Get('check-code')
+  @ApiOperation({ summary: 'Check if code is player code or session code' })
+  checkCode(@Query('code') code: string) {
+    return this.playersService.checkCode(code);
+  }
+
+  @Public()
+  @Post('join-by-code')
+  @ApiOperation({ summary: 'Join session by code (guest)' })
+  joinByCode(@Body() joinByCodeDto: JoinByCodeDto) {
+    return this.playersService.joinByCode(joinByCodeDto);
+  }
+
+  @Public()
+  @Get('status')
+  @ApiOperation({ summary: 'Get player status by guest token' })
+  getPlayerStatus(@Query('token') token: string) {
+    return this.playersService.getPlayerStatus(token);
+  }
+
+  @Public()
+  @Get('guest/:id')
+  @ApiOperation({ summary: 'Get player info for guest confirm flow' })
+  getPlayerForGuest(@Param('id') id: string) {
+    return this.playersService.getPlayerForGuest(id);
+  }
+
+  @Public()
+  @Get('guest/:id/status')
+  @ApiOperation({ summary: 'Get player status with joinCode verification' })
+  getPlayerStatusById(
+    @Param('id') id: string,
+    @Query('code') code: string
+  ) {
+    return this.playersService.getPlayerStatusById(id, code);
+  }
+
+  // ============ Authenticated Endpoints ============
+
   @Get('pending-requests')
   @ApiOperation({ summary: 'Get pending player requests for host' })
   getPendingRequests(@CurrentUser() user: { userId: string }) {
     return this.playersService.findPendingRequests(user.userId);
   }
+
+  @Get('me/sessions')
+  @ApiOperation({
+    summary: 'Get all sessions that the current user has participated in',
+  })
+  getMySessions(@CurrentUser() user: { userId: string }) {
+    if (!user || typeof user.userId !== 'string') {
+      throw new Error('Invalid user object');
+    }
+    return this.playersService.getMySessions(user.userId);
+  }
+
+  @Post('link-account')
+  linkAccount(@Body() body: { playerId: string; userId: string }) {
+    return this.playersService.linkAccount(body.playerId, body.userId);
+  }
+
+  // ============ Parameterized Routes (must come last) ============
 
   @Get(':id')
   findOne(@Param('id') id: string) {
@@ -49,49 +109,11 @@ export class PlayersController {
     return this.playersService.remove(id);
   }
 
+  @Public()
   @Post(':id/confirm')
+  @ApiOperation({ summary: 'Confirm player info (guest)' })
   confirm(@Param('id') id: string, @Body() confirmPlayerDto: ConfirmPlayerDto) {
     return this.playersService.confirm(id, confirmPlayerDto);
-  }
-
-  @Public()
-  @Get('check-code')
-  checkCode(@Query('code') code: string) {
-    return this.playersService.checkCode(code);
-  }
-
-  // ============ Guest / Public Endpoints ============
-
-  @Public()
-  @Post('join-by-code')
-  @ApiOperation({ summary: 'Join session by code (guest)' })
-  joinByCode(@Body() joinByCodeDto: JoinByCodeDto) {
-    return this.playersService.joinByCode(joinByCodeDto);
-  }
-
-  @Public()
-  @Get('status')
-  @ApiOperation({ summary: 'Get player status by guest token' })
-  getPlayerStatus(@Query('token') token: string) {
-    return this.playersService.getPlayerStatus(token);
-  }
-
-  // ============ Phase 4 Missing Endpoints ============
-
-  @Post('link-account')
-  linkAccount(@Body() body: { playerId: string; userId: string }) {
-    return this.playersService.linkAccount(body.playerId, body.userId);
-  }
-
-  @Get('me/sessions')
-  @ApiOperation({
-    summary: 'Get all sessions that the current user has participated in',
-  })
-  getMySessions(@CurrentUser() user: { userId: string }) {
-    if (!user || typeof user.userId !== 'string') {
-      throw new Error('Invalid user object');
-    }
-    return this.playersService.getMySessions(user.userId);
   }
 }
 
