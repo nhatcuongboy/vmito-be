@@ -46,23 +46,23 @@ export class SessionsGateway
   }
 
   @SubscribeMessage('joinSession')
-  handleJoinSession(
+  async handleJoinSession(
     @MessageBody() sessionId: string,
     @ConnectedSocket() client: Socket
   ) {
     const roomName = `session_${sessionId}`;
-    client.join(roomName);
+    await client.join(roomName);
     this.logger.log(`Client ${client.id} joined room ${roomName}`);
     return { event: 'joinedSession', data: { sessionId } };
   }
 
   @SubscribeMessage('leaveSession')
-  handleLeaveSession(
+  async handleLeaveSession(
     @MessageBody() sessionId: string,
     @ConnectedSocket() client: Socket
   ) {
     const roomName = `session_${sessionId}`;
-    client.leave(roomName);
+    await client.leave(roomName);
     this.logger.log(`Client ${client.id} left room ${roomName}`);
     return { event: 'leftSession', data: { sessionId } };
   }

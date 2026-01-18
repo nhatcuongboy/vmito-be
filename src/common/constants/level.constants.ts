@@ -11,4 +11,4 @@ export const LEVELS = {
 
 export const VALID_LEVELS = Object.values(LEVELS) as number[];
 
-export type LevelType = typeof LEVELS[keyof typeof LEVELS];
+export type LevelType = (typeof LEVELS)[keyof typeof LEVELS];

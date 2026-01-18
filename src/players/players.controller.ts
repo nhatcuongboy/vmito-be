@@ -61,10 +61,7 @@ export class PlayersController {
   @Public()
   @Get('guest/:id/status')
   @ApiOperation({ summary: 'Get player status with joinCode verification' })
-  getPlayerStatusById(
-    @Param('id') id: string,
-    @Query('code') code: string
-  ) {
+  getPlayerStatusById(@Param('id') id: string, @Query('code') code: string) {
     return this.playersService.getPlayerStatusById(id, code);
   }
 

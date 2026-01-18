@@ -2,7 +2,7 @@ import {
   ArgumentsHost,
   Catch,
   ExceptionFilter,
-  HttpException
+  HttpException,
 } from '@nestjs/common';
 import { Response } from 'express';
 

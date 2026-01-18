@@ -10,7 +10,9 @@ export class GeminiService {
   constructor(private configService: ConfigService) {
     const apiKey = this.configService.get<string>('GEMINI_API_KEY');
     if (!apiKey) {
-      console.warn('GEMINI_API_KEY not found in environment variables. AI features will be disabled.');
+      console.warn(
+        'GEMINI_API_KEY not found in environment variables. AI features will be disabled.'
+      );
       return;
     }
     this.genAI = new GoogleGenerativeAI(apiKey);
@@ -23,7 +25,7 @@ export class GeminiService {
     }
     try {
       const result = await this.model.generateContent(prompt);
-      const response = await result.response;
+      const response = result.response;
       return response.text();
     } catch (error) {
       console.error('Error generating content with Gemini:', error);

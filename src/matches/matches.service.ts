@@ -136,7 +136,9 @@ export class MatchesService {
       if (updateMatchDto.playerIds && updateMatchDto.playerIds.length > 0) {
         // Validation: Verify 4 players
         if (updateMatchDto.playerIds.length !== 4) {
-          throw new BadRequestException('Exactly 4 players are required for a match');
+          throw new BadRequestException(
+            'Exactly 4 players are required for a match'
+          );
         }
 
         // Constraint: Only allow updating players for finished matches

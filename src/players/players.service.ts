@@ -461,9 +461,7 @@ export class PlayersService {
         });
 
         if (!existingPlayer) {
-          throw new NotFoundException(
-            `Player ${id} not found in this session`
-          );
+          throw new NotFoundException(`Player ${id} not found in this session`);
         }
 
         return this.prisma.player.update({
@@ -496,8 +494,8 @@ export class PlayersService {
         hostId: true,
         requiredLevels: true,
         players: {
-           select: { playerNumber: true }
-        }
+          select: { playerNumber: true },
+        },
       },
       // Note: we need existing players to check for duplicates, which createdBulkInSession did via include: { players: true }
       // But let's follow the pattern or optimized one.
@@ -519,62 +517,78 @@ export class PlayersService {
     // Validate player data
     const errors: string[] = [];
     const playerNumbers = new Set<number>();
-    
+
     // Get existing player numbers
-    // Ideally we should re-fetch `session.players` if we didn't include it fully, 
+    // Ideally we should re-fetch `session.players` if we didn't include it fully,
     // but the query above `select: { players: ... }` works but returns array of objects.
     // Let's stick to consistent validation style.
     // Re-fetch full session players for validation compatibility with createBulk logic or use what we have.
     // createBulkInSession fetches `include: { players: true }`. Let's do that for simplicity and consistency.
-    
+
     // Re-query to get full player list for duplicate check
     const fullSession = await this.prisma.session.findUnique({
-        where: { id: sessionId },
-        include: { players: true }
+      where: { id: sessionId },
+      include: { players: true },
     });
-    
+
     if (!fullSession) throw new NotFoundException('Session not found');
 
     for (const [index, playerData] of playersData.entries()) {
       // Basic validation
-      if (!playerData.playerNumber || typeof playerData.playerNumber !== 'number') {
-         errors.push(`Player ${index + 1}: playerNumber is required`);
-         continue;
+      if (
+        !playerData.playerNumber ||
+        typeof playerData.playerNumber !== 'number'
+      ) {
+        errors.push(`Player ${index + 1}: playerNumber is required`);
+        continue;
       }
 
       // Check for duplicate in request
       if (playerNumbers.has(playerData.playerNumber)) {
-        errors.push(`Player ${index + 1}: Duplicate player number ${playerData.playerNumber} in request`);
+        errors.push(
+          `Player ${index + 1}: Duplicate player number ${playerData.playerNumber} in request`
+        );
         continue;
       }
       playerNumbers.add(playerData.playerNumber);
 
       // Check for duplicate in session
-      if (fullSession.players.some(p => p.playerNumber === playerData.playerNumber)) {
-        errors.push(`Player ${index + 1}: Player number ${playerData.playerNumber} already exists in session`);
+      if (
+        fullSession.players.some(
+          (p) => p.playerNumber === playerData.playerNumber
+        )
+      ) {
+        errors.push(
+          `Player ${index + 1}: Player number ${playerData.playerNumber} already exists in session`
+        );
         continue;
       }
 
       // Validate Level
       if (fullSession.requiredLevels && fullSession.requiredLevels.length > 0) {
         if (!playerData.level) {
-           errors.push(`Player ${index + 1}: Level required`);
+          errors.push(`Player ${index + 1}: Level required`);
         } else if (!fullSession.requiredLevels.includes(playerData.level)) {
-           errors.push(`Player ${index + 1}: Level ${playerData.level} not allowed`);
+          errors.push(
+            `Player ${index + 1}: Level ${playerData.level} not allowed`
+          );
         }
       }
 
       // Validate UserId linkage
       if (playerData.userId) {
-          if (playerData.userId !== currentUserId) {
-              errors.push(`Player ${index + 1}: Cannot register for another user`);
-          }
-          // Check if user is already in session?
-          // Only check if it's the SAME session.
-          const alreadyJoined = fullSession.players.some(p => p.userId === currentUserId && p.registrationStatus !== 'REJECTED');
-          if (alreadyJoined) {
-              errors.push(`You have already registered for this session`);
-          }
+        if (playerData.userId !== currentUserId) {
+          errors.push(`Player ${index + 1}: Cannot register for another user`);
+        }
+        // Check if user is already in session?
+        // Only check if it's the SAME session.
+        const alreadyJoined = fullSession.players.some(
+          (p) =>
+            p.userId === currentUserId && p.registrationStatus !== 'REJECTED'
+        );
+        if (alreadyJoined) {
+          errors.push(`You have already registered for this session`);
+        }
       }
     }
 
@@ -608,24 +622,26 @@ export class PlayersService {
     );
 
     // Notify
-    // We should probably have a specific event for REGISTER? 
+    // We should probably have a specific event for REGISTER?
     // Or just PLAYER_CREATED is fine, but maybe frontend needs to know it's pending.
     // existing PLAYER_CREATED event sends payload with playerId.
     // Host will see it.
-    
+
     for (const player of createdPlayers) {
-        this.sessionsGateway.notifyEvent(
-            sessionId,
-            SessionEventType.PLAYER_CREATED,
-            { playerId: player.id, registrationStatus }
-        );
+      this.sessionsGateway.notifyEvent(
+        sessionId,
+        SessionEventType.PLAYER_CREATED,
+        { playerId: player.id, registrationStatus }
+      );
     }
-    
+
     // If PENDING, maybe notify Host specifically? (TODO)
 
     return {
       createdPlayers,
-      message: isHost ? 'Players added successfully' : 'Registration submitted successfully',
+      message: isHost
+        ? 'Players added successfully'
+        : 'Registration submitted successfully',
     };
   }
 
@@ -651,11 +667,11 @@ export class PlayersService {
 
     // Check if player is in this session
     const existingPlayer = await this.prisma.player.findFirst({
-        where: { id: playerId, sessionId }
+      where: { id: playerId, sessionId },
     });
 
     if (!existingPlayer) {
-        throw new NotFoundException('Player not found in this session');
+      throw new NotFoundException('Player not found in this session');
     }
 
     // Update status
@@ -1084,15 +1100,14 @@ export class PlayersService {
         return !winnerIds.includes(player.id);
       }).length;
 
-      const results = wins + losses; 
       // Note: winRate is calculated based on decisive matches or total matches?
-      // Usually Win Rate = Wins / Total Matches * 100. 
+      // Usually Win Rate = Wins / Total Matches * 100.
       // If we keep "Total Matches" as denominator, Win Rate will define "winning percentage out of all games played".
       // If we want "winning percentage excluding draws/no-results", denominator should be (wins + losses).
-      // Given the current simple UI, keeping Total Matches as denominator is safer/standard, 
+      // Given the current simple UI, keeping Total Matches as denominator is safer/standard,
       // but users might wonder why Wins + Losses != Total Matches.
       // However, correcting "Losses" is the priority.
-      
+
       const winRate =
         totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : 0;
 

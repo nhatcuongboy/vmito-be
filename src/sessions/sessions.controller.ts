@@ -38,10 +38,7 @@ export class SessionsController {
   }
 
   @Get('available')
-  getAvailable(
-    @Query('date') date?: string,
-    @Query('level') level?: number
-  ) {
+  getAvailable(@Query('date') date?: string, @Query('level') level?: number) {
     return this.sessionsService.findAvailable({ date, level });
   }
 

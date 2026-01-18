@@ -10,7 +10,7 @@ import { SelectPlayersDto, PlayerWithPosition } from './dto/select-players.dto';
 import { PreSelectDto } from './dto/pre-select.dto';
 import { UpdateCourtDto } from './dto/update-court.dto';
 import { EndMatchDto } from './dto/end-match.dto';
-import { Prisma } from '@prisma/client';
+import { Prisma, Player } from '@prisma/client';
 import {
   SessionsGateway,
   SessionEventType,
@@ -40,7 +40,7 @@ export class CourtsService {
     private prisma: PrismaService,
     @Inject(forwardRef(() => SessionsGateway))
     private sessionsGateway: SessionsGateway,
-    private geminiService: GeminiService,
+    private geminiService: GeminiService
   ) {}
 
   async findOne(id: string) {
@@ -416,7 +416,9 @@ export class CourtsService {
 
             // Calculate wait time from waitingSince and accumulate to totalWaitTime
             const waitTimeMinutes = player.waitingSince
-              ? Math.floor((Date.now() - new Date(player.waitingSince).getTime()) / 60000)
+              ? Math.floor(
+                  (Date.now() - new Date(player.waitingSince).getTime()) / 60000
+                )
               : 0;
 
             return tx.player.update({
@@ -885,7 +887,11 @@ export class CourtsService {
     };
   }
 
-  async getSuggestedPlayers(id: string, topCount?: number, useAi: boolean = false) {
+  async getSuggestedPlayers(
+    id: string,
+    topCount?: number,
+    useAi: boolean = false
+  ) {
     const court = await this.prisma.court.findUnique({
       where: { id },
       include: {
@@ -930,13 +936,18 @@ export class CourtsService {
 
     // Use AI-powered suggestions if requested
     if (useAi) {
-      console.log('[AI Suggestion] useAi=true, attempting AI-powered suggestions...');
+      console.log(
+        '[AI Suggestion] useAi=true, attempting AI-powered suggestions...'
+      );
       try {
-        const aiResult = await this.getAiSuggestedPlayers(waitingPlayers, court);
+        const aiResult = await this.getAiSuggestedPlayers(waitingPlayers);
         console.log('[AI Suggestion] Success! aiReason:', aiResult.aiReason);
         return aiResult;
       } catch (error) {
-        console.error('[AI Suggestion] Failed, falling back to standard algorithm:', error);
+        console.error(
+          '[AI Suggestion] Failed, falling back to standard algorithm:',
+          error
+        );
         // Fall back to standard algorithm if AI fails
       }
     }
@@ -972,10 +983,13 @@ export class CourtsService {
     };
   }
 
-  private async getAiSuggestedPlayers(waitingPlayers: any[], court: any) {
-    const playersList = waitingPlayers.map((p, i) => 
-      `${i + 1}. ID:${p.id} - ${p.name || `Player ${p.playerNumber}`} (Level: ${p.level || 'Unknown'}, Wait: ${p.totalWaitTime}s, Matches: ${p.matchesPlayed}, Desire: ${p.desire || 'None'})`
-    ).join('\n');
+  private async getAiSuggestedPlayers(waitingPlayers: Player[]) {
+    const playersList = waitingPlayers
+      .map(
+        (p, i) =>
+          `${i + 1}. ID:${p.id} - ${p.name || `Player ${p.playerNumber}`} (Level: ${p.level || 'Unknown'}, Wait: ${p.totalWaitTime}s, Matches: ${p.matchesPlayed}, Desire: ${p.desire || 'None'})`
+      )
+      .join('\n');
 
     const prompt = `
 You are a smart badminton match coordinator. Analyze the following waiting players and suggest the BEST 4 players to create a fair and enjoyable doubles match.
@@ -1000,16 +1014,27 @@ Return ONLY a raw JSON object in this exact format:
 
     const responseText = await this.geminiService.generateText(prompt);
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    
+
     if (!jsonMatch) {
       throw new Error('AI did not return valid JSON');
     }
 
-    const aiResult = JSON.parse(jsonMatch[0]);
-    
+    interface AiMatchSuggestion {
+      selectedPlayerIds: string[];
+      pair1Ids: string[];
+      pair2Ids: string[];
+      reason: string;
+    }
+
+    const aiResult = JSON.parse(jsonMatch[0]) as AiMatchSuggestion;
+
     // Find the selected players from the waiting list
-    const pair1Players = waitingPlayers.filter(p => aiResult.pair1Ids.includes(p.id));
-    const pair2Players = waitingPlayers.filter(p => aiResult.pair2Ids.includes(p.id));
+    const pair1Players = waitingPlayers.filter((p) =>
+      aiResult.pair1Ids.includes(p.id)
+    );
+    const pair2Players = waitingPlayers.filter((p) =>
+      aiResult.pair2Ids.includes(p.id)
+    );
 
     if (pair1Players.length !== 2 || pair2Players.length !== 2) {
       throw new Error('AI returned invalid player selection');

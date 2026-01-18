@@ -29,5 +29,5 @@ export class SyncDto {
   type: string;
 
   @IsOptional()
-  data?: any;
+  data?: Record<string, unknown>;
 }

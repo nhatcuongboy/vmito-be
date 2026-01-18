@@ -22,12 +22,13 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   ) {
     const clientID = configService.get<string>('auth.google.clientId');
     const clientSecret = configService.get<string>('auth.google.clientSecret');
-    
+
     if (!clientID || !clientSecret) {
-      console.warn('WARNING: Google Auth credentials (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET) are missing. Google Auth will fail if used.');
+      console.warn(
+        'WARNING: Google Auth credentials (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET) are missing. Google Auth will fail if used.'
+      );
     }
 
-    /* eslint-disable @typescript-eslint/no-unsafe-call */
     super({
       clientID: clientID || 'MISSING_CLIENT_ID',
       clientSecret: clientSecret || 'MISSING_CLIENT_SECRET',
@@ -35,7 +36,6 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       scope: ['email', 'profile'],
       passReqToCallback: true,
     });
-    /* eslint-enable @typescript-eslint/no-unsafe-call */
   }
 
   async validate(
@@ -71,4 +71,3 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     }
   }
 }
-

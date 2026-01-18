@@ -2,7 +2,7 @@ import { IsOptional, IsString, IsBoolean, IsArray } from 'class-validator';
 
 export class EndMatchDto {
   @IsOptional()
-  score?: any; // Can be object or string
+  score?: string | Record<string, unknown>; // Can be object or string
 
   @IsOptional()
   @IsArray()

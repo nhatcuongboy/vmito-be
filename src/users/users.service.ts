@@ -31,7 +31,10 @@ export class UsersService {
 
   async findAll(options?: { search?: string; role?: string }) {
     const where: {
-      OR?: { email?: { contains: string; mode: 'insensitive' }; name?: { contains: string; mode: 'insensitive' } }[];
+      OR?: {
+        email?: { contains: string; mode: 'insensitive' };
+        name?: { contains: string; mode: 'insensitive' };
+      }[];
       role?: Role;
     } = {};
 
@@ -109,7 +112,7 @@ export class UsersService {
     }
 
     // Hash password if updating
-    let data: UpdateUserDto & { password?: string } = { ...updateUserDto };
+    const data: UpdateUserDto & { password?: string } = { ...updateUserDto };
     if (updateUserDto.password) {
       data.password = await bcrypt.hash(updateUserDto.password, 12);
     }
@@ -164,4 +167,3 @@ export class UsersService {
     });
   }
 }
-

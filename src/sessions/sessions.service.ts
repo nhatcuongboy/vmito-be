@@ -7,7 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 import { ConfigService } from '@nestjs/config';
-import { CourtDirection } from '@prisma/client';
+import { CourtDirection, Prisma } from '@prisma/client';
 import { VALID_LEVELS } from '../common/constants/level.constants';
 
 import { SessionsGateway } from './sessions.gateway';
@@ -51,7 +51,7 @@ export class SessionsService {
   }
 
   async findAvailable(filters?: { date?: string; level?: number }) {
-    const where: any = {
+    const where: Prisma.SessionWhereInput = {
       status: 'PREPARING', // Only show sessions that haven't started (or maybe allow IN_PROGRESS too?)
       endTime: {
         gt: new Date(),
@@ -74,7 +74,7 @@ export class SessionsService {
       // OR if the session's requiredLevels includes the players level
       // Prisma doesn't support "array contains X OR array is empty" easily in one clause without raw query or careful structure
       // For now, let's filter in memory or simplify.
-      
+
       // Option 1: Filter sessions that include this level in requiredLevels OR requiredLevels is empty
       where.OR = [
         { requiredLevels: { has: Number(filters.level) } }, // Array contains level

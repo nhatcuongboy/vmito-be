@@ -86,7 +86,7 @@ export class AuthController {
   @Public()
   @Get('google')
   @UseGuards(GoogleAuthGuard)
-  async googleLogin(@Req() req: Request) {
+  async googleLogin() {
     // The locale is passed via state parameter by GoogleAuthGuard
     // This is handled automatically by passport-google-oauth20
   }
@@ -98,7 +98,7 @@ export class AuthController {
   @Public()
   @Get('google/callback')
   @UseGuards(GoogleAuthGuard)
-  async googleCallback(
+  googleCallback(
     @Req() req: { user: GoogleUser & { locale?: string } },
     @Res() res: Response
   ) {
@@ -120,4 +120,3 @@ export class AuthController {
     res.redirect(callbackUrl);
   }
 }
-

@@ -7,7 +7,7 @@ import { TaskSuggestionDto } from './dto/task-suggestion.dto';
 export class TasksService {
   constructor(
     private prisma: PrismaService,
-    private geminiService: GeminiService,
+    private geminiService: GeminiService
   ) {}
 
   async suggestTasks(sessionId: string): Promise<TaskSuggestionDto[]> {
@@ -43,8 +43,8 @@ export class TasksService {
       const responseText = await this.geminiService.generateText(prompt);
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
-         const json = JSON.parse(jsonMatch[0]);
-         return json.tasks || [];
+        const json = JSON.parse(jsonMatch[0]) as { tasks: TaskSuggestionDto[] };
+        return json.tasks || [];
       }
       return [];
     } catch (error) {
@@ -53,14 +53,31 @@ export class TasksService {
     }
   }
 
-  private buildPrompt(session: any): string {
+  private buildPrompt(session: {
+    players: {
+      status: string;
+      name: string | null;
+      level: number | null;
+      totalWaitTime: number;
+    }[];
+    courts: {
+      courtNumber: number;
+      status: string;
+      currentMatch: unknown;
+    }[];
+  }): string {
     const waitingPlayers = session.players
       .filter((p) => p.status === 'WAITING' || p.status === 'READY')
-      .map((p) => `- ${p.name} (Level: ${p.level}, Waited: ${p.totalWaitTime}s)`)
+      .map(
+        (p) => `- ${p.name} (Level: ${p.level}, Waited: ${p.totalWaitTime}s)`
+      )
       .join('\\n');
 
     const courts = session.courts
-      .map((c) => `- Court ${c.courtNumber}: ${c.status} ${c.currentMatch ? '(Match in progress)' : '(Free)'}`)
+      .map(
+        (c) =>
+          `- Court ${c.courtNumber}: ${c.status} ${c.currentMatch ? '(Match in progress)' : '(Free)'}`
+      )
       .join('\\n');
 
     return `

@@ -1,4 +1,11 @@
-import { IsString, IsOptional, IsBoolean, IsEnum, IsNumber, Min } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsBoolean,
+  IsEnum,
+  IsNumber,
+  Min,
+} from 'class-validator';
 import { Gender } from '@prisma/client';
 
 export class UpdatePlayerDto {

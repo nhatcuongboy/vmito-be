@@ -7,7 +7,9 @@
  * @param waitingSince - The timestamp when the player started waiting
  * @returns Number of minutes waited (0 if waitingSince is null/undefined)
  */
-export function calculateWaitTime(waitingSince: Date | null | undefined): number {
+export function calculateWaitTime(
+  waitingSince: Date | null | undefined
+): number {
   if (!waitingSince) return 0;
   const now = Date.now();
   const waitingStart = new Date(waitingSince).getTime();
@@ -18,9 +20,9 @@ export function calculateWaitTime(waitingSince: Date | null | undefined): number
  * Enrich a player object with calculated currentWaitTime
  * Preserves backward compatibility by computing currentWaitTime from waitingSince
  */
-export function enrichPlayerWithWaitTime<T extends { waitingSince?: Date | null; currentWaitTime?: number }>(
-  player: T
-): T & { currentWaitTime: number } {
+export function enrichPlayerWithWaitTime<
+  T extends { waitingSince?: Date | null; currentWaitTime?: number },
+>(player: T): T & { currentWaitTime: number } {
   const calculatedWaitTime = calculateWaitTime(player.waitingSince);
   return {
     ...player,
@@ -31,8 +33,8 @@ export function enrichPlayerWithWaitTime<T extends { waitingSince?: Date | null;
 /**
  * Enrich an array of players with calculated wait times
  */
-export function enrichPlayersWithWaitTime<T extends { waitingSince?: Date | null; currentWaitTime?: number }>(
-  players: T[]
-): (T & { currentWaitTime: number })[] {
+export function enrichPlayersWithWaitTime<
+  T extends { waitingSince?: Date | null; currentWaitTime?: number },
+>(players: T[]): (T & { currentWaitTime: number })[] {
   return players.map(enrichPlayerWithWaitTime);
 }

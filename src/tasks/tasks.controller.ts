@@ -11,7 +11,9 @@ export class TasksController {
   @Post('suggest')
   @ApiOperation({ summary: 'Get AI-generated task suggestions for a session' })
   @ApiParam({ name: 'sessionId', description: 'The ID of the session' })
-  async suggestTasks(@Param('sessionId') sessionId: string): Promise<TaskSuggestionDto[]> {
+  async suggestTasks(
+    @Param('sessionId') sessionId: string
+  ): Promise<TaskSuggestionDto[]> {
     return this.tasksService.suggestTasks(sessionId);
   }
 }

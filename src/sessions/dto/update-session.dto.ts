@@ -4,11 +4,9 @@ import {
   IsBoolean,
   IsOptional,
   IsArray,
-  IsEnum,
   IsDateString,
   Min,
 } from 'class-validator';
-
 
 export class UpdateSessionDto {
   @IsString()

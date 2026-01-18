@@ -3,5 +3,5 @@ export class TaskSuggestionDto {
   description: string;
   type: 'CREATE_MATCH' | 'MOVE_PLAYER' | 'OTHER';
   reason: string;
-  payload?: any;
+  payload?: Record<string, unknown>;
 }

@@ -13,4 +13,3 @@ export class GoogleAuthGuard extends AuthGuard('google') {
     };
   }
 }
-

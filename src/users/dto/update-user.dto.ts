@@ -43,4 +43,3 @@ export class UpdateUserDto {
   @IsOptional()
   role?: Role;
 }
-

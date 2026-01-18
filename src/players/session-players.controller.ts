@@ -1,11 +1,9 @@
 import {
   Controller,
-  Get,
   Post,
   Patch,
   Body,
   Param,
-  Query,
   UseGuards,
 } from '@nestjs/common';
 import { PlayersService } from './players.service';
