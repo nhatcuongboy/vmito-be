@@ -185,11 +185,17 @@ export class SessionsService {
             confirmedByPlayer: true,
             requireConfirmInfo: true,
             joinCode: true,
+
             currentCourt: {
               select: {
                 id: true,
                 courtName: true,
                 courtNumber: true,
+              },
+            },
+            user: {
+              select: {
+                image: true,
               },
             },
           },
@@ -390,7 +396,13 @@ export class SessionsService {
             qrCodeData: true,
             name: true,
             isJoined: true,
+
             isGuest: true,
+            user: {
+              select: {
+                image: true,
+              },
+            },
           },
         },
         _count: {
@@ -728,6 +740,11 @@ export class SessionsService {
         },
         players: {
           include: {
+            user: {
+              select: {
+                image: true,
+              },
+            },
             currentCourt: {
               select: {
                 courtNumber: true,
@@ -829,6 +846,11 @@ export class SessionsService {
             id: true,
             courtNumber: true,
             courtName: true,
+          },
+        },
+        user: {
+          select: {
+            image: true,
           },
         },
       },
@@ -1113,6 +1135,11 @@ export class SessionsService {
         currentWaitTime: true,
         totalWaitTime: true,
         matchesPlayed: true,
+        user: {
+          select: {
+            image: true,
+          },
+        },
       },
     });
 
