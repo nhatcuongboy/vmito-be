@@ -2,7 +2,7 @@ import {
   IsOptional,
   IsString,
   IsBoolean,
-  IsIn,
+  IsEnum,
   ValidateIf,
   IsNumber,
   Min,
@@ -16,7 +16,7 @@ export class UpdatePlayerInSessionDto {
 
   @IsOptional()
   @ValidateIf((o: UpdatePlayerInSessionDto) => o.gender !== null)
-  @IsIn(['MALE', 'FEMALE'])
+  @IsEnum(Gender)
   gender?: Gender | null;
 
   @IsOptional()
@@ -34,7 +34,7 @@ export class UpdatePlayerInSessionDto {
   desire?: string;
 
   @IsOptional()
-  @IsIn(['WAITING', 'PLAYING', 'FINISHED', 'REMOVED'])
+  @IsEnum(PlayerStatus)
   status?: PlayerStatus;
 
   @IsOptional()
