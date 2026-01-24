@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSessionDto } from './dto/create-session.dto';
@@ -415,13 +416,23 @@ export class SessionsService {
     });
   }
 
-  async update(id: string, updateSessionDto: UpdateSessionDto) {
+  async update(
+    id: string,
+    updateSessionDto: UpdateSessionDto,
+    userId?: string,
+    role?: string
+  ) {
     const existingSession = await this.prisma.session.findUnique({
       where: { id },
     });
 
     if (!existingSession) {
       throw new NotFoundException('Session not found');
+    }
+
+    // Authorization check: only session owner or admin can update
+    if (userId && role !== 'ADMIN' && existingSession.hostId !== userId) {
+      throw new ForbiddenException('Not authorized to modify this session');
     }
 
     // Validate requiredLevels if provided
@@ -559,13 +570,18 @@ export class SessionsService {
     return session;
   }
 
-  async remove(id: string) {
+  async remove(id: string, userId?: string, role?: string) {
     const existingSession = await this.prisma.session.findUnique({
       where: { id },
     });
 
     if (!existingSession) {
       throw new NotFoundException('Session not found');
+    }
+
+    // Authorization check: only session owner or admin can delete
+    if (userId && role !== 'ADMIN' && existingSession.hostId !== userId) {
+      throw new ForbiddenException('Not authorized to delete this session');
     }
 
     // Delete all players related to this session

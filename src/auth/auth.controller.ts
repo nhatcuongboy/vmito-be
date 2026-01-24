@@ -10,6 +10,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ConfigService } from '@nestjs/config';
 import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
@@ -20,8 +21,10 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { AdminGuard } from './guards/admin.guard';
 
 interface GoogleUser {
   id: string;
@@ -48,8 +51,16 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+
+  @Public()
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(@Body() refreshTokenDto: RefreshTokenDto) {
+    return this.authService.refreshTokens(refreshTokenDto.refreshToken);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -73,7 +84,7 @@ export class AuthController {
     return this.authService.getToken(user.userId);
   }
 
-  @Public()
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @Put('reset-password')
   async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
     return this.authService.resetPassword(resetPasswordDto);
@@ -98,14 +109,14 @@ export class AuthController {
   @Public()
   @Get('google/callback')
   @UseGuards(GoogleAuthGuard)
-  googleCallback(
+  async googleCallback(
     @Req() req: { user: GoogleUser & { locale?: string } },
     @Res() res: Response
   ) {
     const user = req.user;
 
     // Generate JWT token for the user
-    const tokenData = this.authService.generateTokenForUser({
+    const tokenData = await this.authService.generateTokenForUser({
       id: user.id,
       email: user.email,
       role: user.role,
@@ -115,7 +126,7 @@ export class AuthController {
     // Use locale from OAuth state, default to 'en'
     const frontendUrl = this.configService.get<string>('frontendUrl');
     const locale = user.locale || 'en';
-    const callbackUrl = `${frontendUrl}/${locale}/auth/callback?token=${tokenData.accessToken}&userId=${user.id}&email=${encodeURIComponent(user.email)}&name=${encodeURIComponent(user.name || '')}&role=${user.role}${user.image ? `&image=${encodeURIComponent(user.image)}` : ''}`;
+    const callbackUrl = `${frontendUrl}/${locale}/auth/callback?token=${tokenData.accessToken}&refreshToken=${tokenData.refreshToken}&userId=${user.id}&email=${encodeURIComponent(user.email)}&name=${encodeURIComponent(user.name || '')}&role=${user.role}${user.image ? `&image=${encodeURIComponent(user.image)}` : ''}`;
 
     res.redirect(callbackUrl);
   }

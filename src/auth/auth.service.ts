@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
@@ -118,11 +119,13 @@ export class AuthService {
     };
 
     const accessToken = this.jwtService.sign(payload);
+    const refreshToken = await this.generateRefreshToken(user.id);
 
     return {
       accessToken,
+      refreshToken,
       tokenType: 'Bearer',
-      expiresIn: this.configService.get<string>('auth.jwt.expiresIn') || '7d',
+      expiresIn: this.configService.get<string>('auth.jwt.expiresIn') || '15m',
       user: {
         id: user.id,
         email: user.email,
@@ -204,12 +207,10 @@ export class AuthService {
   }
 
   async resetPassword(resetPasswordDto: ResetPasswordDto) {
-    const { email, newPassword, adminKey } = resetPasswordDto;
+    const { email, newPassword } = resetPasswordDto;
 
-    // Simple admin key check (in production, use proper admin authentication)
-    if (adminKey !== process.env.ADMIN_RESET_KEY) {
-      throw new UnauthorizedException('Unauthorized admin access');
-    }
+    // Admin authorization is now handled by the controller guard
+
 
     // Check if user exists
     const user = await this.prisma.user.findUnique({
@@ -273,7 +274,7 @@ export class AuthService {
   /**
    * Generate JWT token for a user (used for OAuth flows)
    */
-  generateTokenForUser(user: { id: string; email: string; role: string }) {
+  async generateTokenForUser(user: { id: string; email: string; role: string }) {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
@@ -281,16 +282,89 @@ export class AuthService {
     };
 
     const accessToken = this.jwtService.sign(payload);
+    const refreshToken = await this.generateRefreshToken(user.id);
 
     return {
       accessToken,
+      refreshToken,
       tokenType: 'Bearer',
-      expiresIn: this.configService.get<string>('auth.jwt.expiresIn') || '7d',
+      expiresIn: this.configService.get<string>('auth.jwt.expiresIn') || '15m',
       user: {
         id: user.id,
         email: user.email,
         role: user.role,
       },
+    };
+  }
+
+  /**
+   * Generate a secure refresh token and store it in the database
+   */
+  async generateRefreshToken(userId: string): Promise<string> {
+    const token = crypto.randomBytes(40).toString('hex');
+    const expiresInDays =
+      parseInt(
+        this.configService
+          .get<string>('auth.jwt.refreshExpiresIn')
+          ?.replace('d', '') || '7'
+      ) || 7;
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + expiresInDays);
+
+    await this.prisma.refreshToken.create({
+      data: {
+        token,
+        userId,
+        expiresAt,
+      },
+    });
+
+    return token;
+  }
+
+  /**
+   * Refresh access token using a refresh token
+   */
+  async refreshTokens(token: string) {
+    const refreshToken = await this.prisma.refreshToken.findUnique({
+      where: { token },
+      include: { user: true },
+    });
+
+    if (!refreshToken) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    if (refreshToken.revoked) {
+      // Token reuse detection could be implemented here (revoke all user tokens)
+      throw new UnauthorizedException('Refresh token revoked');
+    }
+
+    if (refreshToken.expiresAt < new Date()) {
+      throw new UnauthorizedException('Refresh token expired');
+    }
+
+    // Rotate refresh token: revoke old one, create new one
+    await this.prisma.refreshToken.update({
+      where: { id: refreshToken.id },
+      data: { revoked: true },
+    });
+
+    const user = refreshToken.user;
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+    };
+
+    const accessToken = this.jwtService.sign(payload);
+    const newRefreshToken = await this.generateRefreshToken(user.id);
+
+    return {
+      accessToken,
+      refreshToken: newRefreshToken,
+      tokenType: 'Bearer',
+      expiresIn: this.configService.get<string>('auth.jwt.expiresIn') || '15m',
     };
   }
 }

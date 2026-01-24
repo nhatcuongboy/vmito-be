@@ -34,6 +34,7 @@ model User {
   sessions          AuthSession[]
   hostedTournaments Tournament[]       @relation("HostedTournaments")
   tournamentPlayers TournamentPlayer[] @relation("TournamentPlayers")
+  refreshTokens     RefreshToken[]
 
   @@map("users")
 }
@@ -66,6 +67,19 @@ model AuthSession {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("auth_sessions")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
 }
 
 model VerificationToken {

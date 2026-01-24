@@ -59,13 +59,25 @@ export class SessionsController {
   }
 
   @Put(':id')
-  update(@Param('id') id: string, @Body() updateSessionDto: UpdateSessionDto) {
-    return this.sessionsService.update(id, updateSessionDto);
+  update(
+    @Param('id') id: string,
+    @Body() updateSessionDto: UpdateSessionDto,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    return this.sessionsService.update(
+      id,
+      updateSessionDto,
+      user.userId,
+      user.role
+    );
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.sessionsService.remove(id);
+  remove(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    return this.sessionsService.remove(id, user.userId, user.role);
   }
 
   @Post(':id/start')
