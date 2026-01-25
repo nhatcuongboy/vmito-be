@@ -23,6 +23,34 @@ export class CourtConfigDto {
   direction?: CourtDirection;
 }
 
+
+export class VenueDto {
+  @IsString()
+  placeId: string;
+
+  @IsString()
+  name: string;
+
+  @IsString()
+  address: string;
+
+  @IsNumber()
+  @IsOptional()
+  lat?: number;
+
+  @IsNumber()
+  @IsOptional()
+  lng?: number;
+
+  @IsString()
+  @IsOptional()
+  district?: string;
+
+  @IsString()
+  @IsOptional()
+  city?: string;
+}
+
 export class CreateSessionDto {
   @IsString()
   name: string;
@@ -34,6 +62,17 @@ export class CreateSessionDto {
   @IsString()
   @IsOptional()
   location?: string;
+
+  @IsString()
+  @IsOptional()
+  hostName?: string;
+
+  @IsString()
+  @IsOptional()
+  hostPhone?: string;
+
+  @IsOptional()
+  venue?: VenueDto;
 
   @IsString()
   @IsOptional()

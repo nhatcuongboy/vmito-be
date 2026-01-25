@@ -16,6 +16,7 @@ import { TournamentsModule } from './tournaments/tournaments.module';
 import { CategoriesModule } from './categories/categories.module';
 import { PwaModule } from './pwa/pwa.module';
 import { TasksModule } from './tasks/tasks.module';
+import { VenuesModule } from './venues/venues.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import configuration from './config';
 
@@ -39,6 +40,7 @@ import configuration from './config';
     CategoriesModule,
     TasksModule,
     PwaModule,
+    VenuesModule,
   ],
   controllers: [AppController],
   providers: [

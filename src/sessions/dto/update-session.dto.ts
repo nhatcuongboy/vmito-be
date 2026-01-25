@@ -8,6 +8,8 @@ import {
   Min,
 } from 'class-validator';
 
+import { VenueDto } from './create-session.dto';
+
 export class UpdateSessionDto {
   @IsString()
   @IsOptional()
@@ -20,6 +22,17 @@ export class UpdateSessionDto {
   @IsString()
   @IsOptional()
   location?: string;
+
+  @IsString()
+  @IsOptional()
+  hostName?: string;
+
+  @IsString()
+  @IsOptional()
+  hostPhone?: string;
+
+  @IsOptional()
+  venue?: VenueDto;
 
   @IsNumber()
   @Min(1)

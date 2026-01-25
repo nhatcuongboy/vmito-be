@@ -95,7 +95,10 @@ model Session {
   id                 String        @id @default(cuid())
   name               String
   description        String?
-  location           String?
+  hostName           String?
+  hostPhone          String?
+  location           String?       // Keeping for backward compatibility
+  venueId            String?
   hostId             String
   numberOfCourts     Int           @default(2)
   sessionDuration    Int           @default(120)
@@ -120,8 +123,26 @@ model Session {
   matches   Match[]
   players   Player[]
   host      User     @relation("HostedSessions", fields: [hostId], references: [id])
+  venue     Venue?   @relation(fields: [venueId], references: [id])
 
   @@map("sessions")
+}
+
+model Venue {
+  id        String   @id @default(cuid())
+  placeId   String   @unique // Google Place ID
+  name      String
+  address   String
+  lat       Float?
+  lng       Float?
+  district  String?
+  city      String?
+  isVerified Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sessions  Session[]
+
+  @@map("venues")
 }
 
 model Player {

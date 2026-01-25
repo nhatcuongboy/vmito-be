@@ -38,6 +38,7 @@ export class SessionsService {
             email: true,
           },
         },
+        venue: true,
         _count: {
           select: {
             players: true,
@@ -93,6 +94,7 @@ export class SessionsService {
             email: true,
           },
         },
+        venue: true,
         _count: {
           select: {
             players: true, // Count all players
@@ -118,6 +120,7 @@ export class SessionsService {
             email: true,
           },
         },
+        venue: true,
         courts: {
           orderBy: {
             courtNumber: 'asc',
@@ -269,6 +272,9 @@ export class SessionsService {
       endTime,
       description,
       location,
+      hostName,
+      hostPhone,
+      venue,
       courtColor,
       courts: courtsConfig,
     } = createSessionDto;
@@ -304,6 +310,35 @@ export class SessionsService {
       throw new NotFoundException('Host not found');
     }
 
+    // Handle Venue Logic
+    let venueId: string | undefined;
+    let finalLocation = location;
+
+    if (venue) {
+      let existingVenue = await this.prisma.venue.findUnique({
+        where: { placeId: venue.placeId },
+      });
+
+      if (!existingVenue) {
+        existingVenue = await this.prisma.venue.create({
+          data: {
+            placeId: venue.placeId,
+            name: venue.name,
+            address: venue.address,
+            lat: venue.lat,
+            lng: venue.lng,
+            district: venue.district,
+            city: venue.city,
+          },
+        });
+      }
+      venueId = existingVenue.id;
+      // If location string is not provided, use venue address as fallback
+      if (!finalLocation) {
+        finalLocation = venue.address;
+      }
+    }
+
     // Create session
     const session = await this.prisma.session.create({
       data: {
@@ -323,7 +358,10 @@ export class SessionsService {
           : new Date(Date.now() + sessionDuration * 60 * 1000),
         status: 'PREPARING',
         description,
-        location,
+        location: finalLocation,
+        hostName,
+        hostPhone,
+        venueId,
         courtColor: courtColor || '#179a3b',
       },
       include: {
@@ -334,6 +372,7 @@ export class SessionsService {
             email: true,
           },
         },
+        venue: true,
       },
     });
 
@@ -475,7 +514,25 @@ export class SessionsService {
           : undefined,
         description: updateSessionDto.description,
         location: updateSessionDto.location,
+        hostName: updateSessionDto.hostName,
+        hostPhone: updateSessionDto.hostPhone,
         courtColor: updateSessionDto.courtColor,
+        venue: updateSessionDto.venue
+          ? {
+              connectOrCreate: {
+                where: { placeId: updateSessionDto.venue.placeId },
+                create: {
+                  placeId: updateSessionDto.venue.placeId,
+                  name: updateSessionDto.venue.name,
+                  address: updateSessionDto.venue.address,
+                  lat: updateSessionDto.venue.lat,
+                  lng: updateSessionDto.venue.lng,
+                  district: updateSessionDto.venue.district,
+                  city: updateSessionDto.venue.city,
+                },
+              },
+            }
+          : undefined,
       },
       include: {
         host: {

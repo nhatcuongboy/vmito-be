@@ -20,6 +20,7 @@ import { UpdateStatusDto } from './dto/update-status.dto';
 import { UpdateWaitTimesDto } from './dto/update-wait-times.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { ConfigService } from '@nestjs/config';
 
 @ApiTags('sessions')
@@ -37,6 +38,7 @@ export class SessionsController {
     return this.sessionsService.findAll(user);
   }
 
+  @Public()
   @Get('available')
   getAvailable(@Query('date') date?: string, @Query('level') level?: number) {
     return this.sessionsService.findAvailable({ date, level });
