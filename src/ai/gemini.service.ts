@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
+import { ExtractedSessionDto } from './dto/extract-session.dto';
 
 @Injectable()
 export class GeminiService {
@@ -30,6 +31,71 @@ export class GeminiService {
     } catch (error) {
       console.error('Error generating content with Gemini:', error);
       throw error;
+    }
+  }
+
+  async extractSessionFromArticle(
+    articleContent: string
+  ): Promise<ExtractedSessionDto> {
+    if (!this.model) {
+      throw new Error('Gemini API key is missing.');
+    }
+
+    const currentYear = new Date().getFullYear();
+
+    const prompt = `You are an AI assistant that extracts badminton session information from Vietnamese recruitment posts.
+
+Analyze the following article/post and extract session details. The post is typically a recruitment for casual badminton players (tuyển vãng lai).
+
+Article content:
+"""
+${articleContent}
+"""
+
+Extract and return a JSON object with the following fields (use null for fields that cannot be determined):
+
+{
+  "name": "Session name - create a short descriptive name based on venue and time if not explicitly stated",
+  "description": "Additional details or notes from the post",
+  "hostName": "Name of the host/organizer",
+  "hostPhone": "Phone number of the host (format: 0xxxxxxxxx)",
+  "startTime": "ISO 8601 datetime string (use year ${currentYear} if year not specified)",
+  "endTime": "ISO 8601 datetime string (use year ${currentYear} if year not specified)",
+  "maxPlayersPerCourt": "Number of max players per court (default 8 if not specified)",
+  "requiredLevels": "Array of level numbers 1-8 where: 1=Beginner, 2=Advanced Beginner, 3=Low Intermediate, 4=Intermediate, 5=High Intermediate, 6=Advanced, 7=Semi Pro, 8=Pro. Map Vietnamese terms like TB (Trung Bình)=4, K (Khá)=5, Y (Yếu)=2-3, Mạnh=6-7. Return array like [3,4,5] for a range. Return null if all levels welcome.",
+  "numberOfCourts": "Number of courts if mentioned",
+  "venue": {
+    "name": "Venue/court name",
+    "address": "Full address if available",
+    "district": "District (Quận/Huyện)",
+    "city": "City (default 'Hồ Chí Minh' if in Vietnam and not specified)"
+  }
+}
+
+IMPORTANT:
+- Return ONLY valid JSON, no markdown formatting
+- For time, if only time is given (e.g., "18h-20h"), combine with the date mentioned or today's date
+- For Vietnamese level terms: Y/Yếu=2-3, TB/Trung Bình=4, K/Khá=5, Mạnh/Giỏi=6-7
+- Phone numbers should be in format 0xxxxxxxxx
+- If a field cannot be determined, use null`;
+
+    try {
+      const result = await this.model.generateContent(prompt);
+      const response = result.response;
+      const text = response.text();
+
+      // Clean the response - remove markdown code blocks if present
+      let cleanedText = text
+        .replace(/```json\s*/g, '')
+        .replace(/```\s*/g, '')
+        .trim();
+
+      // Parse the JSON
+      const extracted: ExtractedSessionDto = JSON.parse(cleanedText);
+      return extracted;
+    } catch (error) {
+      console.error('Error extracting session from article:', error);
+      throw new Error('Failed to extract session information from article');
     }
   }
 }
