@@ -91,7 +91,12 @@ export class CategoriesService {
     return category;
   }
 
-  async update(id: string, dto: UpdateCategoryDto, userId: string) {
+  async update(
+    id: string,
+    dto: UpdateCategoryDto,
+    userId: string,
+    role?: string
+  ) {
     const existingCategory = await this.prisma.category.findUnique({
       where: { id },
       include: {
@@ -107,7 +112,7 @@ export class CategoriesService {
       throw new NotFoundException('Category not found');
     }
 
-    if (existingCategory.tournament.hostId !== userId) {
+    if (existingCategory.tournament.hostId !== userId && role !== 'ADMIN') {
       throw new ForbiddenException('You can only manage your own tournaments');
     }
 
@@ -174,7 +179,7 @@ export class CategoriesService {
     return category;
   }
 
-  async remove(id: string, userId: string) {
+  async remove(id: string, userId: string, role?: string) {
     const existingCategory = await this.prisma.category.findUnique({
       where: { id },
       include: {
@@ -190,7 +195,7 @@ export class CategoriesService {
       throw new NotFoundException('Category not found');
     }
 
-    if (existingCategory.tournament.hostId !== userId) {
+    if (existingCategory.tournament.hostId !== userId && role !== 'ADMIN') {
       throw new ForbiddenException('You can only manage your own tournaments');
     }
 

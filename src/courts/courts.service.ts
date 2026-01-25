@@ -201,6 +201,7 @@ export class CourtsService {
     const validPlayers = await this.prisma.player.findMany({
       where: {
         id: { in: finalPlayerIds },
+        registrationStatus: 'APPROVED',
       },
     });
 

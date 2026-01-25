@@ -47,13 +47,21 @@ export class TournamentsController {
   update(
     @Param('id') id: string,
     @Body() updateTournamentDto: UpdateTournamentDto,
-    @CurrentUser() user: { userId: string }
+    @CurrentUser() user: { userId: string; role: string }
   ) {
-    return this.tournamentsService.update(id, updateTournamentDto, user.userId);
+    return this.tournamentsService.update(
+      id,
+      updateTournamentDto,
+      user.userId,
+      user.role
+    );
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string, @CurrentUser() user: { userId: string }) {
-    return this.tournamentsService.remove(id, user.userId);
+  remove(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    return this.tournamentsService.remove(id, user.userId, user.role);
   }
 }

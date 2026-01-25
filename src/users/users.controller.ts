@@ -31,8 +31,12 @@ export class UsersController {
     @Query('search') search?: string,
     @Query('role') role?: string
   ) {
-    if (user.role !== 'ADMIN' && user.role !== 'HOST') {
-      throw new ForbiddenException('Admin or Host access required');
+    if (
+      user.role !== 'ADMIN' &&
+      user.role !== 'HOST' &&
+      user.role !== 'PLAYER'
+    ) {
+      throw new ForbiddenException('Admin, Host or Player access required');
     }
     return this.usersService.findAll({ search, role });
   }

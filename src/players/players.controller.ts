@@ -69,8 +69,8 @@ export class PlayersController {
 
   @Get('pending-requests')
   @ApiOperation({ summary: 'Get pending player requests for host' })
-  getPendingRequests(@CurrentUser() user: { userId: string }) {
-    return this.playersService.findPendingRequests(user.userId);
+  getPendingRequests(@CurrentUser() user: { userId: string; role: string }) {
+    return this.playersService.findPendingRequests(user.userId, user.role);
   }
 
   @Get('me/sessions')
@@ -155,12 +155,13 @@ export class SessionPlayersController {
   register(
     @Param('sessionId') sessionId: string,
     @Body() body: { players: CreatePlayerDto[] },
-    @CurrentUser() user: { userId: string }
+    @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.playersService.registerPlayers(
       sessionId,
       user.userId,
-      body.players
+      body.players,
+      user.role
     );
   }
 
@@ -178,13 +179,14 @@ export class SessionPlayersController {
     @Param('sessionId') sessionId: string,
     @Param('playerId') playerId: string,
     @Body() body: { status: 'APPROVED' | 'REJECTED' },
-    @CurrentUser() user: { userId: string }
+    @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.playersService.updatePlayerStatus(
       sessionId,
       playerId,
       body.status,
-      user.userId
+      user.userId,
+      user.role
     );
   }
 

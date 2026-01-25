@@ -11,7 +11,8 @@ import { Gender } from '@prisma/client';
 export class CreatePlayerDto {
   @IsNumber()
   @Min(1)
-  playerNumber: number;
+  @IsOptional()
+  playerNumber?: number;
 
   @IsString()
   @IsOptional()

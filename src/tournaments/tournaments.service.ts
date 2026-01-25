@@ -184,7 +184,12 @@ export class TournamentsService {
     return tournament;
   }
 
-  async update(id: string, dto: UpdateTournamentDto, userId: string) {
+  async update(
+    id: string,
+    dto: UpdateTournamentDto,
+    userId: string,
+    role?: string
+  ) {
     const existingTournament = await this.prisma.tournament.findUnique({
       where: { id },
     });
@@ -193,7 +198,7 @@ export class TournamentsService {
       throw new NotFoundException('Tournament not found');
     }
 
-    if (existingTournament.hostId !== userId) {
+    if (existingTournament.hostId !== userId && role !== 'ADMIN') {
       throw new ForbiddenException('You can only update your own tournaments');
     }
 
@@ -259,7 +264,7 @@ export class TournamentsService {
     return tournament;
   }
 
-  async remove(id: string, userId: string) {
+  async remove(id: string, userId: string, role?: string) {
     const existingTournament = await this.prisma.tournament.findUnique({
       where: { id },
     });
@@ -268,7 +273,7 @@ export class TournamentsService {
       throw new NotFoundException('Tournament not found');
     }
 
-    if (existingTournament.hostId !== userId) {
+    if (existingTournament.hostId !== userId && role !== 'ADMIN') {
       throw new ForbiddenException('You can only delete your own tournaments');
     }
 

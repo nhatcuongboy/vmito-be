@@ -41,7 +41,8 @@ export class SessionPlayersController {
     return this.playersService.registerPlayers(
       sessionId,
       user.userId,
-      body.players
+      body.players,
+      user.role
     );
   }
 
@@ -56,7 +57,8 @@ export class SessionPlayersController {
       sessionId,
       playerId,
       body.status,
-      user.userId
+      user.userId,
+      user.role
     );
   }
 }

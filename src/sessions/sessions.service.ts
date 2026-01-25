@@ -97,7 +97,7 @@ export class SessionsService {
         venue: true,
         _count: {
           select: {
-            players: true, // Count all players
+            players: { where: { registrationStatus: 'APPROVED' as const } }, // Count approved players only
             courts: true,
           },
         },
@@ -167,6 +167,9 @@ export class SessionsService {
           },
         },
         players: {
+          where: {
+            registrationStatus: { in: ['APPROVED', 'PENDING'] },
+          },
           orderBy: {
             playerNumber: 'asc',
           },
@@ -189,6 +192,7 @@ export class SessionsService {
             confirmedByPlayer: true,
             requireConfirmInfo: true,
             joinCode: true,
+            registrationStatus: true,
 
             currentCourt: {
               select: {
@@ -206,7 +210,7 @@ export class SessionsService {
         },
         _count: {
           select: {
-            players: true,
+            players: { where: { registrationStatus: 'APPROVED' as const } as const },
             courts: true,
           },
         },
@@ -252,8 +256,18 @@ export class SessionsService {
       };
     });
 
+    const allPlayers = session.players.map(p => ({
+      ...p,
+      // registrationStatus is already in the select
+    }));
+
+    const approvedPlayers = allPlayers.filter(p => p.registrationStatus === 'APPROVED');
+    const pendingPlayers = allPlayers.filter(p => p.registrationStatus === 'PENDING');
+
     return {
       ...session,
+      players: approvedPlayers,
+      pendingPlayers: pendingPlayers,
       courts: processedCourts,
     };
   }

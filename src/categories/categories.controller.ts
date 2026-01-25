@@ -41,12 +41,17 @@ export class CategoriesController {
     @Body() updateCategoryDto: UpdateCategoryDto,
     @CurrentUser() user: CurrentUserPayload
   ) {
-    return this.categoriesService.update(id, updateCategoryDto, user.userId);
+    return this.categoriesService.update(
+      id,
+      updateCategoryDto,
+      user.userId,
+      user.role
+    );
   }
 
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
-    return this.categoriesService.remove(id, user.userId);
+    return this.categoriesService.remove(id, user.userId, user.role);
   }
 
   @Public()
