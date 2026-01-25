@@ -1361,12 +1361,19 @@ export class PlayersService {
     // Find all sessions that the current user has participated in
     const sessions = await this.prisma.session.findMany({
       where: {
-        players: {
-          some: {
-            userId: userId,
-            // isJoined: true, // Only get sessions where user actually joined
+        OR: [
+          {
+            players: {
+              some: {
+                userId: userId,
+                // isJoined: true, // Only get sessions where user actually joined
+              },
+            },
           },
-        },
+          {
+            hostId: userId,
+          },
+        ],
       },
       include: {
         host: {

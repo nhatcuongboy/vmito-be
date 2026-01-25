@@ -54,8 +54,8 @@ export class SessionsController {
     @Body() createSessionDto: CreateSessionDto,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    if (user.role !== 'HOST' && user.role !== 'ADMIN') {
-      throw new ForbiddenException('Only HOST or ADMIN can create sessions');
+    if (user.role !== 'HOST' && user.role !== 'ADMIN' && user.role !== 'PLAYER') {
+      throw new ForbiddenException('Only authorized users can create sessions');
     }
     return this.sessionsService.create(createSessionDto, user.userId);
   }
