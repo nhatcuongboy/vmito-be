@@ -13,6 +13,7 @@ import { MatchesService } from './matches.service';
 import { UpdateMatchDto } from './dto/update-match.dto';
 import { CreateMatchDto } from './dto/create-match.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Public } from '../auth/decorators/public.decorator';
 
 @ApiTags('matches')
 @ApiBearerAuth('JWT-auth')
@@ -38,6 +39,7 @@ export class MatchesController {
 export class SessionMatchesController {
   constructor(private readonly matchesService: MatchesService) {}
 
+  @Public()
   @Get()
   findBySession(
     @Param('sessionId') sessionId: string,

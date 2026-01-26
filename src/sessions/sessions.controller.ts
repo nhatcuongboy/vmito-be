@@ -115,6 +115,7 @@ export class SessionsController {
     return this.sessionsService.getCourts(id);
   }
 
+  @Public()
   @Get(':id/matches')
   @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
   @Header('Pragma', 'no-cache')

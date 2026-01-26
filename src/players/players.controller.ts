@@ -211,6 +211,7 @@ export class SessionPlayersController {
     return this.playersService.removePlayerFromSession(sessionId, playerId);
   }
 
+  @Public()
   @Get('statistics')
   getPlayerStatistics(
     @Param('sessionId') sessionId: string,
