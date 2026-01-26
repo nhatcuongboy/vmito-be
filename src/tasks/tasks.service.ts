@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GeminiService } from '../ai/gemini.service';
 import { TaskSuggestionDto } from './dto/task-suggestion.dto';
+import { Language, DEFAULT_LANGUAGE } from '../common/constants/language.enum';
 
 @Injectable()
 export class TasksService {
@@ -10,7 +11,10 @@ export class TasksService {
     private geminiService: GeminiService
   ) {}
 
-  async suggestTasks(sessionId: string): Promise<TaskSuggestionDto[]> {
+  async suggestTasks(
+    sessionId: string,
+    language?: Language
+  ): Promise<TaskSuggestionDto[]> {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
       include: {
@@ -40,7 +44,10 @@ export class TasksService {
 
     const prompt = this.buildPrompt(session);
     try {
-      const responseText = await this.geminiService.generateText(prompt);
+      const responseText = await this.geminiService.generateText(
+        prompt,
+        language || DEFAULT_LANGUAGE
+      );
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const json = JSON.parse(jsonMatch[0]) as { tasks: TaskSuggestionDto[] };

@@ -15,6 +15,7 @@ import { SelectPlayersDto } from './dto/select-players.dto';
 import { PreSelectDto } from './dto/pre-select.dto';
 import { UpdateCourtDto } from './dto/update-court.dto';
 import { EndMatchDto } from './dto/end-match.dto';
+import { SuggestedPlayersQueryDto } from './dto/suggested-players-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('courts')
@@ -80,11 +81,10 @@ export class CourtsController {
   @Get(':id/suggested-players')
   getSuggestedPlayers(
     @Param('id') id: string,
-    @Query('topCount') topCount?: string,
-    @Query('useAi') useAi?: string
+    @Query() query: SuggestedPlayersQueryDto
   ) {
-    const count = topCount ? parseInt(topCount, 10) : undefined;
-    const enableAi = useAi === 'true';
-    return this.courtsService.getSuggestedPlayers(id, count, enableAi);
+    const count = query.topCount ? parseInt(query.topCount, 10) : undefined;
+    const enableAi = query.useAi === 'true';
+    return this.courtsService.getSuggestedPlayers(id, count, enableAi, query.language);
   }
 }

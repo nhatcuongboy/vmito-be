@@ -14,7 +14,8 @@ export class AiController {
   @Post('extract-session')
   async extractSession(@Body() dto: ExtractSessionRequestDto) {
     const extracted = await this.geminiService.extractSessionFromArticle(
-      dto.articleContent
+      dto.articleContent,
+      dto.language
     );
     return {
       success: true,

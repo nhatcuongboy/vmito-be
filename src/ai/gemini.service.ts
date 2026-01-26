@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 import { ExtractedSessionDto } from './dto/extract-session.dto';
+import { Language, DEFAULT_LANGUAGE } from '../common/constants/language.enum';
 
 @Injectable()
 export class GeminiService {
@@ -20,12 +21,29 @@ export class GeminiService {
     this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
   }
 
-  async generateText(prompt: string): Promise<string> {
+  private getLanguageInstruction(language: Language): string {
+    const languageNames = {
+      [Language.VI]: 'Vietnamese (Tiếng Việt)',
+      [Language.EN]: 'English',
+      [Language.CN]: 'Chinese (中文)',
+    };
+
+    return `IMPORTANT: You MUST respond in ${languageNames[language]}. All field values in the JSON response should be in ${languageNames[language]}.`;
+  }
+
+  async generateText(prompt: string, language?: Language): Promise<string> {
     if (!this.model) {
       throw new Error('Gemini API key is missing.');
     }
+
+    let finalPrompt = prompt;
+    if (language) {
+      const languageInstruction = this.getLanguageInstruction(language);
+      finalPrompt = `${languageInstruction}\n\n${prompt}`;
+    }
+
     try {
-      const result = await this.model.generateContent(prompt);
+      const result = await this.model.generateContent(finalPrompt);
       const response = result.response;
       return response.text();
     } catch (error) {
@@ -35,15 +53,19 @@ export class GeminiService {
   }
 
   async extractSessionFromArticle(
-    articleContent: string
+    articleContent: string,
+    language: Language = DEFAULT_LANGUAGE
   ): Promise<ExtractedSessionDto> {
     if (!this.model) {
       throw new Error('Gemini API key is missing.');
     }
 
     const currentYear = new Date().getFullYear();
+    const languageInstruction = this.getLanguageInstruction(language);
 
-    const prompt = `You are an AI assistant that extracts badminton session information from Vietnamese recruitment posts.
+    const prompt = `You are an AI assistant that extracts badminton session information from recruitment posts.
+
+${languageInstruction}
 
 Analyze the following article/post and extract session details. The post is typically a recruitment for casual badminton players (tuyển vãng lai).
 
@@ -85,13 +107,13 @@ IMPORTANT:
       const text = response.text();
 
       // Clean the response - remove markdown code blocks if present
-      let cleanedText = text
+      const cleanedText = text
         .replace(/```json\s*/g, '')
         .replace(/```\s*/g, '')
         .trim();
 
       // Parse the JSON
-      const extracted: ExtractedSessionDto = JSON.parse(cleanedText);
+      const extracted = JSON.parse(cleanedText) as ExtractedSessionDto;
       return extracted;
     } catch (error) {
       console.error('Error extracting session from article:', error);

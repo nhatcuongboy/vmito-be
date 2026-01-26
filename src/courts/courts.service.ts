@@ -16,6 +16,7 @@ import {
   SessionEventType,
 } from '../sessions/sessions.gateway';
 import { GeminiService } from '../ai/gemini.service';
+import { Language, DEFAULT_LANGUAGE } from '../common/constants/language.enum';
 
 export interface PreSelectedPlayerInfo {
   playerId: string;
@@ -891,7 +892,8 @@ export class CourtsService {
   async getSuggestedPlayers(
     id: string,
     topCount?: number,
-    useAi: boolean = false
+    useAi: boolean = false,
+    language?: Language
   ) {
     const court = await this.prisma.court.findUnique({
       where: { id },
@@ -941,7 +943,10 @@ export class CourtsService {
         '[AI Suggestion] useAi=true, attempting AI-powered suggestions...'
       );
       try {
-        const aiResult = await this.getAiSuggestedPlayers(waitingPlayers);
+        const aiResult = await this.getAiSuggestedPlayers(
+          waitingPlayers,
+          language || DEFAULT_LANGUAGE
+        );
         console.log('[AI Suggestion] Success! aiReason:', aiResult.aiReason);
         return aiResult;
       } catch (error) {
@@ -984,7 +989,10 @@ export class CourtsService {
     };
   }
 
-  private async getAiSuggestedPlayers(waitingPlayers: Player[]) {
+  private async getAiSuggestedPlayers(
+    waitingPlayers: Player[],
+    language: Language = DEFAULT_LANGUAGE
+  ) {
     const playersList = waitingPlayers
       .map(
         (p, i) =>
@@ -1013,7 +1021,7 @@ Return ONLY a raw JSON object in this exact format:
 }
     `;
 
-    const responseText = await this.geminiService.generateText(prompt);
+    const responseText = await this.geminiService.generateText(prompt, language);
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
 
     if (!jsonMatch) {
