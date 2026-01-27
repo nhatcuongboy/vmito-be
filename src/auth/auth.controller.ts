@@ -110,7 +110,7 @@ export class AuthController {
   @Get('google/callback')
   @UseGuards(GoogleAuthGuard)
   async googleCallback(
-    @Req() req: { user: GoogleUser & { locale?: string } },
+    @Req() req: { user: GoogleUser & { locale?: string; returnUrl?: string } },
     @Res() res: Response
   ) {
     const user = req.user;
@@ -126,7 +126,14 @@ export class AuthController {
     // Use locale from OAuth state, default to 'en'
     const frontendUrl = this.configService.get<string>('frontendUrl');
     const locale = user.locale || 'en';
-    const callbackUrl = `${frontendUrl}/${locale}/auth/callback?token=${tokenData.accessToken}&refreshToken=${tokenData.refreshToken}&userId=${user.id}&email=${encodeURIComponent(user.email)}&name=${encodeURIComponent(user.name || '')}&role=${user.role}${user.image ? `&image=${encodeURIComponent(user.image)}` : ''}`;
+    const returnUrl = user.returnUrl;
+    
+    let callbackUrl = `${frontendUrl}/${locale}/auth/callback?token=${tokenData.accessToken}&refreshToken=${tokenData.refreshToken}&userId=${user.id}&email=${encodeURIComponent(user.email)}&name=${encodeURIComponent(user.name || '')}&role=${user.role}${user.image ? `&image=${encodeURIComponent(user.image)}` : ''}`;
+    
+    // Add returnUrl if present
+    if (returnUrl) {
+      callbackUrl += `&returnUrl=${encodeURIComponent(returnUrl)}`;
+    }
 
     res.redirect(callbackUrl);
   }

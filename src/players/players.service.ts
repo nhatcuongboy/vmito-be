@@ -509,6 +509,7 @@ export class PlayersService {
       where: { id: sessionId },
       select: {
         id: true,
+        name: true,
         hostId: true,
         requiredLevels: true,
         players: {
@@ -570,26 +571,7 @@ export class PlayersService {
         }
       }
 
-      if (playerData.playerNumber) {
-        // Check for duplicate in request
-        if (providedNumbers.has(playerData.playerNumber)) {
-          errors.push(
-            `Player ${index + 1}: Duplicate player number ${playerData.playerNumber} in request`
-          );
-        }
-        providedNumbers.add(playerData.playerNumber);
-
-        // Check for duplicate in session
-        if (
-          fullSession.players.some(
-            (p) => p.playerNumber === playerData.playerNumber
-          )
-        ) {
-          errors.push(
-            `Player ${index + 1}: Player number ${playerData.playerNumber} already exists in session`
-          );
-        }
-      }
+      // Note: playerNumber validation removed - backend will auto-assign available numbers
     }
 
     if (errors.length > 0) {
@@ -602,21 +584,22 @@ export class PlayersService {
     );
     const currentlyTakenNumbers = new Set([
       ...existingSessionNumbers,
-      ...Array.from(providedNumbers),
     ]);
 
-    // Create players
+    // Create players with auto-assigned numbers
     const createdPlayers = await Promise.all(
       playersData.map((playerData) => {
         let playerNumber = playerData.playerNumber;
 
-        if (!playerNumber) {
+        // Auto-assign if not provided OR if already taken
+        if (!playerNumber || currentlyTakenNumbers.has(playerNumber)) {
           playerNumber = this.getNextAvailablePlayerNumber(
             [],
             currentlyTakenNumbers
           );
-          currentlyTakenNumbers.add(playerNumber);
         }
+        
+        currentlyTakenNumbers.add(playerNumber);
 
         return this.prisma.player.create({
           data: {
@@ -628,6 +611,7 @@ export class PlayersService {
             levelDescription: playerData.levelDescription || null,
             phone: playerData.phone || null,
             userId: playerData.userId || null,
+            createdByUserId: currentUserId, // Track who created this player
             joinCode: generatePlayerJoinCode(),
             preFilledByHost: playerData.preFilledByHost || false,
             confirmedByPlayer: playerData.confirmedByPlayer || false,
@@ -654,7 +638,23 @@ export class PlayersService {
       );
     }
 
-    // If PENDING, maybe notify Host specifically? (TODO)
+    // Notify Host if there are pending registrations
+    if (registrationStatus === 'PENDING') {
+      const pendingPlayerNames = createdPlayers
+        .map((p) => p.name || 'Guest')
+        .join(', ');
+      
+      this.sessionsGateway.notifyUser(
+        session.hostId,
+        SessionEventType.REGISTRATION_REQUEST,
+        {
+          sessionId,
+          sessionName: session.name || 'Badminton Session',
+          playerName: pendingPlayerNames,
+          count: createdPlayers.length
+        }
+      );
+    }
 
     return {
       createdPlayers,
@@ -674,7 +674,7 @@ export class PlayersService {
     // Check if session exists and user is Host
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
-      select: { hostId: true },
+      select: { hostId: true, name: true },
     });
 
     if (!session) {
@@ -710,6 +710,20 @@ export class PlayersService {
       SessionEventType.PLAYER_UPDATED,
       { playerId, registrationStatus: status }
     );
+
+    // Notify User specifically about their status update
+    if (existingPlayer.userId) {
+      this.sessionsGateway.notifyUser(
+        existingPlayer.userId,
+        SessionEventType.REGISTRATION_STATUS_UPDATED,
+        {
+          sessionId,
+          sessionName: session.name || 'Badminton Session',
+          status,
+          playerId
+        }
+      );
+    }
 
     return updatedPlayer;
   }
@@ -1434,6 +1448,72 @@ export class PlayersService {
     });
 
     return sessions;
+  }
+
+  async getUserRegistrations(userId: string) {
+    if (!userId) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    // Find all player registrations for the user
+    const players = await this.prisma.player.findMany({
+      where: {
+        userId: userId,
+        registrationStatus: {
+          in: ['PENDING', 'APPROVED', 'REJECTED'],
+        },
+      },
+      select: {
+        id: true,
+        sessionId: true,
+        registrationStatus: true,
+      },
+    });
+
+    // Return unique sessions (deduplicate by sessionId)
+    const uniqueSessions = Array.from(
+      new Map(
+        players.map((p) => [p.sessionId, { sessionId: p.sessionId, playerId: p.id, status: p.registrationStatus }])
+      ).values()
+    );
+
+    return uniqueSessions;
+  }
+
+  async getMyPlayersForSession(sessionId: string, userId: string) {
+    if (!sessionId || !userId) {
+      throw new BadRequestException('Session ID and User ID are required');
+    }
+
+    // Find all players that the user registered for this session
+    // This includes:
+    // 1. Players where userId matches (the user themselves)
+    // 2. Players where createdByUserId matches (guests they registered)
+    const players = await this.prisma.player.findMany({
+      where: {
+        sessionId: sessionId,
+        OR: [
+          { userId: userId },
+          { createdByUserId: userId },
+        ],
+      },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        level: true,
+        gender: true,
+        playerNumber: true,
+        registrationStatus: true,
+        status: true,
+        createdAt: true,
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+    });
+
+    return players;
   }
 
   private getNextAvailablePlayerNumber(

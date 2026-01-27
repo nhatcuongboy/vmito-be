@@ -84,6 +84,17 @@ export class PlayersController {
     return this.playersService.getMySessions(user.userId);
   }
 
+  @Get('me/registrations')
+  @ApiOperation({
+    summary: 'Get current user registration status across all sessions',
+  })
+  getMyRegistrations(@CurrentUser() user: { userId: string }) {
+    if (!user || typeof user.userId !== 'string') {
+      throw new Error('Invalid user object');
+    }
+    return this.playersService.getUserRegistrations(user.userId);
+  }
+
   @Post('link-account')
   linkAccount(@Body() body: { playerId: string; userId: string }) {
     return this.playersService.linkAccount(body.playerId, body.userId);
@@ -209,6 +220,18 @@ export class SessionPlayersController {
     @Param('playerId') playerId: string
   ) {
     return this.playersService.removePlayerFromSession(sessionId, playerId);
+  }
+
+  @Get('me')
+  @ApiOperation({ summary: 'Get current user\'s registered players for this session' })
+  getMyPlayersForSession(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user: { userId: string }
+  ) {
+    if (!user || typeof user.userId !== 'string') {
+      throw new Error('Invalid user object');
+    }
+    return this.playersService.getMyPlayersForSession(sessionId, user.userId);
   }
 
   @Public()

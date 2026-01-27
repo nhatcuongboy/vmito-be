@@ -21,6 +21,8 @@ export enum SessionEventType {
   MATCH_ENDED = 'match_ended',
   PLAYERS_SELECTED = 'players_selected',
   PLAYERS_DESELECTED = 'players_deselected',
+  REGISTRATION_REQUEST = 'registration_request',
+  REGISTRATION_STATUS_UPDATED = 'registration_status_updated',
 }
 
 @WebSocketGateway({
@@ -67,6 +69,17 @@ export class SessionsGateway
     return { event: 'leftSession', data: { sessionId } };
   }
 
+  @SubscribeMessage('join_user_room')
+  async handleJoinUserRoom(
+    @MessageBody() data: { userId: string },
+    @ConnectedSocket() client: Socket
+  ) {
+    const roomName = `user-${data.userId}`;
+    await client.join(roomName);
+    this.logger.log(`User ${data.userId} joined their personal room`);
+    return { event: 'joinedUserRoom', data: { userId: data.userId } };
+  }
+
   /**
    * Notify all clients in a session about an update (legacy method, kept for backward compatibility)
    */
@@ -89,6 +102,24 @@ export class SessionsGateway
     this.server.to(roomName).emit(eventType, { sessionId, ...payload });
     this.logger.log(
       `Notified ${eventType} for session ${sessionId}${payload ? ` with payload: ${JSON.stringify(payload)}` : ''}`
+    );
+  }
+
+  /**
+   * Notify a specific user about an event
+   * @param userId - The user ID
+   * @param eventType - The type of event
+   * @param payload - Optional additional data to send with the event
+   */
+  notifyUser(
+    userId: string,
+    eventType: SessionEventType,
+    payload?: Record<string, unknown>
+  ) {
+    const roomName = `user-${userId}`;
+    this.server.to(roomName).emit(eventType, payload);
+    this.logger.log(
+      `Notified user ${userId} of ${eventType}${payload ? ` with payload: ${JSON.stringify(payload)}` : ''}`
     );
   }
 }

@@ -41,7 +41,7 @@ export class SessionsService {
         venue: true,
         _count: {
           select: {
-            players: true,
+            players: { where: { registrationStatus: 'APPROVED' as const } },
             courts: true,
           },
         },
@@ -461,7 +461,7 @@ export class SessionsService {
         },
         _count: {
           select: {
-            players: true,
+            players: { where: { registrationStatus: 'APPROVED' as const } },
             courts: true,
           },
         },
@@ -674,7 +674,7 @@ export class SessionsService {
       include: {
         _count: {
           select: {
-            players: true,
+            players: { where: { registrationStatus: 'APPROVED' as const } },
           },
         },
       },

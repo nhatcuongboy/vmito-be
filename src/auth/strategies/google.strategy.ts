@@ -12,6 +12,7 @@ interface GoogleUser {
   role: string;
   image?: string;
   locale?: string;
+  returnUrl?: string;
 }
 
 @Injectable()
@@ -53,8 +54,25 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       return;
     }
 
-    // Get locale from state (passed through OAuth flow)
-    const locale = (req.query.state as string) || 'en';
+    // Parse state parameter which contains locale and optionally returnUrl
+    // State can be:
+    // 1. Simple string: "en" (just locale)
+    // 2. JSON string: {"locale":"en","returnUrl":"/browse/sessions?sessionId=xxx"}
+    let locale = 'en';
+    let returnUrl: string | undefined;
+    
+    const stateParam = req.query.state as string;
+    if (stateParam) {
+      try {
+        // Try to parse as JSON first
+        const stateData = JSON.parse(stateParam);
+        locale = stateData.locale || 'en';
+        returnUrl = stateData.returnUrl;
+      } catch {
+        // If not JSON, treat as simple locale string
+        locale = stateParam;
+      }
+    }
 
     try {
       const user = await this.authService.findOrCreateGoogleUser({
@@ -64,8 +82,8 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
         image: photos?.[0]?.value,
       });
 
-      // Add locale to user object for use in callback
-      done(null, { ...user, locale } as GoogleUser);
+      // Add locale and returnUrl to user object for use in callback
+      done(null, { ...user, locale, returnUrl } as GoogleUser);
     } catch (error) {
       done(error as Error, undefined);
     }

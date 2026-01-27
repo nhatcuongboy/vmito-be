@@ -149,6 +149,7 @@ model Player {
   id                 String       @id @default(cuid())
   sessionId          String
   userId             String? // Linked user account (optional for guests)
+  createdByUserId    String? // Track who created this player during registration
   playerNumber       Int
   name               String?
   gender             Gender?
