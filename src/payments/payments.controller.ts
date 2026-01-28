@@ -35,7 +35,7 @@ export class PaymentsController {
   }
 
   // Player's payments for a session
-  @Get('sessions/:sessionId/payments/me')
+  @Get('sessions/:sessionId/my-payments')
   @ApiOperation({ summary: 'Get my payments for a session' })
   @ApiResponse({ status: 200, description: 'My payment records' })
   async findMyPayments(
@@ -134,5 +134,31 @@ export class PaymentsController {
     @CurrentUser() user: { userId: string },
   ) {
     return this.service.getHostTransactionsWithUser(user.userId, targetUserId);
+  }
+
+  // Set split amount for SPLIT_EVENLY fee type
+  @Post('sessions/:sessionId/payments/split')
+  @ApiOperation({ summary: 'Set split amount for session (SPLIT_EVENLY fee type)' })
+  @ApiResponse({ status: 200, description: 'Split amount set and payments updated' })
+  @ApiResponse({ status: 400, description: 'Invalid fee type or no players' })
+  @ApiResponse({ status: 403, description: 'Not session host' })
+  async setSplitAmount(
+    @Param('sessionId') sessionId: string,
+    @Body() body: { totalAmount: number },
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.service.setSplitAmount(sessionId, body.totalAmount, user.userId);
+  }
+
+  // Get payment statistics for a session
+  @Get('sessions/:sessionId/payments/stats')
+  @ApiOperation({ summary: 'Get payment statistics for a session (host)' })
+  @ApiResponse({ status: 200, description: 'Payment statistics' })
+  @ApiResponse({ status: 403, description: 'Not session host' })
+  async getSessionStats(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.service.getSessionStats(sessionId, user.userId);
   }
 }

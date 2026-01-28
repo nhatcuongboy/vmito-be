@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubmitPaymentDto, ApprovePaymentDto, RejectPaymentDto, BulkApproveDto } from './dto';
-import { PaymentStatus } from '@prisma/client';
+import { PaymentStatus, FeeType } from '@prisma/client';
 
 @Injectable()
 export class PaymentsService {
@@ -484,5 +484,119 @@ export class PaymentsService {
       payments,
       summary,
     };
+  }
+
+  // Set split amount for a session (SPLIT_EVENLY fee type)
+  async setSplitAmount(sessionId: string, totalAmount: number, userId: string) {
+    // Verify session exists and user is the host
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { id: true, hostId: true },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    if (session.hostId !== userId) {
+      throw new ForbiddenException('Only session host can set split amount');
+    }
+
+    // Verify session has SPLIT_EVENLY fee config
+    const feeConfig = await this.prisma.sessionFeeConfig.findUnique({
+      where: { sessionId },
+      select: { feeType: true },
+    });
+
+    if (!feeConfig) {
+      throw new NotFoundException('Fee config not found');
+    }
+
+    if (feeConfig.feeType !== FeeType.SPLIT_EVENLY) {
+      throw new BadRequestException('Can only set split amount for SPLIT_EVENLY fee type');
+    }
+
+    // Count joined players
+    const playerCount = await this.prisma.player.count({
+      where: {
+        sessionId,
+        isJoined: true,
+      },
+    });
+
+    if (playerCount === 0) {
+      throw new BadRequestException('No players in session');
+    }
+
+    // Calculate amount per player
+    const amountPerPlayer = Math.ceil(totalAmount / playerCount);
+
+    // Update fee config
+    await this.prisma.sessionFeeConfig.update({
+      where: { sessionId },
+      data: {
+        splitTotal: totalAmount,
+        splitPerPlayer: amountPerPlayer,
+      },
+    });
+
+    // Update all payment records
+    await this.prisma.paymentRecord.updateMany({
+      where: { sessionId },
+      data: { amount: amountPerPlayer },
+    });
+
+    // Return updated payments
+    return this.prisma.paymentRecord.findMany({
+      where: { sessionId },
+      select: this.paymentWithPlayerSelect,
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  // Get payment statistics for a session
+  async getSessionStats(sessionId: string, userId: string) {
+    // Verify session exists
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { id: true, hostId: true },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    // Only host can view stats
+    if (session.hostId !== userId) {
+      throw new ForbiddenException('Only session host can view payment stats');
+    }
+
+    // Get all payments for session
+    const payments = await this.prisma.paymentRecord.findMany({
+      where: { sessionId },
+      select: {
+        id: true,
+        amount: true,
+        status: true,
+      },
+    });
+
+    // Calculate stats
+    const stats = {
+      totalPlayers: payments.length,
+      totalAmount: payments.reduce((sum, p) => sum + p.amount, 0),
+      paidAmount: payments
+        .filter((p) => p.status === PaymentStatus.APPROVED)
+        .reduce((sum, p) => sum + p.amount, 0),
+      pendingAmount: payments
+        .filter((p) => p.status !== PaymentStatus.APPROVED)
+        .reduce((sum, p) => sum + p.amount, 0),
+      pendingCount: payments.filter((p) => p.status === PaymentStatus.PENDING).length,
+      submittedCount: payments.filter((p) => p.status === PaymentStatus.SUBMITTED).length,
+      approvedCount: payments.filter((p) => p.status === PaymentStatus.APPROVED).length,
+      rejectedCount: payments.filter((p) => p.status === PaymentStatus.REJECTED).length,
+    };
+
+    return stats;
   }
 }
