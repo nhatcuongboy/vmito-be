@@ -38,6 +38,8 @@ model User {
   paymentSettings     HostPaymentSettings[]
   hostPayments        PaymentRecord[]        @relation("HostPayments")
   registeredPayments  PaymentRecord[]        @relation("RegisteredPayments")
+  ratingsGiven        Rating[]               @relation("RatingsGiven")
+  ratingsReceived     Rating[]               @relation("RatingsReceived")
 
   @@map("users")
 }
@@ -131,6 +133,7 @@ model Session {
   // Fee & Payment relations
   feeConfig      SessionFeeConfig?
   paymentRecords PaymentRecord[]
+  ratings        Rating[]
 
   @@map("sessions")
 }
@@ -663,4 +666,37 @@ model PaymentRecord {
   @@index([hostId])
   @@index([registeredByUserId])
   @@map("payment_records")
+}
+
+// ===========================================
+// Rating & Review System Models
+// ===========================================
+
+enum RatingType {
+  PLAYER_TO_HOST
+  HOST_TO_PLAYER
+}
+
+model Rating {
+  id          String     @id @default(cuid())
+  sessionId   String
+  raterUserId String     // User giving the rating
+  ratedUserId String     // User receiving the rating
+  type        RatingType // Direction of rating
+  rating      Int        // 1-5 stars
+  comment     String?    // Optional review (max 500 chars)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // Relations
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  rater     User    @relation("RatingsGiven", fields: [raterUserId], references: [id], onDelete: Cascade)
+  rated     User    @relation("RatingsReceived", fields: [ratedUserId], references: [id], onDelete: Cascade)
+
+  // Unique constraint: one rating per (session, rater, rated, type)
+  @@unique([sessionId, raterUserId, ratedUserId, type])
+  @@index([ratedUserId])
+  @@index([raterUserId])
+  @@index([sessionId])
+  @@map("ratings")
 }

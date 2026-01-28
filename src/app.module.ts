@@ -21,6 +21,7 @@ import { FeeModule } from './fee/fee.module';
 import { PaymentSettingsModule } from './payment-settings/payment-settings.module';
 import { PaymentsModule } from './payments/payments.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { RatingsModule } from './ratings/ratings.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import configuration from './config';
 
@@ -49,6 +50,7 @@ import configuration from './config';
     PaymentSettingsModule,
     PaymentsModule,
     UploadsModule,
+    RatingsModule,
   ],
   controllers: [AppController],
   providers: [
