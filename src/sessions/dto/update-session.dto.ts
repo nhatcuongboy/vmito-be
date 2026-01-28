@@ -78,4 +78,22 @@ export class UpdateSessionDto {
   @IsDateString()
   @IsOptional()
   endTime?: string;
+
+  @IsOptional()
+  feeConfig?: any;
+
+  @IsOptional()
+  host?: any;
+
+  @IsOptional()
+  courts?: any;
+
+  @IsOptional()
+  players?: any;
+
+  @IsOptional()
+  pendingPlayers?: any;
+
+  @IsOptional()
+  _count?: any;
 }

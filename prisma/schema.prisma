@@ -28,13 +28,16 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relations
-  playerRecords     Player[]
-  hostedSessions    Session[]          @relation("HostedSessions")
-  accounts          Account[]
-  sessions          AuthSession[]
-  hostedTournaments Tournament[]       @relation("HostedTournaments")
-  tournamentPlayers TournamentPlayer[] @relation("TournamentPlayers")
-  refreshTokens     RefreshToken[]
+  playerRecords       Player[]
+  hostedSessions      Session[]              @relation("HostedSessions")
+  accounts            Account[]
+  sessions            AuthSession[]
+  hostedTournaments   Tournament[]           @relation("HostedTournaments")
+  tournamentPlayers   TournamentPlayer[]     @relation("TournamentPlayers")
+  refreshTokens       RefreshToken[]
+  paymentSettings     HostPaymentSettings[]
+  hostPayments        PaymentRecord[]        @relation("HostPayments")
+  registeredPayments  PaymentRecord[]        @relation("RegisteredPayments")
 
   @@map("users")
 }
@@ -125,6 +128,10 @@ model Session {
   host      User     @relation("HostedSessions", fields: [hostId], references: [id])
   venue     Venue?   @relation(fields: [venueId], references: [id])
 
+  // Fee & Payment relations
+  feeConfig      SessionFeeConfig?
+  paymentRecords PaymentRecord[]
+
   @@map("sessions")
 }
 
@@ -182,6 +189,9 @@ model Player {
   currentCourt Court?        @relation(fields: [currentCourtId], references: [id])
   session      Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   user         User?         @relation(fields: [userId], references: [id])
+
+  // Payment relation
+  paymentRecord PaymentRecord?
 
   @@unique([sessionId, playerNumber])
   @@map("players")
@@ -566,4 +576,91 @@ model TournamentPairMember {
   @@unique([pairId, playerId])
   @@unique([pairId, position])
   @@map("tournament_pair_members")
+}
+
+// ===========================================
+// Fee & Payment Management Models
+// ===========================================
+
+enum FeeType {
+  FIXED
+  SPLIT_EVENLY
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+}
+
+enum PaymentStatus {
+  PENDING
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+model SessionFeeConfig {
+  id             String   @id @default(cuid())
+  sessionId      String   @unique
+  feeType        FeeType
+  maleFee        Int? // Fee for male players (in VND), nullable for SPLIT_EVENLY
+  femaleFee      Int? // Fee for female players (in VND), nullable for SPLIT_EVENLY
+  splitTotal     Int? // Total amount to split (for SPLIT_EVENLY), set after session
+  splitPerPlayer Int? // Calculated amount per player (for SPLIT_EVENLY)
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("session_fee_configs")
+}
+
+model HostPaymentSettings {
+  id                String   @id @default(cuid())
+  userId            String
+  bankName          String?
+  bankAccountNumber String?
+  accountHolderName String?
+  qrCodeUrl         String?
+  isDefault         Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("host_payment_settings")
+}
+
+model PaymentRecord {
+  id                 String         @id @default(cuid())
+  sessionId          String
+  playerId           String         @unique // One payment per player
+  registeredByUserId String? // User who registered this player (for multi-slot)
+  hostId             String
+  amount             Int // Amount in VND
+  paymentMethod      PaymentMethod?
+  status             PaymentStatus  @default(PENDING)
+  proofImageUrl      String?
+  proofNotes         String?
+  hostNotes          String?
+  submittedAt        DateTime?
+  approvedAt         DateTime?
+  rejectedAt         DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  // Relations
+  session        Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  player         Player  @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  host           User    @relation("HostPayments", fields: [hostId], references: [id])
+  registeredBy   User?   @relation("RegisteredPayments", fields: [registeredByUserId], references: [id])
+
+  @@index([sessionId])
+  @@index([hostId])
+  @@index([registeredByUserId])
+  @@map("payment_records")
 }

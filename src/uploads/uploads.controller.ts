@@ -1,0 +1,84 @@
+import {
+  Controller,
+  Post,
+  UseInterceptors,
+  UploadedFile,
+  ParseFilePipe,
+  MaxFileSizeValidator,
+  FileTypeValidator,
+  UseGuards,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { UploadsService } from './uploads.service';
+
+@ApiTags('uploads')
+@ApiBearerAuth('JWT-auth')
+@Controller('upload')
+@UseGuards(JwtAuthGuard)
+export class UploadsController {
+  constructor(private readonly uploadsService: UploadsService) {}
+
+  @Post('qr-code')
+  @ApiOperation({ summary: 'Upload QR code image' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        qrCode: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 201, description: 'QR code uploaded successfully' })
+  @UseInterceptors(FileInterceptor('qrCode'))
+  async uploadQrCode(
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }), // 5MB
+          new FileTypeValidator({ fileType: /^image\/(jpeg|png|gif|webp)$/ }),
+        ],
+      }),
+    )
+    file: Express.Multer.File,
+  ) {
+    const url = await this.uploadsService.saveQrCode(file);
+    return { url };
+  }
+
+  @Post('payment-proof')
+  @ApiOperation({ summary: 'Upload payment proof image' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        proof: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 201, description: 'Payment proof uploaded successfully' })
+  @UseInterceptors(FileInterceptor('proof'))
+  async uploadPaymentProof(
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 10 * 1024 * 1024 }), // 10MB
+          new FileTypeValidator({ fileType: /^image\/(jpeg|png|gif|webp)$/ }),
+        ],
+      }),
+    )
+    file: Express.Multer.File,
+  ) {
+    const url = await this.uploadsService.savePaymentProof(file);
+    return { url };
+  }
+}

@@ -95,6 +95,7 @@ export class SessionsService {
           },
         },
         venue: true,
+        feeConfig: true,
         _count: {
           select: {
             players: { where: { registrationStatus: 'APPROVED' as const } }, // Count approved players only
@@ -208,6 +209,7 @@ export class SessionsService {
             },
           },
         },
+        feeConfig: true,
         _count: {
           select: {
             players: { where: { registrationStatus: 'APPROVED' as const } as const },
@@ -427,7 +429,20 @@ export class SessionsService {
       data: courts,
     });
 
-    // Return session with courts
+    // Create fee configuration if provided
+    if (createSessionDto.feeConfig) {
+      await this.prisma.sessionFeeConfig.create({
+        data: {
+          sessionId: session.id,
+          feeType: createSessionDto.feeConfig.feeType,
+          maleFee: createSessionDto.feeConfig.maleFee,
+          femaleFee: createSessionDto.feeConfig.femaleFee,
+          notes: createSessionDto.feeConfig.notes,
+        },
+      });
+    }
+
+    // Return session with courts and feeConfig
     return this.prisma.session.findUnique({
       where: { id: session.id },
       include: {
@@ -459,6 +474,7 @@ export class SessionsService {
             },
           },
         },
+        feeConfig: true,
         _count: {
           select: {
             players: { where: { registrationStatus: 'APPROVED' as const } },
@@ -556,6 +572,8 @@ export class SessionsService {
             email: true,
           },
         },
+        feeConfig: true,
+        venue: true,
       },
     });
 
@@ -601,6 +619,44 @@ export class SessionsService {
               gt: updateSessionDto.numberOfCourts,
             },
             status: 'EMPTY',
+          },
+        });
+      }
+    }
+
+    // Handle fee configuration updates
+    if (updateSessionDto.feeConfig !== undefined) {
+      const existingFeeConfig = await this.prisma.sessionFeeConfig.findUnique({
+        where: { sessionId: id },
+      });
+
+      if (updateSessionDto.feeConfig === null) {
+        // Delete fee config if explicitly set to null
+        if (existingFeeConfig) {
+          await this.prisma.sessionFeeConfig.delete({
+            where: { sessionId: id },
+          });
+        }
+      } else if (existingFeeConfig) {
+        // Update existing fee config
+        await this.prisma.sessionFeeConfig.update({
+          where: { sessionId: id },
+          data: {
+            feeType: updateSessionDto.feeConfig.feeType,
+            maleFee: updateSessionDto.feeConfig.maleFee,
+            femaleFee: updateSessionDto.feeConfig.femaleFee,
+            notes: updateSessionDto.feeConfig.notes,
+          },
+        });
+      } else {
+        // Create new fee config
+        await this.prisma.sessionFeeConfig.create({
+          data: {
+            sessionId: id,
+            feeType: updateSessionDto.feeConfig.feeType,
+            maleFee: updateSessionDto.feeConfig.maleFee,
+            femaleFee: updateSessionDto.feeConfig.femaleFee,
+            notes: updateSessionDto.feeConfig.notes,
           },
         });
       }

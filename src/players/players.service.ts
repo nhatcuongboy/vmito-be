@@ -16,13 +16,15 @@ import {
   SessionsGateway,
   SessionEventType,
 } from '../sessions/sessions.gateway';
+import { FeeService } from '../fee/fee.service';
 
 @Injectable()
 export class PlayersService {
   constructor(
     private prisma: PrismaService,
     @Inject(forwardRef(() => SessionsGateway))
-    private sessionsGateway: SessionsGateway
+    private sessionsGateway: SessionsGateway,
+    private feeService: FeeService
   ) {}
 
   async findOne(id: string) {
@@ -211,6 +213,7 @@ export class PlayersService {
       where: { id: sessionId },
       select: {
         id: true,
+        hostId: true,
         requiredLevels: true,
         players: {
           select: { playerNumber: true },
@@ -283,6 +286,13 @@ export class PlayersService {
       sessionId,
       SessionEventType.PLAYER_CREATED,
       { playerId: newPlayer.id }
+    );
+
+    // Create payment record if session has fee config
+    await this.feeService.createPaymentRecordForPlayer(
+      sessionId,
+      newPlayer.id,
+      session.hostId
     );
 
     return newPlayer;
@@ -393,6 +403,17 @@ export class PlayersService {
     const updatedSession = await this.prisma.session.findUnique({
       where: { id: sessionId },
     });
+
+    // Create payment records for all created players
+    await Promise.all(
+      createdPlayers.map((p) =>
+        this.feeService.createPaymentRecordForPlayer(
+          sessionId,
+          p.id,
+          session.hostId
+        )
+      )
+    );
 
     return {
       createdPlayers,
@@ -656,6 +677,17 @@ export class PlayersService {
       );
     }
 
+    // Create payment records for registered players
+    await Promise.all(
+      createdPlayers.map((p) =>
+        this.feeService.createPaymentRecordForPlayer(
+          sessionId,
+          p.id,
+          session.hostId
+        )
+      )
+    );
+
     return {
       createdPlayers,
       message: isHost
@@ -720,8 +752,17 @@ export class PlayersService {
           sessionId,
           sessionName: session.name || 'Badminton Session',
           status,
-          playerId
+          playerId,
         }
+      );
+    }
+
+    // If Approved, create payment record if session has fee config
+    if (status === 'APPROVED') {
+      await this.feeService.createPaymentRecordForPlayer(
+        sessionId,
+        playerId,
+        session.hostId
       );
     }
 

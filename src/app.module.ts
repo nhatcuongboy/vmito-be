@@ -17,6 +17,10 @@ import { CategoriesModule } from './categories/categories.module';
 import { PwaModule } from './pwa/pwa.module';
 import { TasksModule } from './tasks/tasks.module';
 import { VenuesModule } from './venues/venues.module';
+import { FeeModule } from './fee/fee.module';
+import { PaymentSettingsModule } from './payment-settings/payment-settings.module';
+import { PaymentsModule } from './payments/payments.module';
+import { UploadsModule } from './uploads/uploads.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import configuration from './config';
 
@@ -41,6 +45,10 @@ import configuration from './config';
     TasksModule,
     PwaModule,
     VenuesModule,
+    FeeModule,
+    PaymentSettingsModule,
+    PaymentsModule,
+    UploadsModule,
   ],
   controllers: [AppController],
   providers: [

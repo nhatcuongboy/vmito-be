@@ -126,4 +126,19 @@ export class CreateSessionDto {
   @IsArray()
   @IsOptional()
   courts?: CourtConfigDto[];
+
+  @IsOptional()
+  feeConfig?: any;
+
+  @IsOptional()
+  host?: any;
+
+  @IsOptional()
+  players?: any;
+
+  @IsOptional()
+  pendingPlayers?: any;
+
+  @IsOptional()
+  _count?: any;
 }
