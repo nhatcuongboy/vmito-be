@@ -52,14 +52,28 @@ export class SessionsService {
     });
   }
 
-  async findAvailable(filters?: { date?: string; level?: number }) {
+  async findAvailable(filters?: {
+    date?: string;
+    level?: number;
+    city?: string;
+    district?: string;
+    minFee?: number;
+    maxFee?: number;
+    hasSlots?: boolean;
+    minAvailableSlots?: number;
+    searchQuery?: string;
+    lat?: number;
+    lng?: number;
+    sortByDistance?: boolean;
+  }) {
     const where: Prisma.SessionWhereInput = {
-      status: 'PREPARING', // Only show sessions that haven't started (or maybe allow IN_PROGRESS too?)
+      status: 'PREPARING', // Only show sessions that haven't started
       endTime: {
         gt: new Date(),
       },
     };
 
+    // Date filter
     if (filters?.date) {
       const date = new Date(filters.date);
       const startOfDay = new Date(date.setHours(0, 0, 0, 0));
@@ -71,20 +85,92 @@ export class SessionsService {
       };
     }
 
+    // Level filter
     if (filters?.level) {
-      // If session has no specific level requirements (empty array), it's open to all
-      // OR if the session's requiredLevels includes the players level
-      // Prisma doesn't support "array contains X OR array is empty" easily in one clause without raw query or careful structure
-      // For now, let's filter in memory or simplify.
-
-      // Option 1: Filter sessions that include this level in requiredLevels OR requiredLevels is empty
       where.OR = [
-        { requiredLevels: { has: Number(filters.level) } }, // Array contains level
-        { requiredLevels: { equals: [] } }, // Array is empty (open to all)
+        { requiredLevels: { has: Number(filters.level) } },
+        { requiredLevels: { equals: [] } },
       ];
     }
 
-    return this.prisma.session.findMany({
+    // Area filters - City and District
+    if (filters?.city) {
+      where.venue = {
+        ...(where.venue as Prisma.VenueWhereInput),
+        city: {
+          contains: filters.city,
+          mode: 'insensitive',
+        },
+      } as Prisma.VenueWhereInput;
+    }
+
+    if (filters?.district) {
+      where.venue = {
+        ...(where.venue as Prisma.VenueWhereInput),
+        district: {
+          contains: filters.district,
+          mode: 'insensitive',
+        },
+      } as Prisma.VenueWhereInput;
+    }
+
+    // Fee range filter
+    if (filters?.minFee !== undefined || filters?.maxFee !== undefined) {
+      where.feeConfig = {
+        ...(where.feeConfig as object),
+        OR: [
+          // Check male fee
+          ...(filters?.minFee !== undefined && filters?.maxFee !== undefined
+            ? [
+                {
+                  maleFee: {
+                    gte: filters.minFee,
+                    lte: filters.maxFee,
+                  },
+                },
+              ]
+            : filters?.minFee !== undefined
+              ? [{ maleFee: { gte: filters.minFee } }]
+              : [{ maleFee: { lte: filters.maxFee } }]),
+          // Check female fee
+          ...(filters?.minFee !== undefined && filters?.maxFee !== undefined
+            ? [
+                {
+                  femaleFee: {
+                    gte: filters.minFee,
+                    lte: filters.maxFee,
+                  },
+                },
+              ]
+            : filters?.minFee !== undefined
+              ? [{ femaleFee: { gte: filters.minFee } }]
+              : [{ femaleFee: { lte: filters.maxFee } }]),
+        ],
+      };
+    }
+
+    // Search query - full text search across multiple fields
+    if (filters?.searchQuery) {
+      const searchTerm = filters.searchQuery.toLowerCase();
+      where.OR = [
+        { name: { contains: searchTerm, mode: 'insensitive' } },
+        { location: { contains: searchTerm, mode: 'insensitive' } },
+        { host: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        {
+          venue: {
+            OR: [
+              { name: { contains: searchTerm, mode: 'insensitive' } },
+              { address: { contains: searchTerm, mode: 'insensitive' } },
+              { district: { contains: searchTerm, mode: 'insensitive' } },
+              { city: { contains: searchTerm, mode: 'insensitive' } },
+            ],
+          },
+        },
+      ];
+    }
+
+    // Fetch sessions
+    let sessions = await this.prisma.session.findMany({
       where,
       include: {
         host: {
@@ -98,16 +184,101 @@ export class SessionsService {
         feeConfig: true,
         _count: {
           select: {
-            players: { where: { registrationStatus: 'APPROVED' as const } }, // Count approved players only
+            players: { where: { registrationStatus: 'APPROVED' as const } },
             courts: true,
           },
         },
-        // We might want to see how many approved/pending players there are specifically, but _count gives total.
       },
       orderBy: {
         startTime: 'asc',
       },
     });
+
+    // Post-fetch filters (for complex calculations)
+    
+    // Filter by available slots
+    if (filters?.hasSlots !== undefined || filters?.minAvailableSlots !== undefined) {
+      sessions = sessions.filter((session) => {
+        const maxPlayers = session.numberOfCourts * session.maxPlayersPerCourt;
+        const approvedPlayers = session._count?.players || 0;
+        const availableSlots = maxPlayers - approvedPlayers;
+
+        if (filters.hasSlots !== undefined) {
+          // If hasSlots is true, only show sessions with available slots
+          // If hasSlots is false, show full sessions
+          const hasAvailableSlots = availableSlots > 0;
+          if (filters.hasSlots && !hasAvailableSlots) return false;
+          if (!filters.hasSlots && hasAvailableSlots) return false;
+        }
+
+        if (filters.minAvailableSlots !== undefined) {
+          if (availableSlots < filters.minAvailableSlots) return false;
+        }
+
+        return true;
+      });
+    }
+
+    // Calculate distance and sort if geospatial params provided
+    if (
+      filters?.lat !== undefined &&
+      filters?.lng !== undefined &&
+      filters?.sortByDistance
+    ) {
+      // Calculate distance for each session using Haversine formula
+      const sessionsWithDistance = sessions
+        .map((session) => {
+          if (session.venue?.lat && session.venue?.lng) {
+            const distance = this.calculateDistance(
+              filters.lat!,
+              filters.lng!,
+              session.venue.lat,
+              session.venue.lng
+            );
+            return { ...session, distance };
+          }
+          return { ...session, distance: null };
+        })
+        .sort((a, b) => {
+          // Sort by distance (nulls last)
+          if (a.distance === null && b.distance === null) return 0;
+          if (a.distance === null) return 1;
+          if (b.distance === null) return -1;
+          return a.distance - b.distance;
+        });
+
+      return sessionsWithDistance;
+    }
+
+    return sessions;
+  }
+
+  // Haversine formula to calculate distance between two lat/lng points in kilometers
+  private calculateDistance(
+    lat1: number,
+    lng1: number,
+    lat2: number,
+    lng2: number
+  ): number {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = this.toRad(lat2 - lat1);
+    const dLng = this.toRad(lng2 - lng1);
+
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(this.toRad(lat1)) *
+        Math.cos(this.toRad(lat2)) *
+        Math.sin(dLng / 2) *
+        Math.sin(dLng / 2);
+
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c;
+
+    return Math.round(distance * 10) / 10; // Round to 1 decimal place
+  }
+
+  private toRad(degrees: number): number {
+    return degrees * (Math.PI / 180);
   }
 
   async findOne(id: string) {

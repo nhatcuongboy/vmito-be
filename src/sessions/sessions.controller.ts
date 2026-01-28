@@ -40,8 +40,34 @@ export class SessionsController {
 
   @Public()
   @Get('available')
-  getAvailable(@Query('date') date?: string, @Query('level') level?: number) {
-    return this.sessionsService.findAvailable({ date, level });
+  getAvailable(
+    @Query('date') date?: string,
+    @Query('level') level?: number,
+    @Query('city') city?: string,
+    @Query('district') district?: string,
+    @Query('minFee') minFee?: string,
+    @Query('maxFee') maxFee?: string,
+    @Query('hasSlots') hasSlots?: string,
+    @Query('minAvailableSlots') minAvailableSlots?: string,
+    @Query('searchQuery') searchQuery?: string,
+    @Query('lat') lat?: string,
+    @Query('lng') lng?: string,
+    @Query('sortByDistance') sortByDistance?: string
+  ) {
+    return this.sessionsService.findAvailable({
+      date,
+      level,
+      city,
+      district,
+      minFee: minFee ? parseFloat(minFee) : undefined,
+      maxFee: maxFee ? parseFloat(maxFee) : undefined,
+      hasSlots: hasSlots === 'true' ? true : hasSlots === 'false' ? false : undefined,
+      minAvailableSlots: minAvailableSlots ? parseInt(minAvailableSlots, 10) : undefined,
+      searchQuery,
+      lat: lat ? parseFloat(lat) : undefined,
+      lng: lng ? parseFloat(lng) : undefined,
+      sortByDistance: sortByDistance === 'true',
+    });
   }
 
   @Get(':id')
