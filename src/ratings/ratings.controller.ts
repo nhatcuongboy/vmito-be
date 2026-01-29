@@ -10,6 +10,7 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { RatingsService } from './ratings.service';
 import { CreateRatingDto, GetRatingsDto, BatchUserStatsDto } from './dto';
 
@@ -33,6 +34,7 @@ export class RatingsController {
     return this.service.create(dto, user.userId, user.role);
   }
 
+  @Public()
   @Get()
   @ApiOperation({ summary: 'Get ratings with filters' })
   @ApiResponse({ status: 200, description: 'List of ratings' })
@@ -50,6 +52,7 @@ export class RatingsController {
     return this.service.getSessionEligibility(sessionId, user.userId);
   }
 
+  @Public()
   @Post('users/batch-stats')
   @ApiOperation({ summary: 'Get rating statistics for multiple users (batch)' })
   @ApiResponse({ status: 200, description: 'Array of user rating stats' })
@@ -57,6 +60,7 @@ export class RatingsController {
     return this.service.getBatchUserStats(dto.userIds);
   }
 
+  @Public()
   @Get('user/:userId/stats')
   @ApiOperation({ summary: 'Get rating statistics for a user' })
   @ApiResponse({ status: 200, description: 'User rating stats' })
@@ -64,6 +68,7 @@ export class RatingsController {
     return this.service.getUserStats(userId);
   }
 
+  @Public()
   @Get('user/:userId/received')
   @ApiOperation({ summary: 'Get ratings received by a user' })
   @ApiResponse({ status: 200, description: 'List of received ratings' })
@@ -71,6 +76,7 @@ export class RatingsController {
     return this.service.getUserReceivedRatings(userId);
   }
 
+  @Public()
   @Get('user/:userId/given')
   @ApiOperation({ summary: 'Get ratings given by a user' })
   @ApiResponse({ status: 200, description: 'List of given ratings' })
