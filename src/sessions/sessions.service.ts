@@ -12,13 +12,15 @@ import { CourtDirection, Prisma } from '@prisma/client';
 import { VALID_LEVELS } from '../common/constants/level.constants';
 
 import { SessionsGateway } from './sessions.gateway';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 
 @Injectable()
 export class SessionsService {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
-    private sessionsGateway: SessionsGateway
+    private sessionsGateway: SessionsGateway,
+    private cloudinaryService: CloudinaryService
   ) {}
 
   async findAll(user?: { userId: string; role: string }) {
@@ -718,6 +720,8 @@ export class SessionsService {
         hostName: updateSessionDto.hostName,
         hostPhone: updateSessionDto.hostPhone,
         courtColor: updateSessionDto.courtColor,
+        coverPhoto: updateSessionDto.coverPhoto,
+        coverPhotoPublicId: updateSessionDto.coverPhotoPublicId,
         venue: updateSessionDto.venue
           ? {
               connectOrCreate: {
@@ -1655,5 +1659,101 @@ export class SessionsService {
       playingPlayers,
       lastUpdated: new Date().toISOString(),
     };
+  }
+
+  async uploadCoverPhoto(
+    sessionId: string,
+    file: Express.Multer.File,
+    userId?: string,
+    role?: string
+  ) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    // Authorization check: only session owner or admin can upload cover photo
+    if (userId && role !== 'ADMIN' && session.hostId !== userId) {
+      throw new ForbiddenException('Not authorized to modify this session');
+    }
+
+    // Delete old cover photo if exists
+    if (session.coverPhotoPublicId) {
+      await this.cloudinaryService.deleteImage(session.coverPhotoPublicId);
+    }
+
+    // Upload new cover photo
+    const uploadResult = await this.cloudinaryService.uploadSessionCoverPhoto(file);
+
+    // Update session with new cover photo
+    const updatedSession = await this.prisma.session.update({
+      where: { id: sessionId },
+      data: {
+        coverPhoto: uploadResult.secureUrl,
+        coverPhotoPublicId: uploadResult.publicId,
+      },
+      include: {
+        host: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        venue: true,
+        feeConfig: true,
+      },
+    });
+
+    return updatedSession;
+  }
+
+  async deleteCoverPhoto(
+    sessionId: string,
+    userId?: string,
+    role?: string
+  ) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    // Authorization check: only session owner or admin can delete cover photo
+    if (userId && role !== 'ADMIN' && session.hostId !== userId) {
+      throw new ForbiddenException('Not authorized to modify this session');
+    }
+
+    // Delete cover photo from Cloudinary if exists
+    if (session.coverPhotoPublicId) {
+      await this.cloudinaryService.deleteImage(session.coverPhotoPublicId);
+    }
+
+    // Update session to remove cover photo
+    const updatedSession = await this.prisma.session.update({
+      where: { id: sessionId },
+      data: {
+        coverPhoto: null,
+        coverPhotoPublicId: null,
+      },
+      include: {
+        host: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        venue: true,
+        feeConfig: true,
+      },
+    });
+
+    return updatedSession;
   }
 }

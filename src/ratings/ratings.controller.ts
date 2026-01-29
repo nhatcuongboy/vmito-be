@@ -11,7 +11,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagg
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RatingsService } from './ratings.service';
-import { CreateRatingDto, GetRatingsDto } from './dto';
+import { CreateRatingDto, GetRatingsDto, BatchUserStatsDto } from './dto';
 
 @ApiTags('ratings')
 @ApiBearerAuth('JWT-auth')
@@ -48,6 +48,13 @@ export class RatingsController {
     @CurrentUser() user: { userId: string },
   ) {
     return this.service.getSessionEligibility(sessionId, user.userId);
+  }
+
+  @Post('users/batch-stats')
+  @ApiOperation({ summary: 'Get rating statistics for multiple users (batch)' })
+  @ApiResponse({ status: 200, description: 'Array of user rating stats' })
+  async getBatchUserStats(@Body() dto: BatchUserStatsDto) {
+    return this.service.getBatchUserStats(dto.userIds);
   }
 
   @Get('user/:userId/stats')

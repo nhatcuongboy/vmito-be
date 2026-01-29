@@ -3,9 +3,10 @@ import { SessionsController } from './sessions.controller';
 import { SessionsService } from './sessions.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SessionsGateway } from './sessions.gateway';
+import { CloudinaryModule } from '../cloudinary/cloudinary.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, CloudinaryModule],
   controllers: [SessionsController],
   providers: [SessionsService, SessionsGateway],
   exports: [SessionsService, SessionsGateway],

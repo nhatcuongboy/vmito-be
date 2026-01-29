@@ -98,6 +98,16 @@ export class CloudinaryService {
     });
   }
 
+  async uploadSessionCoverPhoto(file: Express.Multer.File): Promise<CloudinaryUploadResult> {
+    return this.uploadImage(file, 'session-covers', {
+      transformation: [
+        { width: 1200, height: 630, crop: 'fill' },
+        { quality: 'auto:good' },
+        { fetch_format: 'auto' },
+      ],
+    });
+  }
+
   async deleteImage(publicId: string): Promise<void> {
     try {
       await cloudinary.uploader.destroy(publicId);

@@ -121,7 +121,9 @@ model Session {
   // Player level requirements (empty array = all levels allowed)
   requiredLevels Int[] @default([]) // Array of level IDs (1-7)
 
-  courtColor String @default("#179a3b")
+  courtColor       String  @default("#179a3b")
+  coverPhoto       String? // Cloudinary URL for session cover photo
+  coverPhotoPublicId String? // Cloudinary public ID for cover photo
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

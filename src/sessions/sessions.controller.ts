@@ -11,7 +11,11 @@ import {
   UseGuards,
   Header,
   ForbiddenException,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { SessionsService } from './sessions.service';
 import { CreateSessionDto } from './dto/create-session.dto';
@@ -178,5 +182,36 @@ export class SessionsController {
   @Get(':id/wait-times')
   getWaitTimeStats(@Param('id') id: string) {
     return this.sessionsService.getWaitTimeStats(id);
+  }
+
+  @Post(':id/cover-photo')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadCoverPhoto(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    return this.sessionsService.uploadCoverPhoto(
+      id,
+      file,
+      user.userId,
+      user.role
+    );
+  }
+
+  @Delete(':id/cover-photo')
+  async deleteCoverPhoto(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    return this.sessionsService.deleteCoverPhoto(
+      id,
+      user.userId,
+      user.role
+    );
   }
 }

@@ -244,6 +244,72 @@ export class RatingsService {
     };
   }
 
+  // Get rating stats for multiple users (batch)
+  async getBatchUserStats(userIds: string[]) {
+    if (!userIds || userIds.length === 0) {
+      return [];
+    }
+
+    // Remove duplicates
+    const uniqueUserIds = [...new Set(userIds)];
+
+    // Fetch all ratings for these users in one query
+    const receivedRatings = await this.prisma.rating.findMany({
+      where: { ratedUserId: { in: uniqueUserIds } },
+      select: {
+        ratedUserId: true,
+        rating: true,
+        type: true,
+      },
+    });
+
+    // Group ratings by user
+    const ratingsByUser = new Map<string, any[]>();
+    for (const rating of receivedRatings) {
+      if (!ratingsByUser.has(rating.ratedUserId)) {
+        ratingsByUser.set(rating.ratedUserId, []);
+      }
+      ratingsByUser.get(rating.ratedUserId)!.push(rating);
+    }
+
+    // Calculate stats for each user
+    return uniqueUserIds.map((userId) => {
+      const userRatings = ratingsByUser.get(userId) || [];
+      const totalRatings = userRatings.length;
+      const averageRating =
+        totalRatings > 0
+          ? userRatings.reduce((sum, r) => sum + r.rating, 0) / totalRatings
+          : 0;
+
+      const asHost = userRatings.filter((r) => r.type === RatingType.PLAYER_TO_HOST);
+      const asPlayer = userRatings.filter((r) => r.type === RatingType.HOST_TO_PLAYER);
+
+      return {
+        userId,
+        averageRating: Math.round(averageRating * 10) / 10,
+        totalRatings,
+        asHost: {
+          averageRating:
+            asHost.length > 0
+              ? Math.round(
+                  (asHost.reduce((sum, r) => sum + r.rating, 0) / asHost.length) * 10,
+                ) / 10
+              : 0,
+          totalRatings: asHost.length,
+        },
+        asPlayer: {
+          averageRating:
+            asPlayer.length > 0
+              ? Math.round(
+                  (asPlayer.reduce((sum, r) => sum + r.rating, 0) / asPlayer.length) * 10,
+                ) / 10
+              : 0,
+          totalRatings: asPlayer.length,
+        },
+      };
+    });
+  }
+
   // Get user rating stats
   async getUserStats(userId: string) {
     const user = await this.prisma.user.findUnique({

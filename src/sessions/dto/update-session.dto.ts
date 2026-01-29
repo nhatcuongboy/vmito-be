@@ -71,6 +71,14 @@ export class UpdateSessionDto {
   @IsOptional()
   courtColor?: string;
 
+  @IsString()
+  @IsOptional()
+  coverPhoto?: string;
+
+  @IsString()
+  @IsOptional()
+  coverPhotoPublicId?: string;
+
   @IsDateString()
   @IsOptional()
   startTime?: string;
