@@ -12,6 +12,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UploadsService } from './uploads.service';
+import { UploadResponseDto } from '../cloudinary/dto/upload-response.dto';
 
 @ApiTags('uploads')
 @ApiBearerAuth('JWT-auth')
@@ -34,7 +35,7 @@ export class UploadsController {
       },
     },
   })
-  @ApiResponse({ status: 201, description: 'QR code uploaded successfully' })
+  @ApiResponse({ status: 201, description: 'QR code uploaded successfully', type: UploadResponseDto })
   @UseInterceptors(FileInterceptor('qrCode'))
   async uploadQrCode(
     @UploadedFile(
@@ -47,8 +48,7 @@ export class UploadsController {
     )
     file: Express.Multer.File,
   ) {
-    const url = await this.uploadsService.saveQrCode(file);
-    return { url };
+    return await this.uploadsService.saveQrCode(file);
   }
 
   @Post('payment-proof')
@@ -65,7 +65,7 @@ export class UploadsController {
       },
     },
   })
-  @ApiResponse({ status: 201, description: 'Payment proof uploaded successfully' })
+  @ApiResponse({ status: 201, description: 'Payment proof uploaded successfully', type: UploadResponseDto })
   @UseInterceptors(FileInterceptor('proof'))
   async uploadPaymentProof(
     @UploadedFile(
@@ -78,7 +78,36 @@ export class UploadsController {
     )
     file: Express.Multer.File,
   ) {
-    const url = await this.uploadsService.savePaymentProof(file);
-    return { url };
+    return await this.uploadsService.savePaymentProof(file);
+  }
+
+  @Post('avatar')
+  @ApiOperation({ summary: 'Upload avatar image' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        avatar: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 201, description: 'Avatar uploaded successfully', type: UploadResponseDto })
+  @UseInterceptors(FileInterceptor('avatar'))
+  async uploadAvatar(
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }),
+          new FileTypeValidator({ fileType: /^image\/(jpeg|png|gif|webp)$/ }),
+        ],
+      }),
+    )
+    file: Express.Multer.File,
+  ) {
+    return await this.uploadsService.saveAvatar(file);
   }
 }

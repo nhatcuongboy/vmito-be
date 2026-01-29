@@ -35,6 +35,10 @@ export class UpdateUserDto {
   image?: string;
 
   @IsString()
+  @IsOptional()
+  imagePublicId?: string;
+
+  @IsString()
   @MinLength(6)
   @IsOptional()
   password?: string;

@@ -20,6 +20,7 @@ export class UsersService {
     name: true,
     role: true,
     image: true,
+    imagePublicId: true,
     gender: true,
     level: true,
     levelDescription: true,

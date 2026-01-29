@@ -1,40 +1,23 @@
 import { Injectable } from '@nestjs/common';
-import * as fs from 'fs';
-import * as path from 'path';
-import { randomUUID } from 'crypto';
+import { CloudinaryService, CloudinaryUploadResult } from '../cloudinary/cloudinary.service';
 
 @Injectable()
 export class UploadsService {
-  private readonly uploadsDir = path.join(process.cwd(), 'uploads');
+  constructor(private readonly cloudinaryService: CloudinaryService) {}
 
-  constructor() {
-    // Ensure upload directories exist
-    this.ensureDir(path.join(this.uploadsDir, 'qr-codes'));
-    this.ensureDir(path.join(this.uploadsDir, 'payment-proofs'));
+  async saveQrCode(file: Express.Multer.File): Promise<CloudinaryUploadResult> {
+    return await this.cloudinaryService.uploadQrCode(file);
   }
 
-  private ensureDir(dir: string) {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
+  async savePaymentProof(file: Express.Multer.File): Promise<CloudinaryUploadResult> {
+    return await this.cloudinaryService.uploadPaymentProof(file);
   }
 
-  async saveQrCode(file: Express.Multer.File): Promise<string> {
-    return this.saveFile(file, 'qr-codes');
+  async saveAvatar(file: Express.Multer.File): Promise<CloudinaryUploadResult> {
+    return await this.cloudinaryService.uploadAvatar(file);
   }
 
-  async savePaymentProof(file: Express.Multer.File): Promise<string> {
-    return this.saveFile(file, 'payment-proofs');
-  }
-
-  private async saveFile(file: Express.Multer.File, subDir: string): Promise<string> {
-    const ext = path.extname(file.originalname);
-    const filename = `${randomUUID()}${ext}`;
-    const filePath = path.join(this.uploadsDir, subDir, filename);
-
-    fs.writeFileSync(filePath, file.buffer);
-
-    // Return the URL path (relative to uploads directory)
-    return `/uploads/${subDir}/${filename}`;
+  async deleteImage(publicId: string): Promise<void> {
+    await this.cloudinaryService.deleteImage(publicId);
   }
 }

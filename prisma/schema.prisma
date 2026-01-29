@@ -16,6 +16,7 @@ model User {
   password      String? // For email/password auth
   emailVerified DateTime?
   image         String?
+  imagePublicId String? // Cloudinary public ID for avatar
   role          Role      @default(PLAYER)
 
   // Player related information
@@ -627,6 +628,7 @@ model HostPaymentSettings {
   bankAccountNumber String?
   accountHolderName String?
   qrCodeUrl         String?
+  qrCodePublicId    String? // Cloudinary public ID for QR code
   isDefault         Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -648,6 +650,7 @@ model PaymentRecord {
   paymentMethod      PaymentMethod?
   status             PaymentStatus  @default(PENDING)
   proofImageUrl      String?
+  proofImagePublicId String? // Cloudinary public ID for payment proof
   proofNotes         String?
   hostNotes          String?
   submittedAt        DateTime?

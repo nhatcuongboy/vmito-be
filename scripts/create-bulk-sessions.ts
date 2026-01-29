@@ -5,7 +5,7 @@
  */
 
 const API_URL = 'https://vmito.com/api/sessions';
-const TOKEN = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbWt5OXkzemQwMDE5cDUwMTh6cGZlMHVqIiwiZW1haWwiOiJtaW5obGVAZ21haWwuY29tIiwicm9sZSI6IkhPU1QiLCJpYXQiOjE3Njk2MTk4Nzh9.OptO2V8ABqrJVIOsB0XmTrjphNisLai8WE-DlFLmBZ8';
+const TOKEN = '';
 
 const DRY_RUN = process.env.DRY_RUN === 'true';
 
