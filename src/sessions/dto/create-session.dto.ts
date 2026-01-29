@@ -123,6 +123,10 @@ export class CreateSessionDto {
   @IsOptional()
   coverPhotoPublicId?: string;
 
+  @IsString()
+  @IsOptional()
+  shuttlecock?: string;
+
   @IsDateString()
   @IsOptional()
   startTime?: string;

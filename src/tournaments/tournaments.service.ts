@@ -21,6 +21,7 @@ export class TournamentsService {
             id: true,
             name: true,
             email: true,
+            image: true,
           },
         },
         _count: {
@@ -48,6 +49,7 @@ export class TournamentsService {
             id: true,
             name: true,
             email: true,
+            image: true,
           },
         },
         categories: {
@@ -161,6 +163,7 @@ export class TournamentsService {
             id: true,
             name: true,
             email: true,
+            image: true,
           },
         },
         categories: true,
@@ -249,6 +252,7 @@ export class TournamentsService {
             id: true,
             name: true,
             email: true,
+            image: true,
           },
         },
         _count: {

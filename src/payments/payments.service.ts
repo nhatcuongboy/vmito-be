@@ -249,6 +249,7 @@ export class PaymentsService {
               select: {
                 id: true,
                 name: true,
+                image: true,
               },
             },
           },
@@ -370,7 +371,7 @@ export class PaymentsService {
   async getPlayerTransactionsWithHost(userId: string, hostId: string) {
     const host = await this.prisma.user.findUnique({
       where: { id: hostId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, image: true },
     });
 
     if (!host) {

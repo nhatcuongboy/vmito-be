@@ -79,6 +79,10 @@ export class UpdateSessionDto {
   @IsOptional()
   coverPhotoPublicId?: string;
 
+  @IsString()
+  @IsOptional()
+  shuttlecock?: string;
+
   @IsDateString()
   @IsOptional()
   startTime?: string;
