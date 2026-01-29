@@ -37,9 +37,9 @@ export class FeeController {
   async create(
     @Param('sessionId') sessionId: string,
     @Body() dto: CreateFeeConfigDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.feeService.create(sessionId, dto, user.userId);
+    return this.feeService.create(sessionId, dto, user.userId, user.role);
   }
 
   @Put()
@@ -50,9 +50,9 @@ export class FeeController {
   async update(
     @Param('sessionId') sessionId: string,
     @Body() dto: UpdateFeeConfigDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.feeService.update(sessionId, dto, user.userId);
+    return this.feeService.update(sessionId, dto, user.userId, user.role);
   }
 
   @Delete()
@@ -62,8 +62,8 @@ export class FeeController {
   @ApiResponse({ status: 404, description: 'Fee config not found' })
   async delete(
     @Param('sessionId') sessionId: string,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.feeService.delete(sessionId, user.userId);
+    return this.feeService.delete(sessionId, user.userId, user.role);
   }
 }

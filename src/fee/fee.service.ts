@@ -33,7 +33,7 @@ export class FeeService {
     });
   }
 
-  async create(sessionId: string, dto: CreateFeeConfigDto, userId: string) {
+  async create(sessionId: string, dto: CreateFeeConfigDto, userId: string, role?: string) {
     // Verify session exists and user is the host
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
@@ -44,7 +44,7 @@ export class FeeService {
       throw new NotFoundException('Session not found');
     }
 
-    if (session.hostId !== userId) {
+    if (role !== 'ADMIN' && session.hostId !== userId) {
       throw new ForbiddenException('Only session host can create fee config');
     }
 
@@ -86,7 +86,7 @@ export class FeeService {
     return feeConfig;
   }
 
-  async update(sessionId: string, dto: UpdateFeeConfigDto, userId: string) {
+  async update(sessionId: string, dto: UpdateFeeConfigDto, userId: string, role?: string) {
     // Verify session exists and user is the host
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
@@ -97,7 +97,7 @@ export class FeeService {
       throw new NotFoundException('Session not found');
     }
 
-    if (session.hostId !== userId) {
+    if (role !== 'ADMIN' && session.hostId !== userId) {
       throw new ForbiddenException('Only session host can update fee config');
     }
 
@@ -139,7 +139,7 @@ export class FeeService {
     return feeConfig;
   }
 
-  async delete(sessionId: string, userId: string) {
+  async delete(sessionId: string, userId: string, role?: string) {
     // Verify session exists and user is the host
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
@@ -150,7 +150,7 @@ export class FeeService {
       throw new NotFoundException('Session not found');
     }
 
-    if (session.hostId !== userId) {
+    if (role !== 'ADMIN' && session.hostId !== userId) {
       throw new ForbiddenException('Only session host can delete fee config');
     }
 

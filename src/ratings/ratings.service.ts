@@ -51,7 +51,7 @@ export class RatingsService {
   constructor(private prisma: PrismaService) {}
 
   // Create a new rating
-  async create(dto: CreateRatingDto, raterUserId: string) {
+  async create(dto: CreateRatingDto, raterUserId: string, role?: string) {
     // Verify session exists and is finished
     const session = await this.prisma.session.findUnique({
       where: { id: dto.sessionId },
@@ -87,8 +87,8 @@ export class RatingsService {
         throw new BadRequestException('Rated user must be the session host');
       }
     } else if (dto.type === RatingType.HOST_TO_PLAYER) {
-      // Host rating player - verify rater is the host
-      if (raterUserId !== session.hostId) {
+      // Host rating player - verify rater is the host or admin
+      if (role !== 'ADMIN' && raterUserId !== session.hostId) {
         throw new ForbiddenException('Only session host can rate players');
       }
       // Verify rated user was a player in the session

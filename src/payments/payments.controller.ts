@@ -29,9 +29,9 @@ export class PaymentsController {
   async findBySession(
     @Param('sessionId') sessionId: string,
     @Query('status') status: PaymentStatus,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.service.findBySession(sessionId, user.userId, status);
+    return this.service.findBySession(sessionId, user.userId, status, user.role);
   }
 
   // Player's payments for a session
@@ -68,9 +68,9 @@ export class PaymentsController {
   async approve(
     @Param('id') id: string,
     @Body() dto: ApprovePaymentDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.service.approve(id, dto, user.userId);
+    return this.service.approve(id, dto, user.userId, user.role);
   }
 
   // Reject payment
@@ -82,9 +82,9 @@ export class PaymentsController {
   async reject(
     @Param('id') id: string,
     @Body() dto: RejectPaymentDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.service.reject(id, dto, user.userId);
+    return this.service.reject(id, dto, user.userId, user.role);
   }
 
   // Bulk approve
@@ -93,9 +93,9 @@ export class PaymentsController {
   @ApiResponse({ status: 200, description: 'Bulk approval result' })
   async bulkApprove(
     @Body() dto: BulkApproveDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.service.bulkApprove(dto, user.userId);
+    return this.service.bulkApprove(dto, user.userId, user.role);
   }
 
   // Transaction summary for player
@@ -145,9 +145,9 @@ export class PaymentsController {
   async setSplitAmount(
     @Param('sessionId') sessionId: string,
     @Body() body: { totalAmount: number },
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.service.setSplitAmount(sessionId, body.totalAmount, user.userId);
+    return this.service.setSplitAmount(sessionId, body.totalAmount, user.userId, user.role);
   }
 
   // Get payment statistics for a session
@@ -157,8 +157,8 @@ export class PaymentsController {
   @ApiResponse({ status: 403, description: 'Not session host' })
   async getSessionStats(
     @Param('sessionId') sessionId: string,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.service.getSessionStats(sessionId, user.userId);
+    return this.service.getSessionStats(sessionId, user.userId, user.role);
   }
 }

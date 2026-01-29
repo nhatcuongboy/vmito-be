@@ -28,9 +28,9 @@ export class RatingsController {
   @ApiResponse({ status: 409, description: 'Already rated' })
   async create(
     @Body() dto: CreateRatingDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.service.create(dto, user.userId);
+    return this.service.create(dto, user.userId, user.role);
   }
 
   @Get()

@@ -50,7 +50,7 @@ export class PaymentsService {
   constructor(private prisma: PrismaService) {}
 
   // Get all payments for a session (host view)
-  async findBySession(sessionId: string, userId: string, status?: PaymentStatus) {
+  async findBySession(sessionId: string, userId: string, status?: PaymentStatus, role?: string) {
     // Verify user is the host
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
@@ -61,7 +61,7 @@ export class PaymentsService {
       throw new NotFoundException('Session not found');
     }
 
-    if (session.hostId !== userId) {
+    if (role !== 'ADMIN' && session.hostId !== userId) {
       throw new ForbiddenException('Only session host can view payments');
     }
 
@@ -150,7 +150,7 @@ export class PaymentsService {
   }
 
   // Approve payment (host)
-  async approve(paymentId: string, dto: ApprovePaymentDto, userId: string) {
+  async approve(paymentId: string, dto: ApprovePaymentDto, userId: string, role?: string) {
     const payment = await this.prisma.paymentRecord.findUnique({
       where: { id: paymentId },
       include: {
@@ -162,7 +162,7 @@ export class PaymentsService {
       throw new NotFoundException('Payment record not found');
     }
 
-    if (payment.session.hostId !== userId) {
+    if (role !== 'ADMIN' && payment.session.hostId !== userId) {
       throw new ForbiddenException('Only session host can approve payments');
     }
 
@@ -182,7 +182,7 @@ export class PaymentsService {
   }
 
   // Reject payment (host)
-  async reject(paymentId: string, dto: RejectPaymentDto, userId: string) {
+  async reject(paymentId: string, dto: RejectPaymentDto, userId: string, role?: string) {
     const payment = await this.prisma.paymentRecord.findUnique({
       where: { id: paymentId },
       include: {
@@ -194,7 +194,7 @@ export class PaymentsService {
       throw new NotFoundException('Payment record not found');
     }
 
-    if (payment.session.hostId !== userId) {
+    if (role !== 'ADMIN' && payment.session.hostId !== userId) {
       throw new ForbiddenException('Only session host can reject payments');
     }
 
@@ -214,13 +214,13 @@ export class PaymentsService {
   }
 
   // Bulk approve payments
-  async bulkApprove(dto: BulkApproveDto, userId: string) {
+  async bulkApprove(dto: BulkApproveDto, userId: string, role?: string) {
     let approved = 0;
     let failed = 0;
 
     for (const paymentId of dto.paymentIds) {
       try {
-        await this.approve(paymentId, { hostNotes: dto.hostNotes }, userId);
+        await this.approve(paymentId, { hostNotes: dto.hostNotes }, userId, role);
         approved++;
       } catch {
         failed++;
@@ -487,7 +487,7 @@ export class PaymentsService {
   }
 
   // Set split amount for a session (SPLIT_EVENLY fee type)
-  async setSplitAmount(sessionId: string, totalAmount: number, userId: string) {
+  async setSplitAmount(sessionId: string, totalAmount: number, userId: string, role?: string) {
     // Verify session exists and user is the host
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
@@ -498,7 +498,7 @@ export class PaymentsService {
       throw new NotFoundException('Session not found');
     }
 
-    if (session.hostId !== userId) {
+    if (role !== 'ADMIN' && session.hostId !== userId) {
       throw new ForbiddenException('Only session host can set split amount');
     }
 
@@ -555,7 +555,7 @@ export class PaymentsService {
   }
 
   // Get payment statistics for a session
-  async getSessionStats(sessionId: string, userId: string) {
+  async getSessionStats(sessionId: string, userId: string, role?: string) {
     // Verify session exists
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
@@ -567,7 +567,7 @@ export class PaymentsService {
     }
 
     // Only host can view stats
-    if (session.hostId !== userId) {
+    if (role !== 'ADMIN' && session.hostId !== userId) {
       throw new ForbiddenException('Only session host can view payment stats');
     }
 
