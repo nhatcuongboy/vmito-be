@@ -76,45 +76,54 @@ export class SessionsService {
       },
     };
 
+    // Initialize AND array if not present to avoid overwriting
+    const andConditions: Prisma.SessionWhereInput[] = [];
+
     // Date filter
     if (filters?.date) {
       const date = new Date(filters.date);
       const startOfDay = new Date(date.setHours(0, 0, 0, 0));
       const endOfDay = new Date(date.setHours(23, 59, 59, 999));
 
-      where.startTime = {
-        gte: startOfDay,
-        lte: endOfDay,
-      };
+      andConditions.push({
+        startTime: {
+          gte: startOfDay,
+          lte: endOfDay,
+        },
+      });
     }
 
     // Level filter
     if (filters?.level) {
-      where.OR = [
-        { requiredLevels: { has: Number(filters.level) } },
-        { requiredLevels: { equals: [] } },
-      ];
+      andConditions.push({
+        OR: [
+          { requiredLevels: { has: Number(filters.level) } },
+          { requiredLevels: { equals: [] } },
+        ],
+      });
     }
 
-    // Area filters - City and District
+    // Area filters - City and District (Search in both venue and location string)
     if (filters?.city) {
-      where.venue = {
-        ...(where.venue as Prisma.VenueWhereInput),
-        city: {
-          contains: filters.city,
-          mode: 'insensitive',
-        },
-      } as Prisma.VenueWhereInput;
+      andConditions.push({
+        OR: [
+          { venue: { city: { contains: filters.city, mode: 'insensitive' } } },
+          { location: { contains: filters.city, mode: 'insensitive' } },
+        ],
+      });
     }
 
     if (filters?.district) {
-      where.venue = {
-        ...(where.venue as Prisma.VenueWhereInput),
-        district: {
-          contains: filters.district,
-          mode: 'insensitive',
-        },
-      } as Prisma.VenueWhereInput;
+      andConditions.push({
+        OR: [
+          { venue: { district: { contains: filters.district, mode: 'insensitive' } } },
+          { location: { contains: filters.district, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (andConditions.length > 0) {
+      where.AND = andConditions;
     }
 
     // Fee range filter
@@ -155,21 +164,29 @@ export class SessionsService {
     // Search query - full text search across multiple fields
     if (filters?.searchQuery) {
       const searchTerm = filters.searchQuery.toLowerCase();
-      where.OR = [
-        { name: { contains: searchTerm, mode: 'insensitive' } },
-        { location: { contains: searchTerm, mode: 'insensitive' } },
-        { host: { name: { contains: searchTerm, mode: 'insensitive' } } },
-        {
-          venue: {
-            OR: [
-              { name: { contains: searchTerm, mode: 'insensitive' } },
-              { address: { contains: searchTerm, mode: 'insensitive' } },
-              { district: { contains: searchTerm, mode: 'insensitive' } },
-              { city: { contains: searchTerm, mode: 'insensitive' } },
-            ],
+      const searchConditions: Prisma.SessionWhereInput = {
+        OR: [
+          { name: { contains: searchTerm, mode: 'insensitive' } },
+          { location: { contains: searchTerm, mode: 'insensitive' } },
+          { host: { name: { contains: searchTerm, mode: 'insensitive' } } },
+          {
+            venue: {
+              OR: [
+                { name: { contains: searchTerm, mode: 'insensitive' } },
+                { address: { contains: searchTerm, mode: 'insensitive' } },
+                { district: { contains: searchTerm, mode: 'insensitive' } },
+                { city: { contains: searchTerm, mode: 'insensitive' } },
+              ],
+            },
           },
-        },
-      ];
+        ],
+      };
+
+      if (where.AND) {
+        (where.AND as Prisma.SessionWhereInput[]).push(searchConditions);
+      } else {
+        where.AND = [searchConditions];
+      }
     }
 
     // Fetch sessions
