@@ -20,7 +20,6 @@ export class UpdatePlayerInSessionDto {
   gender?: Gender | null;
 
   @IsOptional()
-  @IsOptional()
   @IsNumber()
   @Min(1)
   level?: number | null;
@@ -82,7 +81,14 @@ export class UpdatePlayerInSessionDto {
   joinCode?: string;
 
   @IsOptional()
+  @IsString()
+  registrationStatus?: string;
+
+  @IsOptional()
   currentCourt?: unknown;
+
+  @IsOptional()
+  user?: unknown;
 
   @IsOptional()
   phone?: string;

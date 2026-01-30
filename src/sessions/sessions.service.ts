@@ -469,6 +469,7 @@ export class SessionsService {
       venue,
       courtColor,
       courts: courtsConfig,
+      shuttlecock,
     } = createSessionDto;
 
     // Validate requiredLevels
@@ -555,6 +556,7 @@ export class SessionsService {
         hostPhone,
         venueId,
         courtColor: courtColor || '#179a3b',
+        shuttlecock,
       },
       include: {
         host: {
@@ -725,6 +727,7 @@ export class SessionsService {
         hostName: updateSessionDto.hostName,
         hostPhone: updateSessionDto.hostPhone,
         courtColor: updateSessionDto.courtColor,
+        shuttlecock: updateSessionDto.shuttlecock,
         coverPhoto: updateSessionDto.coverPhoto,
         coverPhotoPublicId: updateSessionDto.coverPhotoPublicId,
         venue: updateSessionDto.venue
