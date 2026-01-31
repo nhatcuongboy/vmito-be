@@ -86,6 +86,14 @@ Extract and return a JSON object with the following fields (use null for fields 
   "maxPlayersPerCourt": "Number of max players per court (default 8 if not specified)",
   "requiredLevels": "Array of level numbers 1-8 where: 1=Beginner, 2=Advanced Beginner, 3=Low Intermediate, 4=Intermediate, 5=High Intermediate, 6=Advanced, 7=Semi Pro, 8=Pro. Map Vietnamese terms like TB (Trung Bình)=4, K (Khá)=5, Y (Yếu)=2-3, Mạnh=6-7. Return array like [3,4,5] for a range. Return null if all levels welcome.",
   "numberOfCourts": "Number of courts if mentioned",
+  "courtNames": "Array of specific court names or numbers mentioned (e.g., ['Sân 5', 'Sân 6']). Return null if not specified.",
+  "shuttlecock": "Type of shuttlecock used (e.g., 'Thành Công', 'Victor'). Return null if not specified.",
+  "feeConfig": {
+    "feeType": "Use 'FIXED' if prices are set per gender, or 'SPLIT_EVENLY' if costs are shared after play. Default to 'FIXED' if specific prices are mentioned.",
+    "maleFee": "Price for male players in VND. Extract from terms like 'Nam 50k' -> 50000",
+    "femaleFee": "Price for female players in VND. Extract from terms like 'Nữ 40k' -> 40000",
+    "notes": "Additional notes about fees (e.g., 'Bao sân', 'Chưa cộng tiền cầu')"
+  },
   "venue": {
     "name": "Venue/court name",
     "address": "Full address if available",
@@ -99,6 +107,7 @@ IMPORTANT:
 - For time, if only time is given (e.g., "18h-20h"), combine with the date mentioned or today's date
 - For Vietnamese level terms: Y/Yếu=2-3, TB/Trung Bình=4, K/Khá=5, Mạnh/Giỏi=6-7
 - Phone numbers should be in format 0xxxxxxxxx
+- Extract fees carefully: 'k' means thousand (50k = 50000)
 - If a field cannot be determined, use null`;
 
     try {
