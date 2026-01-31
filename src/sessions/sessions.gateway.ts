@@ -23,6 +23,7 @@ export enum SessionEventType {
   PLAYERS_DESELECTED = 'players_deselected',
   REGISTRATION_REQUEST = 'registration_request',
   REGISTRATION_STATUS_UPDATED = 'registration_status_updated',
+  NOTIFICATION_RECEIVED = 'notification_received',
 }
 
 @WebSocketGateway({
@@ -74,9 +75,21 @@ export class SessionsGateway
     @MessageBody() data: { userId: string },
     @ConnectedSocket() client: Socket
   ) {
+    if (!data?.userId) return;
+    
     const roomName = `user-${data.userId}`;
+    
+    // Leave other user rooms to prevent leakage if switching accounts on same socket
+    const currentRooms = Array.from(client.rooms);
+    for (const room of currentRooms) {
+      if (room.startsWith('user-') && room !== roomName) {
+        await client.leave(room);
+        this.logger.log(`Socket ${client.id} left old user room ${room}`);
+      }
+    }
+
     await client.join(roomName);
-    this.logger.log(`User ${data.userId} joined their personal room`);
+    this.logger.log(`User ${data.userId} joined their personal room: ${roomName}`);
     return { event: 'joinedUserRoom', data: { userId: data.userId } };
   }
 
@@ -114,12 +127,15 @@ export class SessionsGateway
   notifyUser(
     userId: string,
     eventType: SessionEventType,
-    payload?: Record<string, unknown>
+    payload?: any
   ) {
+    if (!userId) return;
+    
     const roomName = `user-${userId}`;
     this.server.to(roomName).emit(eventType, payload);
+    
     this.logger.log(
-      `Notified user ${userId} of ${eventType}${payload ? ` with payload: ${JSON.stringify(payload)}` : ''}`
+      `[Realtime] Notified user ${userId} of ${eventType}`
     );
   }
 }

@@ -22,6 +22,7 @@ import { PaymentSettingsModule } from './payment-settings/payment-settings.modul
 import { PaymentsModule } from './payments/payments.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { RatingsModule } from './ratings/ratings.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import configuration from './config';
 
@@ -51,6 +52,7 @@ import configuration from './config';
     PaymentsModule,
     UploadsModule,
     RatingsModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [
