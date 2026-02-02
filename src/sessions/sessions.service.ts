@@ -48,6 +48,9 @@ export class SessionsService {
             courts: true,
           },
         },
+        courts: {
+          orderBy: { courtNumber: 'asc' },
+        },
       },
       orderBy: {
         createdAt: 'desc',
@@ -208,6 +211,9 @@ export class SessionsService {
             players: { where: { registrationStatus: 'APPROVED' as const } },
             courts: true,
           },
+        },
+        courts: {
+          orderBy: { courtNumber: 'asc' },
         },
       },
       orderBy: {

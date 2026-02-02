@@ -225,7 +225,8 @@ export class PlayersService {
       throw new NotFoundException('Session not found');
     }
 
-    let { playerNumber, level } = createPlayerDto;
+    let { playerNumber } = createPlayerDto;
+    const { level } = createPlayerDto;
 
     // Validate player level against session requiredLevels
     if (session.requiredLevels && session.requiredLevels.length > 0) {
@@ -381,7 +382,7 @@ export class PlayersService {
         return this.prisma.player.create({
           data: {
             sessionId,
-            playerNumber: playerNumber!,
+            playerNumber: playerNumber,
             name: playerData.name || null,
             gender: playerData.gender || null,
             level: playerData.level || null,
@@ -1473,6 +1474,9 @@ export class PlayersService {
             },
           },
         },
+        courts: {
+          orderBy: { courtNumber: 'asc' },
+        },
         players: {
           where: { userId: userId },
           select: {
@@ -1482,6 +1486,7 @@ export class PlayersService {
             playerNumber: true,
           },
         },
+        feeConfig: true,
       },
       orderBy: {
         createdAt: 'desc',
