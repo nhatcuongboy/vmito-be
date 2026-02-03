@@ -79,30 +79,6 @@ export class SessionsGateway
 
     const roomName = `user-${data.userId}`;
 
-    // Get all sockets currently in this user's room
-    const socketsInRoom = await this.server.in(roomName).fetchSockets();
-
-    // Kick other connections for same user (single session enforcement)
-    // This prevents duplicate notifications when user has multiple tabs/windows open
-    if (socketsInRoom.length > 0) {
-      this.logger.warn(
-        `[Security] User ${data.userId} has ${socketsInRoom.length} existing connection(s). Enforcing single session.`
-      );
-
-      for (const socket of socketsInRoom) {
-        if (socket.id !== client.id) {
-          socket.emit('session_conflict', {
-            message: 'You have been logged in from another location',
-            timestamp: new Date().toISOString(),
-          });
-          socket.disconnect(true);
-          this.logger.log(
-            `[Security] Kicked socket ${socket.id} for user ${data.userId} due to new login from ${client.id}`
-          );
-        }
-      }
-    }
-
     // Leave other user rooms to prevent leakage if switching accounts on same socket
     const currentRooms = Array.from(client.rooms);
     for (const room of currentRooms) {
