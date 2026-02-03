@@ -5,7 +5,12 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { SubmitPaymentDto, ApprovePaymentDto, RejectPaymentDto, BulkApproveDto } from './dto';
+import {
+  SubmitPaymentDto,
+  ApprovePaymentDto,
+  RejectPaymentDto,
+  BulkApproveDto,
+} from './dto';
 import { PaymentStatus, FeeType } from '@prisma/client';
 
 @Injectable()
@@ -50,7 +55,12 @@ export class PaymentsService {
   constructor(private prisma: PrismaService) {}
 
   // Get all payments for a session (host view)
-  async findBySession(sessionId: string, userId: string, status?: PaymentStatus, role?: string) {
+  async findBySession(
+    sessionId: string,
+    userId: string,
+    status?: PaymentStatus,
+    role?: string
+  ) {
     // Verify user is the host
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
@@ -77,10 +87,14 @@ export class PaymentsService {
     // Calculate stats
     const stats = {
       total: payments.length,
-      pending: payments.filter((p) => p.status === PaymentStatus.PENDING).length,
-      submitted: payments.filter((p) => p.status === PaymentStatus.SUBMITTED).length,
-      approved: payments.filter((p) => p.status === PaymentStatus.APPROVED).length,
-      rejected: payments.filter((p) => p.status === PaymentStatus.REJECTED).length,
+      pending: payments.filter((p) => p.status === PaymentStatus.PENDING)
+        .length,
+      submitted: payments.filter((p) => p.status === PaymentStatus.SUBMITTED)
+        .length,
+      approved: payments.filter((p) => p.status === PaymentStatus.APPROVED)
+        .length,
+      rejected: payments.filter((p) => p.status === PaymentStatus.REJECTED)
+        .length,
       totalAmount: payments.reduce((sum, p) => sum + p.amount, 0),
       paidAmount: payments
         .filter((p) => p.status === PaymentStatus.APPROVED)
@@ -95,10 +109,7 @@ export class PaymentsService {
     const payments = await this.prisma.paymentRecord.findMany({
       where: {
         sessionId,
-        OR: [
-          { player: { userId } },
-          { registeredByUserId: userId },
-        ],
+        OR: [{ player: { userId } }, { registeredByUserId: userId }],
       },
       select: this.paymentWithPlayerSelect,
       orderBy: { createdAt: 'asc' },
@@ -122,17 +133,21 @@ export class PaymentsService {
 
     // Check if user is the player or the one who registered them
     const canSubmit =
-      payment.player.userId === userId ||
-      payment.registeredByUserId === userId;
+      payment.player.userId === userId || payment.registeredByUserId === userId;
 
     if (!canSubmit) {
-      throw new ForbiddenException('Only the player or registrant can submit payment');
+      throw new ForbiddenException(
+        'Only the player or registrant can submit payment'
+      );
     }
 
     // Check if payment can be submitted
-    if (payment.status !== PaymentStatus.PENDING && payment.status !== PaymentStatus.REJECTED) {
+    if (
+      payment.status !== PaymentStatus.PENDING &&
+      payment.status !== PaymentStatus.REJECTED
+    ) {
       throw new BadRequestException(
-        'Payment can only be submitted when status is PENDING or REJECTED',
+        'Payment can only be submitted when status is PENDING or REJECTED'
       );
     }
 
@@ -150,7 +165,12 @@ export class PaymentsService {
   }
 
   // Approve payment (host)
-  async approve(paymentId: string, dto: ApprovePaymentDto, userId: string, role?: string) {
+  async approve(
+    paymentId: string,
+    dto: ApprovePaymentDto,
+    userId: string,
+    role?: string
+  ) {
     const payment = await this.prisma.paymentRecord.findUnique({
       where: { id: paymentId },
       include: {
@@ -167,7 +187,9 @@ export class PaymentsService {
     }
 
     if (payment.status !== PaymentStatus.SUBMITTED) {
-      throw new BadRequestException('Payment can only be approved when status is SUBMITTED');
+      throw new BadRequestException(
+        'Payment can only be approved when status is SUBMITTED'
+      );
     }
 
     return this.prisma.paymentRecord.update({
@@ -182,7 +204,12 @@ export class PaymentsService {
   }
 
   // Reject payment (host)
-  async reject(paymentId: string, dto: RejectPaymentDto, userId: string, role?: string) {
+  async reject(
+    paymentId: string,
+    dto: RejectPaymentDto,
+    userId: string,
+    role?: string
+  ) {
     const payment = await this.prisma.paymentRecord.findUnique({
       where: { id: paymentId },
       include: {
@@ -199,7 +226,9 @@ export class PaymentsService {
     }
 
     if (payment.status !== PaymentStatus.SUBMITTED) {
-      throw new BadRequestException('Payment can only be rejected when status is SUBMITTED');
+      throw new BadRequestException(
+        'Payment can only be rejected when status is SUBMITTED'
+      );
     }
 
     return this.prisma.paymentRecord.update({
@@ -220,7 +249,12 @@ export class PaymentsService {
 
     for (const paymentId of dto.paymentIds) {
       try {
-        await this.approve(paymentId, { hostNotes: dto.hostNotes }, userId, role);
+        await this.approve(
+          paymentId,
+          { hostNotes: dto.hostNotes },
+          userId,
+          role
+        );
         approved++;
       } catch {
         failed++;
@@ -234,10 +268,7 @@ export class PaymentsService {
   async getPlayerTransactionSummary(userId: string) {
     const payments = await this.prisma.paymentRecord.findMany({
       where: {
-        OR: [
-          { player: { userId } },
-          { registeredByUserId: userId },
-        ],
+        OR: [{ player: { userId } }, { registeredByUserId: userId }],
       },
       select: {
         hostId: true,
@@ -258,14 +289,17 @@ export class PaymentsService {
     });
 
     // Group by host
-    const hostMap = new Map<string, {
-      hostId: string;
-      hostName: string;
-      totalSessions: Set<string>;
-      totalAmount: number;
-      paidAmount: number;
-      pendingAmount: number;
-    }>();
+    const hostMap = new Map<
+      string,
+      {
+        hostId: string;
+        hostName: string;
+        totalSessions: Set<string>;
+        totalAmount: number;
+        paidAmount: number;
+        pendingAmount: number;
+      }
+    >();
 
     for (const payment of payments) {
       const hostId = payment.hostId;
@@ -324,18 +358,22 @@ export class PaymentsService {
     });
 
     // Group by user
-    const userMap = new Map<string, {
-      userId: string;
-      userName: string;
-      userImage?: string;
-      totalSessions: Set<string>;
-      totalAmount: number;
-      paidAmount: number;
-      pendingAmount: number;
-    }>();
+    const userMap = new Map<
+      string,
+      {
+        userId: string;
+        userName: string;
+        userImage?: string;
+        totalSessions: Set<string>;
+        totalAmount: number;
+        paidAmount: number;
+        pendingAmount: number;
+      }
+    >();
 
     for (const payment of payments) {
-      const userId = payment.player.userId || payment.registeredByUserId || 'guest';
+      const userId =
+        payment.player.userId || payment.registeredByUserId || 'guest';
       const user = payment.player.user;
 
       if (!userMap.has(userId)) {
@@ -381,10 +419,7 @@ export class PaymentsService {
     const payments = await this.prisma.paymentRecord.findMany({
       where: {
         hostId,
-        OR: [
-          { player: { userId } },
-          { registeredByUserId: userId },
-        ],
+        OR: [{ player: { userId } }, { registeredByUserId: userId }],
       },
       select: {
         id: true,
@@ -488,7 +523,12 @@ export class PaymentsService {
   }
 
   // Set split amount for a session (SPLIT_EVENLY fee type)
-  async setSplitAmount(sessionId: string, totalAmount: number, userId: string, role?: string) {
+  async setSplitAmount(
+    sessionId: string,
+    totalAmount: number,
+    userId: string,
+    role?: string
+  ) {
     // Verify session exists and user is the host
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
@@ -514,7 +554,9 @@ export class PaymentsService {
     }
 
     if (feeConfig.feeType !== FeeType.SPLIT_EVENLY) {
-      throw new BadRequestException('Can only set split amount for SPLIT_EVENLY fee type');
+      throw new BadRequestException(
+        'Can only set split amount for SPLIT_EVENLY fee type'
+      );
     }
 
     // Count joined players
@@ -592,10 +634,15 @@ export class PaymentsService {
       pendingAmount: payments
         .filter((p) => p.status !== PaymentStatus.APPROVED)
         .reduce((sum, p) => sum + p.amount, 0),
-      pendingCount: payments.filter((p) => p.status === PaymentStatus.PENDING).length,
-      submittedCount: payments.filter((p) => p.status === PaymentStatus.SUBMITTED).length,
-      approvedCount: payments.filter((p) => p.status === PaymentStatus.APPROVED).length,
-      rejectedCount: payments.filter((p) => p.status === PaymentStatus.REJECTED).length,
+      pendingCount: payments.filter((p) => p.status === PaymentStatus.PENDING)
+        .length,
+      submittedCount: payments.filter(
+        (p) => p.status === PaymentStatus.SUBMITTED
+      ).length,
+      approvedCount: payments.filter((p) => p.status === PaymentStatus.APPROVED)
+        .length,
+      rejectedCount: payments.filter((p) => p.status === PaymentStatus.REJECTED)
+        .length,
     };
 
     return stats;

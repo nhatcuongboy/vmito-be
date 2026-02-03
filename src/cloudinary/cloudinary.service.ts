@@ -1,6 +1,10 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { v2 as cloudinary, UploadApiResponse, UploadApiErrorResponse } from 'cloudinary';
+import {
+  v2 as cloudinary,
+  UploadApiResponse,
+  UploadApiErrorResponse,
+} from 'cloudinary';
 
 export interface CloudinaryUploadResult {
   url: string;
@@ -16,7 +20,7 @@ export interface CloudinaryUploadResult {
 export class CloudinaryService {
   constructor(private configService: ConfigService) {
     const cloudinaryUrl = this.configService.get<string>('CLOUDINARY_URL');
-    
+
     if (cloudinaryUrl) {
       // Use CLOUDINARY_URL if available (recommended)
       cloudinary.config(cloudinaryUrl);
@@ -34,10 +38,10 @@ export class CloudinaryService {
     file: Express.Multer.File,
     folder: string,
     options?: {
-      transformation?: any[];
+      transformation?: Record<string, unknown>[];
       format?: string;
       quality?: string | number;
-    },
+    }
   ): Promise<CloudinaryUploadResult> {
     return new Promise((resolve, reject) => {
       const uploadOptions = {
@@ -49,7 +53,10 @@ export class CloudinaryService {
 
       const uploadStream = cloudinary.uploader.upload_stream(
         uploadOptions,
-        (error: UploadApiErrorResponse | undefined, result: UploadApiResponse | undefined) => {
+        (
+          error: UploadApiErrorResponse | undefined,
+          result: UploadApiResponse | undefined
+        ) => {
           if (error) {
             reject(new BadRequestException(`Upload failed: ${error.message}`));
           } else if (result) {
@@ -63,14 +70,16 @@ export class CloudinaryService {
               bytes: result.bytes,
             });
           }
-        },
+        }
       );
 
       uploadStream.end(file.buffer);
     });
   }
 
-  async uploadQrCode(file: Express.Multer.File): Promise<CloudinaryUploadResult> {
+  async uploadQrCode(
+    file: Express.Multer.File
+  ): Promise<CloudinaryUploadResult> {
     return this.uploadImage(file, 'qr-codes', {
       transformation: [
         { width: 800, height: 800, crop: 'limit' },
@@ -79,7 +88,9 @@ export class CloudinaryService {
     });
   }
 
-  async uploadPaymentProof(file: Express.Multer.File): Promise<CloudinaryUploadResult> {
+  async uploadPaymentProof(
+    file: Express.Multer.File
+  ): Promise<CloudinaryUploadResult> {
     return this.uploadImage(file, 'payment-proofs', {
       transformation: [
         { width: 1200, height: 1600, crop: 'limit' },
@@ -88,7 +99,9 @@ export class CloudinaryService {
     });
   }
 
-  async uploadAvatar(file: Express.Multer.File): Promise<CloudinaryUploadResult> {
+  async uploadAvatar(
+    file: Express.Multer.File
+  ): Promise<CloudinaryUploadResult> {
     return this.uploadImage(file, 'avatars', {
       transformation: [
         { width: 400, height: 400, crop: 'fill', gravity: 'face' },
@@ -98,7 +111,9 @@ export class CloudinaryService {
     });
   }
 
-  async uploadSessionCoverPhoto(file: Express.Multer.File): Promise<CloudinaryUploadResult> {
+  async uploadSessionCoverPhoto(
+    file: Express.Multer.File
+  ): Promise<CloudinaryUploadResult> {
     return this.uploadImage(file, 'session-covers', {
       transformation: [
         { width: 1200, height: 630, crop: 'fill' },
@@ -124,13 +139,16 @@ export class CloudinaryService {
     }
   }
 
-  getOptimizedUrl(publicId: string, options?: {
-    width?: number;
-    height?: number;
-    crop?: string;
-    quality?: string;
-    format?: string;
-  }): string {
+  getOptimizedUrl(
+    publicId: string,
+    options?: {
+      width?: number;
+      height?: number;
+      crop?: string;
+      quality?: string;
+      format?: string;
+    }
+  ): string {
     return cloudinary.url(publicId, {
       secure: true,
       ...options,

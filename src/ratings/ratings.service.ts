@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRatingDto, GetRatingsDto } from './dto';
-import { RatingType, SessionStatus } from '@prisma/client';
+import { RatingType, SessionStatus, Prisma } from '@prisma/client';
 
 @Injectable()
 export class RatingsService {
@@ -92,7 +92,9 @@ export class RatingsService {
         throw new ForbiddenException('Only session host can rate players');
       }
       // Verify rated user was a player in the session
-      const wasPlayer = session.players.some((p) => p.userId === dto.ratedUserId);
+      const wasPlayer = session.players.some(
+        (p) => p.userId === dto.ratedUserId
+      );
       if (!wasPlayer) {
         throw new BadRequestException('Rated user must be a session player');
       }
@@ -111,7 +113,9 @@ export class RatingsService {
     });
 
     if (existing) {
-      throw new ConflictException('You have already rated this user for this session');
+      throw new ConflictException(
+        'You have already rated this user for this session'
+      );
     }
 
     // Create the rating
@@ -130,7 +134,7 @@ export class RatingsService {
 
   // Get ratings with filters
   async findMany(query: GetRatingsDto) {
-    const where: any = {};
+    const where: Prisma.RatingWhereInput = {};
 
     if (query.sessionId) {
       where.sessionId = query.sessionId;
@@ -194,17 +198,19 @@ export class RatingsService {
     // Determine who can be rated
     let canRateHost = false;
     let hasRatedHost = false;
-    let hostRating: any = null;
+    let hostRating: (typeof existingRatings)[0] | null = null;
     const canRatePlayers: string[] = [];
     const ratedPlayerIds: string[] = [];
-    const playerRatings: any[] = [];
+    const playerRatings: Array<(typeof existingRatings)[0]> = [];
 
     if (isFinished) {
       if (isPlayer) {
         // Player can rate host
         canRateHost = true;
         const hostRatingRecord = existingRatings.find(
-          (r) => r.ratedUserId === session.hostId && r.type === RatingType.PLAYER_TO_HOST,
+          (r) =>
+            r.ratedUserId === session.hostId &&
+            r.type === RatingType.PLAYER_TO_HOST
         );
         if (hostRatingRecord) {
           hasRatedHost = true;
@@ -217,7 +223,9 @@ export class RatingsService {
         for (const player of session.players) {
           if (player.userId && player.userId !== userId) {
             const playerRatingRecord = existingRatings.find(
-              (r) => r.ratedUserId === player.userId && r.type === RatingType.HOST_TO_PLAYER,
+              (r) =>
+                r.ratedUserId === player.userId &&
+                r.type === RatingType.HOST_TO_PLAYER
             );
             if (playerRatingRecord) {
               ratedPlayerIds.push(player.userId);
@@ -264,7 +272,10 @@ export class RatingsService {
     });
 
     // Group ratings by user
-    const ratingsByUser = new Map<string, any[]>();
+    const ratingsByUser = new Map<
+      string,
+      Array<{ ratedUserId: string; rating: number; type: RatingType }>
+    >();
     for (const rating of receivedRatings) {
       if (!ratingsByUser.has(rating.ratedUserId)) {
         ratingsByUser.set(rating.ratedUserId, []);
@@ -281,8 +292,12 @@ export class RatingsService {
           ? userRatings.reduce((sum, r) => sum + r.rating, 0) / totalRatings
           : 0;
 
-      const asHost = userRatings.filter((r) => r.type === RatingType.PLAYER_TO_HOST);
-      const asPlayer = userRatings.filter((r) => r.type === RatingType.HOST_TO_PLAYER);
+      const asHost = userRatings.filter(
+        (r) => r.type === RatingType.PLAYER_TO_HOST
+      );
+      const asPlayer = userRatings.filter(
+        (r) => r.type === RatingType.HOST_TO_PLAYER
+      );
 
       return {
         userId,
@@ -292,7 +307,9 @@ export class RatingsService {
           averageRating:
             asHost.length > 0
               ? Math.round(
-                  (asHost.reduce((sum, r) => sum + r.rating, 0) / asHost.length) * 10,
+                  (asHost.reduce((sum, r) => sum + r.rating, 0) /
+                    asHost.length) *
+                    10
                 ) / 10
               : 0,
           totalRatings: asHost.length,
@@ -301,7 +318,9 @@ export class RatingsService {
           averageRating:
             asPlayer.length > 0
               ? Math.round(
-                  (asPlayer.reduce((sum, r) => sum + r.rating, 0) / asPlayer.length) * 10,
+                  (asPlayer.reduce((sum, r) => sum + r.rating, 0) /
+                    asPlayer.length) *
+                    10
                 ) / 10
               : 0,
           totalRatings: asPlayer.length,
@@ -336,8 +355,12 @@ export class RatingsService {
         : 0;
 
     // Breakdown by type
-    const asHost = receivedRatings.filter((r) => r.type === RatingType.PLAYER_TO_HOST);
-    const asPlayer = receivedRatings.filter((r) => r.type === RatingType.HOST_TO_PLAYER);
+    const asHost = receivedRatings.filter(
+      (r) => r.type === RatingType.PLAYER_TO_HOST
+    );
+    const asPlayer = receivedRatings.filter(
+      (r) => r.type === RatingType.HOST_TO_PLAYER
+    );
 
     return {
       userId,
@@ -347,7 +370,8 @@ export class RatingsService {
         averageRating:
           asHost.length > 0
             ? Math.round(
-                (asHost.reduce((sum, r) => sum + r.rating, 0) / asHost.length) * 10,
+                (asHost.reduce((sum, r) => sum + r.rating, 0) / asHost.length) *
+                  10
               ) / 10
             : 0,
         totalRatings: asHost.length,
@@ -356,7 +380,9 @@ export class RatingsService {
         averageRating:
           asPlayer.length > 0
             ? Math.round(
-                (asPlayer.reduce((sum, r) => sum + r.rating, 0) / asPlayer.length) * 10,
+                (asPlayer.reduce((sum, r) => sum + r.rating, 0) /
+                  asPlayer.length) *
+                  10
               ) / 10
             : 0,
         totalRatings: asPlayer.length,

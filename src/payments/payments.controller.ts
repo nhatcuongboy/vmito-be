@@ -7,11 +7,22 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PaymentsService } from './payments.service';
-import { SubmitPaymentDto, ApprovePaymentDto, RejectPaymentDto, BulkApproveDto } from './dto';
+import {
+  SubmitPaymentDto,
+  ApprovePaymentDto,
+  RejectPaymentDto,
+  BulkApproveDto,
+} from './dto';
 import { PaymentStatus } from '@prisma/client';
 
 @ApiTags('payments')
@@ -29,9 +40,14 @@ export class PaymentsController {
   async findBySession(
     @Param('sessionId') sessionId: string,
     @Query('status') status: PaymentStatus,
-    @CurrentUser() user: { userId: string; role: string },
+    @CurrentUser() user: { userId: string; role: string }
   ) {
-    return this.service.findBySession(sessionId, user.userId, status, user.role);
+    return this.service.findBySession(
+      sessionId,
+      user.userId,
+      status,
+      user.role
+    );
   }
 
   // Player's payments for a session
@@ -40,7 +56,7 @@ export class PaymentsController {
   @ApiResponse({ status: 200, description: 'My payment records' })
   async findMyPayments(
     @Param('sessionId') sessionId: string,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string }
   ) {
     return this.service.findMyPayments(sessionId, user.userId);
   }
@@ -54,7 +70,7 @@ export class PaymentsController {
   async submit(
     @Param('id') id: string,
     @Body() dto: SubmitPaymentDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string }
   ) {
     return this.service.submit(id, dto, user.userId);
   }
@@ -68,7 +84,7 @@ export class PaymentsController {
   async approve(
     @Param('id') id: string,
     @Body() dto: ApprovePaymentDto,
-    @CurrentUser() user: { userId: string; role: string },
+    @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.service.approve(id, dto, user.userId, user.role);
   }
@@ -82,7 +98,7 @@ export class PaymentsController {
   async reject(
     @Param('id') id: string,
     @Body() dto: RejectPaymentDto,
-    @CurrentUser() user: { userId: string; role: string },
+    @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.service.reject(id, dto, user.userId, user.role);
   }
@@ -93,14 +109,16 @@ export class PaymentsController {
   @ApiResponse({ status: 200, description: 'Bulk approval result' })
   async bulkApprove(
     @Body() dto: BulkApproveDto,
-    @CurrentUser() user: { userId: string; role: string },
+    @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.service.bulkApprove(dto, user.userId, user.role);
   }
 
   // Transaction summary for player
   @Get('payments/me/summary')
-  @ApiOperation({ summary: 'Get transaction summary for current player (grouped by host)' })
+  @ApiOperation({
+    summary: 'Get transaction summary for current player (grouped by host)',
+  })
   @ApiResponse({ status: 200, description: 'Transaction summary' })
   async getPlayerTransactionSummary(@CurrentUser() user: { userId: string }) {
     return this.service.getPlayerTransactionSummary(user.userId);
@@ -108,7 +126,9 @@ export class PaymentsController {
 
   // Transaction summary for host
   @Get('payments/host/summary')
-  @ApiOperation({ summary: 'Get transaction summary for current host (grouped by user)' })
+  @ApiOperation({
+    summary: 'Get transaction summary for current host (grouped by user)',
+  })
   @ApiResponse({ status: 200, description: 'Transaction summary' })
   async getHostTransactionSummary(@CurrentUser() user: { userId: string }) {
     return this.service.getHostTransactionSummary(user.userId);
@@ -116,38 +136,52 @@ export class PaymentsController {
 
   // Detailed transactions with a specific host (player view)
   @Get('payments/me/host/:hostId')
-  @ApiOperation({ summary: 'Get detailed transactions between player and specific host' })
+  @ApiOperation({
+    summary: 'Get detailed transactions between player and specific host',
+  })
   @ApiResponse({ status: 200, description: 'Detailed transactions with host' })
   async getPlayerTransactionsWithHost(
     @Param('hostId') hostId: string,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string }
   ) {
     return this.service.getPlayerTransactionsWithHost(user.userId, hostId);
   }
 
   // Detailed transactions with a specific user (host view)
   @Get('payments/host/user/:userId')
-  @ApiOperation({ summary: 'Get detailed transactions between host and specific user' })
+  @ApiOperation({
+    summary: 'Get detailed transactions between host and specific user',
+  })
   @ApiResponse({ status: 200, description: 'Detailed transactions with user' })
   async getHostTransactionsWithUser(
     @Param('userId') targetUserId: string,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string }
   ) {
     return this.service.getHostTransactionsWithUser(user.userId, targetUserId);
   }
 
   // Set split amount for SPLIT_EVENLY fee type
   @Post('sessions/:sessionId/payments/split')
-  @ApiOperation({ summary: 'Set split amount for session (SPLIT_EVENLY fee type)' })
-  @ApiResponse({ status: 200, description: 'Split amount set and payments updated' })
+  @ApiOperation({
+    summary: 'Set split amount for session (SPLIT_EVENLY fee type)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Split amount set and payments updated',
+  })
   @ApiResponse({ status: 400, description: 'Invalid fee type or no players' })
   @ApiResponse({ status: 403, description: 'Not session host' })
   async setSplitAmount(
     @Param('sessionId') sessionId: string,
     @Body() body: { totalAmount: number },
-    @CurrentUser() user: { userId: string; role: string },
+    @CurrentUser() user: { userId: string; role: string }
   ) {
-    return this.service.setSplitAmount(sessionId, body.totalAmount, user.userId, user.role);
+    return this.service.setSplitAmount(
+      sessionId,
+      body.totalAmount,
+      user.userId,
+      user.role
+    );
   }
 
   // Get payment statistics for a session
@@ -157,7 +191,7 @@ export class PaymentsController {
   @ApiResponse({ status: 403, description: 'Not session host' })
   async getSessionStats(
     @Param('sessionId') sessionId: string,
-    @CurrentUser() user: { userId: string; role: string },
+    @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.service.getSessionStats(sessionId, user.userId, user.role);
   }

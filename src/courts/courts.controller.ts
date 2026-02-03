@@ -85,6 +85,11 @@ export class CourtsController {
   ) {
     const count = query.topCount ? parseInt(query.topCount, 10) : undefined;
     const enableAi = query.useAi === 'true';
-    return this.courtsService.getSuggestedPlayers(id, count, enableAi, query.language);
+    return this.courtsService.getSuggestedPlayers(
+      id,
+      count,
+      enableAi,
+      query.language
+    );
   }
 }

@@ -211,7 +211,6 @@ export class AuthService {
 
     // Admin authorization is now handled by the controller guard
 
-
     // Check if user exists
     const user = await this.prisma.user.findUnique({
       where: { email },
@@ -274,7 +273,11 @@ export class AuthService {
   /**
    * Generate JWT token for a user (used for OAuth flows)
    */
-  async generateTokenForUser(user: { id: string; email: string; role: string }) {
+  async generateTokenForUser(user: {
+    id: string;
+    email: string;
+    role: string;
+  }) {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,

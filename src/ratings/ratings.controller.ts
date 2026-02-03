@@ -7,7 +7,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
@@ -29,7 +34,7 @@ export class RatingsController {
   @ApiResponse({ status: 409, description: 'Already rated' })
   async create(
     @Body() dto: CreateRatingDto,
-    @CurrentUser() user: { userId: string; role: string },
+    @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.service.create(dto, user.userId, user.role);
   }
@@ -47,7 +52,7 @@ export class RatingsController {
   @ApiResponse({ status: 200, description: 'Rating eligibility info' })
   async getSessionEligibility(
     @Param('sessionId') sessionId: string,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string }
   ) {
     return this.service.getSessionEligibility(sessionId, user.userId);
   }

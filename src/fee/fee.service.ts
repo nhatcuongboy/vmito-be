@@ -33,7 +33,12 @@ export class FeeService {
     });
   }
 
-  async create(sessionId: string, dto: CreateFeeConfigDto, userId: string, role?: string) {
+  async create(
+    sessionId: string,
+    dto: CreateFeeConfigDto,
+    userId: string,
+    role?: string
+  ) {
     // Verify session exists and user is the host
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
@@ -61,7 +66,7 @@ export class FeeService {
     if (dto.feeType === FeeType.FIXED) {
       if (!dto.maleFee && !dto.femaleFee) {
         throw new BadRequestException(
-          'At least one of maleFee or femaleFee is required for FIXED fee type',
+          'At least one of maleFee or femaleFee is required for FIXED fee type'
         );
       }
     }
@@ -86,7 +91,12 @@ export class FeeService {
     return feeConfig;
   }
 
-  async update(sessionId: string, dto: UpdateFeeConfigDto, userId: string, role?: string) {
+  async update(
+    sessionId: string,
+    dto: UpdateFeeConfigDto,
+    userId: string,
+    role?: string
+  ) {
     // Verify session exists and user is the host
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
@@ -180,7 +190,7 @@ export class FeeService {
   async createPaymentRecordForPlayer(
     sessionId: string,
     playerId: string,
-    hostId: string,
+    hostId: string
   ): Promise<void> {
     // Check if session has fee config
     const feeConfig = await this.prisma.sessionFeeConfig.findUnique({
@@ -211,7 +221,7 @@ export class FeeService {
     // Calculate amount
     const amount = this.calculatePlayerFee(
       feeConfig,
-      player.gender || Gender.MALE,
+      player.gender || Gender.MALE
     );
 
     // Check if payment record already exists
@@ -236,8 +246,13 @@ export class FeeService {
 
   // Helper: Calculate fee for a player based on gender
   calculatePlayerFee(
-    feeConfig: { feeType: FeeType; maleFee?: number | null; femaleFee?: number | null; splitPerPlayer?: number | null },
-    gender: Gender,
+    feeConfig: {
+      feeType: FeeType;
+      maleFee?: number | null;
+      femaleFee?: number | null;
+      splitPerPlayer?: number | null;
+    },
+    gender: Gender
   ): number {
     if (feeConfig.feeType === FeeType.SPLIT_EVENLY) {
       return feeConfig.splitPerPlayer || 0;
@@ -251,7 +266,10 @@ export class FeeService {
   }
 
   // Helper: Create payment records for all players in session
-  private async createPaymentRecordsForSession(sessionId: string, hostId: string) {
+  private async createPaymentRecordsForSession(
+    sessionId: string,
+    hostId: string
+  ) {
     const feeConfig = await this.prisma.sessionFeeConfig.findUnique({
       where: { sessionId },
     });
@@ -273,7 +291,7 @@ export class FeeService {
     for (const player of players) {
       const amount = this.calculatePlayerFee(
         feeConfig,
-        player.gender || Gender.MALE,
+        player.gender || Gender.MALE
       );
 
       // Check if payment record already exists
@@ -299,7 +317,7 @@ export class FeeService {
   // Helper: Update payment amounts when fee config changes
   private async updatePaymentAmounts(
     sessionId: string,
-    feeConfig: { maleFee?: number | null; femaleFee?: number | null },
+    feeConfig: { maleFee?: number | null; femaleFee?: number | null }
   ) {
     const payments = await this.prisma.paymentRecord.findMany({
       where: { sessionId },
@@ -309,7 +327,7 @@ export class FeeService {
     for (const payment of payments) {
       const newAmount = this.calculatePlayerFee(
         { feeType: FeeType.FIXED, ...feeConfig },
-        payment.player.gender || Gender.MALE,
+        payment.player.gender || Gender.MALE
       );
 
       if (payment.amount !== newAmount) {
@@ -324,7 +342,7 @@ export class FeeService {
   // Helper: Calculate split per player
   private async calculateSplitPerPlayer(
     sessionId: string,
-    splitTotal: number,
+    splitTotal: number
   ): Promise<number> {
     const playerCount = await this.prisma.player.count({
       where: {
@@ -341,7 +359,7 @@ export class FeeService {
   // Helper: Update split payment amounts
   private async updateSplitPaymentAmounts(
     sessionId: string,
-    splitPerPlayer: number,
+    splitPerPlayer: number
   ) {
     await this.prisma.paymentRecord.updateMany({
       where: { sessionId },

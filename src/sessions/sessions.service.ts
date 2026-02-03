@@ -119,7 +119,11 @@ export class SessionsService {
     if (filters?.district) {
       andConditions.push({
         OR: [
-          { venue: { district: { contains: filters.district, mode: 'insensitive' } } },
+          {
+            venue: {
+              district: { contains: filters.district, mode: 'insensitive' },
+            },
+          },
           { location: { contains: filters.district, mode: 'insensitive' } },
         ],
       });
@@ -222,9 +226,12 @@ export class SessionsService {
     });
 
     // Post-fetch filters (for complex calculations)
-    
+
     // Filter by available slots
-    if (filters?.hasSlots !== undefined || filters?.minAvailableSlots !== undefined) {
+    if (
+      filters?.hasSlots !== undefined ||
+      filters?.minAvailableSlots !== undefined
+    ) {
       sessions = sessions.filter((session) => {
         const maxPlayers = session.numberOfCourts * session.maxPlayersPerCourt;
         const approvedPlayers = session._count?.players || 0;
@@ -411,7 +418,9 @@ export class SessionsService {
         feeConfig: true,
         _count: {
           select: {
-            players: { where: { registrationStatus: 'APPROVED' as const } as const },
+            players: {
+              where: { registrationStatus: 'APPROVED' as const } as const,
+            },
             courts: true,
           },
         },
@@ -457,13 +466,17 @@ export class SessionsService {
       };
     });
 
-    const allPlayers = session.players.map(p => ({
+    const allPlayers = session.players.map((p) => ({
       ...p,
       // registrationStatus is already in the select
     }));
 
-    const approvedPlayers = allPlayers.filter(p => p.registrationStatus === 'APPROVED');
-    const pendingPlayers = allPlayers.filter(p => p.registrationStatus === 'PENDING');
+    const approvedPlayers = allPlayers.filter(
+      (p) => p.registrationStatus === 'APPROVED'
+    );
+    const pendingPlayers = allPlayers.filter(
+      (p) => p.registrationStatus === 'PENDING'
+    );
 
     return {
       ...session,
@@ -637,9 +650,9 @@ export class SessionsService {
         data: {
           sessionId: session.id,
           feeType: createSessionDto.feeConfig.feeType,
-          maleFee: createSessionDto.feeConfig.maleFee,
-          femaleFee: createSessionDto.feeConfig.femaleFee,
-          notes: createSessionDto.feeConfig.notes,
+          maleFee: createSessionDto.feeConfig.maleFee ?? null,
+          femaleFee: createSessionDto.feeConfig.femaleFee ?? null,
+          notes: createSessionDto.feeConfig.notes ?? null,
         },
       });
     }
@@ -850,9 +863,9 @@ export class SessionsService {
           where: { sessionId: id },
           data: {
             feeType: updateSessionDto.feeConfig.feeType,
-            maleFee: updateSessionDto.feeConfig.maleFee,
-            femaleFee: updateSessionDto.feeConfig.femaleFee,
-            notes: updateSessionDto.feeConfig.notes,
+            maleFee: updateSessionDto.feeConfig.maleFee ?? null,
+            femaleFee: updateSessionDto.feeConfig.femaleFee ?? null,
+            notes: updateSessionDto.feeConfig.notes ?? null,
           },
         });
       } else {
@@ -861,9 +874,9 @@ export class SessionsService {
           data: {
             sessionId: id,
             feeType: updateSessionDto.feeConfig.feeType,
-            maleFee: updateSessionDto.feeConfig.maleFee,
-            femaleFee: updateSessionDto.feeConfig.femaleFee,
-            notes: updateSessionDto.feeConfig.notes,
+            maleFee: updateSessionDto.feeConfig.maleFee ?? null,
+            femaleFee: updateSessionDto.feeConfig.femaleFee ?? null,
+            notes: updateSessionDto.feeConfig.notes ?? null,
           },
         });
       }
@@ -1718,7 +1731,8 @@ export class SessionsService {
     }
 
     // Upload new cover photo
-    const uploadResult = await this.cloudinaryService.uploadSessionCoverPhoto(file);
+    const uploadResult =
+      await this.cloudinaryService.uploadSessionCoverPhoto(file);
 
     // Update session with new cover photo
     const updatedSession = await this.prisma.session.update({
@@ -1743,11 +1757,7 @@ export class SessionsService {
     return updatedSession;
   }
 
-  async deleteCoverPhoto(
-    sessionId: string,
-    userId?: string,
-    role?: string
-  ) {
+  async deleteCoverPhoto(sessionId: string, userId?: string, role?: string) {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
     });

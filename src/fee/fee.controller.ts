@@ -8,7 +8,12 @@ import {
   Param,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { FeeService } from './fee.service';
@@ -37,7 +42,7 @@ export class FeeController {
   async create(
     @Param('sessionId') sessionId: string,
     @Body() dto: CreateFeeConfigDto,
-    @CurrentUser() user: { userId: string; role: string },
+    @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.feeService.create(sessionId, dto, user.userId, user.role);
   }
@@ -50,7 +55,7 @@ export class FeeController {
   async update(
     @Param('sessionId') sessionId: string,
     @Body() dto: UpdateFeeConfigDto,
-    @CurrentUser() user: { userId: string; role: string },
+    @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.feeService.update(sessionId, dto, user.userId, user.role);
   }
@@ -62,7 +67,7 @@ export class FeeController {
   @ApiResponse({ status: 404, description: 'Fee config not found' })
   async delete(
     @Param('sessionId') sessionId: string,
-    @CurrentUser() user: { userId: string; role: string },
+    @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.feeService.delete(sessionId, user.userId, user.role);
   }

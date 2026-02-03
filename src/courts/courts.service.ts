@@ -1021,7 +1021,10 @@ Return ONLY a raw JSON object in this exact format:
 }
     `;
 
-    const responseText = await this.geminiService.generateText(prompt, language);
+    const responseText = await this.geminiService.generateText(
+      prompt,
+      language
+    );
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
 
     if (!jsonMatch) {

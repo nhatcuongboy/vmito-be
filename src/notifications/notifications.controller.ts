@@ -33,7 +33,7 @@ export class NotificationsController {
   @Get()
   async findAll(
     @CurrentUser() user: ICurrentUser,
-    @Query() query: QueryNotificationsDto,
+    @Query() query: QueryNotificationsDto
   ) {
     return this.notificationsService.findAll(user.id, query);
   }
@@ -50,10 +50,7 @@ export class NotificationsController {
    * Mark a notification as read
    */
   @Patch(':id/read')
-  async markAsRead(
-    @Param('id') id: string,
-    @CurrentUser() user: ICurrentUser,
-  ) {
+  async markAsRead(@Param('id') id: string, @CurrentUser() user: ICurrentUser) {
     return this.notificationsService.markAsRead(id, user.id);
   }
 
@@ -69,10 +66,7 @@ export class NotificationsController {
    * Delete a notification
    */
   @Delete(':id')
-  async delete(
-    @Param('id') id: string,
-    @CurrentUser() user: ICurrentUser,
-  ) {
+  async delete(@Param('id') id: string, @CurrentUser() user: ICurrentUser) {
     return this.notificationsService.delete(id, user.id);
   }
 

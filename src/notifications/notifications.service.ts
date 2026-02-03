@@ -1,7 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { NotificationType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { SessionsGateway } from '../sessions/sessions.gateway';
+import {
+  SessionsGateway,
+  SessionEventType,
+} from '../sessions/sessions.gateway';
 import {
   CreateNotificationDto,
   BroadcastNotificationDto,
@@ -12,7 +15,7 @@ import {
 export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly sessionsGateway: SessionsGateway,
+    private readonly sessionsGateway: SessionsGateway
   ) {}
 
   /**
@@ -30,7 +33,11 @@ export class NotificationsService {
     });
 
     // Send real-time notification via socket
-    this.sessionsGateway.notifyUser(userId, 'notification_received' as any, notification);
+    this.sessionsGateway.notifyUser(
+      userId,
+      SessionEventType.NOTIFICATION_RECEIVED,
+      notification
+    );
 
     return notification;
   }
@@ -43,7 +50,7 @@ export class NotificationsService {
     type: NotificationType,
     title: string,
     message: string,
-    data?: Prisma.InputJsonValue,
+    data?: Prisma.InputJsonValue
   ) {
     const notification = await this.prisma.notification.create({
       data: {
@@ -56,7 +63,11 @@ export class NotificationsService {
     });
 
     // Send real-time notification via socket
-    this.sessionsGateway.notifyUser(userId, 'notification_received' as any, notification);
+    this.sessionsGateway.notifyUser(
+      userId,
+      SessionEventType.NOTIFICATION_RECEIVED,
+      notification
+    );
 
     return notification;
   }
@@ -183,8 +194,8 @@ export class NotificationsService {
     for (const notification of notifications) {
       this.sessionsGateway.notifyUser(
         notification.userId,
-        'notification_received' as any,
-        notification,
+        SessionEventType.NOTIFICATION_RECEIVED,
+        notification
       );
     }
 

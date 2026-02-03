@@ -11,7 +11,12 @@ import { CreatePlayerDto } from './dto/create-player.dto';
 import { UpdatePlayerDto } from './dto/update-player.dto';
 import { ConfirmPlayerDto } from './dto/confirm-player.dto';
 import { generatePlayerJoinCode } from './utils/player-helpers';
-import { Gender, PlayerStatus, RegistrationStatus } from '@prisma/client';
+import {
+  Gender,
+  PlayerStatus,
+  RegistrationStatus,
+  Prisma,
+} from '@prisma/client';
 import {
   SessionsGateway,
   SessionEventType,
@@ -564,7 +569,6 @@ export class PlayersService {
 
     // Validate player data
     const errors: string[] = [];
-    const providedNumbers = new Set<number>();
 
     // First pass: Validation
     for (const [index, playerData] of playersData.entries()) {
@@ -604,9 +608,7 @@ export class PlayersService {
     const existingSessionNumbers = fullSession.players.map(
       (p) => p.playerNumber
     );
-    const currentlyTakenNumbers = new Set([
-      ...existingSessionNumbers,
-    ]);
+    const currentlyTakenNumbers = new Set([...existingSessionNumbers]);
 
     // Create players with auto-assigned numbers
     const createdPlayers = await Promise.all(
@@ -620,13 +622,12 @@ export class PlayersService {
             currentlyTakenNumbers
           );
         }
-        
         currentlyTakenNumbers.add(playerNumber);
 
         return this.prisma.player.create({
           data: {
             sessionId,
-            playerNumber: playerNumber!,
+            playerNumber,
             name: playerData.name || null,
             gender: playerData.gender || null,
             level: playerData.level || null,
@@ -665,7 +666,6 @@ export class PlayersService {
       const pendingPlayerNames = createdPlayers
         .map((p) => p.name || 'Guest')
         .join(', ');
-      
       this.sessionsGateway.notifyUser(
         session.hostId,
         SessionEventType.REGISTRATION_REQUEST,
@@ -673,7 +673,7 @@ export class PlayersService {
           sessionId,
           sessionName: session.name || 'Badminton Session',
           playerName: pendingPlayerNames,
-          count: createdPlayers.length
+          count: createdPlayers.length,
         }
       );
     }
@@ -715,7 +715,9 @@ export class PlayersService {
     }
 
     if (session.hostId !== currentUserId && role !== 'ADMIN') {
-      throw new ForbiddenException('Only the host or admin can approve/reject players');
+      throw new ForbiddenException(
+        'Only the host or admin can approve/reject players'
+      );
     }
 
     // Check if player is in this session
@@ -771,7 +773,7 @@ export class PlayersService {
   }
 
   async findPendingRequests(hostId: string, role?: string) {
-    const where: any = {
+    const where: Prisma.PlayerWhereInput = {
       registrationStatus: 'PENDING',
     };
 
@@ -1519,7 +1521,14 @@ export class PlayersService {
     // Return unique sessions (deduplicate by sessionId)
     const uniqueSessions = Array.from(
       new Map(
-        players.map((p) => [p.sessionId, { sessionId: p.sessionId, playerId: p.id, status: p.registrationStatus }])
+        players.map((p) => [
+          p.sessionId,
+          {
+            sessionId: p.sessionId,
+            playerId: p.id,
+            status: p.registrationStatus,
+          },
+        ])
       ).values()
     );
 
@@ -1538,10 +1547,7 @@ export class PlayersService {
     const players = await this.prisma.player.findMany({
       where: {
         sessionId: sessionId,
-        OR: [
-          { userId: userId },
-          { createdByUserId: userId },
-        ],
+        OR: [{ userId: userId }, { createdByUserId: userId }],
       },
       select: {
         id: true,

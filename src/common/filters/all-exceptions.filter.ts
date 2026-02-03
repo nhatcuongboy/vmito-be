@@ -37,7 +37,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message = 'An unexpected error occurred';
     } else {
       // In development, show error message for debugging
-      message = exception instanceof Error ? exception.message : 'Internal server error';
+      message =
+        exception instanceof Error
+          ? exception.message
+          : 'Internal server error';
     }
 
     response.status(status).json({

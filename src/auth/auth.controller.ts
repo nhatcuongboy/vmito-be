@@ -127,9 +127,9 @@ export class AuthController {
     const frontendUrl = this.configService.get<string>('frontendUrl');
     const locale = user.locale || 'en';
     const returnUrl = user.returnUrl;
-    
+
     let callbackUrl = `${frontendUrl}/${locale}/auth/callback?token=${tokenData.accessToken}&refreshToken=${tokenData.refreshToken}&userId=${user.id}&email=${encodeURIComponent(user.email)}&name=${encodeURIComponent(user.name || '')}&role=${user.role}${user.image ? `&image=${encodeURIComponent(user.image)}` : ''}`;
-    
+
     // Add returnUrl if present
     if (returnUrl) {
       callbackUrl += `&returnUrl=${encodeURIComponent(returnUrl)}`;

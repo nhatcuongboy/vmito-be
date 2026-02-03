@@ -13,7 +13,10 @@ export class GetRatingsDto {
   @IsString()
   sessionId?: string;
 
-  @ApiPropertyOptional({ enum: RatingType, description: 'Filter by rating type' })
+  @ApiPropertyOptional({
+    enum: RatingType,
+    description: 'Filter by rating type',
+  })
   @IsOptional()
   @IsEnum(RatingType)
   type?: RatingType;

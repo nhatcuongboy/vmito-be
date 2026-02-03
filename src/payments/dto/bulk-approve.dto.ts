@@ -2,7 +2,10 @@ import { IsArray, IsOptional, IsString, ArrayMinSize } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class BulkApproveDto {
-  @ApiProperty({ description: 'Array of payment IDs to approve', type: [String] })
+  @ApiProperty({
+    description: 'Array of payment IDs to approve',
+    type: [String],
+  })
   @IsArray()
   @IsString({ each: true })
   @ArrayMinSize(1)

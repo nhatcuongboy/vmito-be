@@ -3,7 +3,10 @@ import { FeeType } from '@prisma/client';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateFeeConfigDto {
-  @ApiProperty({ enum: FeeType, description: 'Fee type: FIXED or SPLIT_EVENLY' })
+  @ApiProperty({
+    enum: FeeType,
+    description: 'Fee type: FIXED or SPLIT_EVENLY',
+  })
   @IsEnum(FeeType)
   feeType: FeeType;
 

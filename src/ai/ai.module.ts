@@ -10,4 +10,3 @@ import { ConfigModule } from '@nestjs/config';
   exports: [GeminiService],
 })
 export class AiModule {}
-

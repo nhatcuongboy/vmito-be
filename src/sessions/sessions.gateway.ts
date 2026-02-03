@@ -76,9 +76,9 @@ export class SessionsGateway
     @ConnectedSocket() client: Socket
   ) {
     if (!data?.userId) return;
-    
+
     const roomName = `user-${data.userId}`;
-    
+
     // Leave other user rooms to prevent leakage if switching accounts on same socket
     const currentRooms = Array.from(client.rooms);
     for (const room of currentRooms) {
@@ -89,7 +89,9 @@ export class SessionsGateway
     }
 
     await client.join(roomName);
-    this.logger.log(`User ${data.userId} joined their personal room: ${roomName}`);
+    this.logger.log(
+      `User ${data.userId} joined their personal room: ${roomName}`
+    );
     return { event: 'joinedUserRoom', data: { userId: data.userId } };
   }
 
@@ -127,15 +129,13 @@ export class SessionsGateway
   notifyUser(
     userId: string,
     eventType: SessionEventType,
-    payload?: any
+    payload?: Record<string, unknown>
   ) {
     if (!userId) return;
-    
+
     const roomName = `user-${userId}`;
     this.server.to(roomName).emit(eventType, payload);
-    
-    this.logger.log(
-      `[Realtime] Notified user ${userId} of ${eventType}`
-    );
+
+    this.logger.log(`[Realtime] Notified user ${userId} of ${eventType}`);
   }
 }

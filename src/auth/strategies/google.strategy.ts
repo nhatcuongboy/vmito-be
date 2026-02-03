@@ -15,6 +15,11 @@ interface GoogleUser {
   returnUrl?: string;
 }
 
+interface StateData {
+  locale?: string;
+  returnUrl?: string;
+}
+
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   constructor(
@@ -60,12 +65,11 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     // 2. JSON string: {"locale":"en","returnUrl":"/browse/sessions?sessionId=xxx"}
     let locale = 'en';
     let returnUrl: string | undefined;
-    
     const stateParam = req.query.state as string;
     if (stateParam) {
       try {
         // Try to parse as JSON first
-        const stateData = JSON.parse(stateParam);
+        const stateData = JSON.parse(stateParam) as StateData;
         locale = stateData.locale || 'en';
         returnUrl = stateData.returnUrl;
       } catch {

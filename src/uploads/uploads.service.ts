@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { CloudinaryService, CloudinaryUploadResult } from '../cloudinary/cloudinary.service';
+import {
+  CloudinaryService,
+  CloudinaryUploadResult,
+} from '../cloudinary/cloudinary.service';
 
 @Injectable()
 export class UploadsService {
@@ -9,7 +12,9 @@ export class UploadsService {
     return await this.cloudinaryService.uploadQrCode(file);
   }
 
-  async savePaymentProof(file: Express.Multer.File): Promise<CloudinaryUploadResult> {
+  async savePaymentProof(
+    file: Express.Multer.File
+  ): Promise<CloudinaryUploadResult> {
     return await this.cloudinaryService.uploadPaymentProof(file);
   }
 

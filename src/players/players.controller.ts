@@ -223,7 +223,9 @@ export class SessionPlayersController {
   }
 
   @Get('me')
-  @ApiOperation({ summary: 'Get current user\'s registered players for this session' })
+  @ApiOperation({
+    summary: "Get current user's registered players for this session",
+  })
   getMyPlayersForSession(
     @Param('sessionId') sessionId: string,
     @CurrentUser() user: { userId: string }

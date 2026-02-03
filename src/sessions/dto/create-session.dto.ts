@@ -8,7 +8,7 @@ import {
   IsDateString,
   Min,
 } from 'class-validator';
-import { CourtDirection } from '@prisma/client';
+import { CourtDirection, FeeType } from '@prisma/client';
 
 export class CourtConfigDto {
   @IsNumber()
@@ -22,7 +22,6 @@ export class CourtConfigDto {
   @IsOptional()
   direction?: CourtDirection;
 }
-
 
 export class VenueDto {
   @IsString()
@@ -49,6 +48,23 @@ export class VenueDto {
   @IsString()
   @IsOptional()
   city?: string;
+}
+
+export class FeeConfigDto {
+  @IsEnum(FeeType)
+  feeType: FeeType;
+
+  @IsNumber()
+  @IsOptional()
+  maleFee?: number;
+
+  @IsNumber()
+  @IsOptional()
+  femaleFee?: number;
+
+  @IsString()
+  @IsOptional()
+  notes?: string;
 }
 
 export class CreateSessionDto {
@@ -140,17 +156,5 @@ export class CreateSessionDto {
   courts?: CourtConfigDto[];
 
   @IsOptional()
-  feeConfig?: any;
-
-  @IsOptional()
-  host?: any;
-
-  @IsOptional()
-  players?: any;
-
-  @IsOptional()
-  pendingPlayers?: any;
-
-  @IsOptional()
-  _count?: any;
+  feeConfig?: FeeConfigDto;
 }

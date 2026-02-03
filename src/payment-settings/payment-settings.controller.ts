@@ -8,7 +8,12 @@ import {
   Param,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PaymentSettingsService } from './payment-settings.service';
@@ -41,7 +46,7 @@ export class PaymentSettingsController {
   @ApiResponse({ status: 404, description: 'Payment settings not found' })
   async findOne(
     @Param('id') id: string,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string }
   ) {
     return this.service.findOne(id, user.userId);
   }
@@ -51,7 +56,7 @@ export class PaymentSettingsController {
   @ApiResponse({ status: 201, description: 'Payment settings created' })
   async create(
     @Body() dto: CreatePaymentSettingsDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string }
   ) {
     return this.service.create(dto, user.userId);
   }
@@ -63,7 +68,7 @@ export class PaymentSettingsController {
   async update(
     @Param('id') id: string,
     @Body() dto: UpdatePaymentSettingsDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string }
   ) {
     return this.service.update(id, dto, user.userId);
   }
@@ -74,7 +79,7 @@ export class PaymentSettingsController {
   @ApiResponse({ status: 404, description: 'Payment settings not found' })
   async delete(
     @Param('id') id: string,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string }
   ) {
     return this.service.delete(id, user.userId);
   }
@@ -85,7 +90,7 @@ export class PaymentSettingsController {
   @ApiResponse({ status: 404, description: 'Payment settings not found' })
   async setDefault(
     @Param('id') id: string,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string }
   ) {
     return this.service.setDefault(id, user.userId);
   }
@@ -100,7 +105,9 @@ export class HostPaymentSettingsController {
   constructor(private readonly service: PaymentSettingsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get default payment settings for a host (for players)' })
+  @ApiOperation({
+    summary: 'Get default payment settings for a host (for players)',
+  })
   @ApiResponse({ status: 200, description: 'Host payment settings' })
   async findHostDefault(@Param('hostId') hostId: string) {
     return this.service.findDefaultByHost(hostId);

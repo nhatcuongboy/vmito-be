@@ -65,8 +65,11 @@ export class SessionsController {
       district,
       minFee: minFee ? parseFloat(minFee) : undefined,
       maxFee: maxFee ? parseFloat(maxFee) : undefined,
-      hasSlots: hasSlots === 'true' ? true : hasSlots === 'false' ? false : undefined,
-      minAvailableSlots: minAvailableSlots ? parseInt(minAvailableSlots, 10) : undefined,
+      hasSlots:
+        hasSlots === 'true' ? true : hasSlots === 'false' ? false : undefined,
+      minAvailableSlots: minAvailableSlots
+        ? parseInt(minAvailableSlots, 10)
+        : undefined,
       searchQuery,
       lat: lat ? parseFloat(lat) : undefined,
       lng: lng ? parseFloat(lng) : undefined,
@@ -85,7 +88,11 @@ export class SessionsController {
     @Body() createSessionDto: CreateSessionDto,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    if (user.role !== 'HOST' && user.role !== 'ADMIN' && user.role !== 'PLAYER') {
+    if (
+      user.role !== 'HOST' &&
+      user.role !== 'ADMIN' &&
+      user.role !== 'PLAYER'
+    ) {
       throw new ForbiddenException('Only authorized users can create sessions');
     }
     return this.sessionsService.create(createSessionDto, user.userId);
@@ -208,10 +215,6 @@ export class SessionsController {
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    return this.sessionsService.deleteCoverPhoto(
-      id,
-      user.userId,
-      user.role
-    );
+    return this.sessionsService.deleteCoverPhoto(id, user.userId, user.role);
   }
 }
