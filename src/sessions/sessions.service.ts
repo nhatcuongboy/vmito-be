@@ -506,6 +506,8 @@ export class SessionsService {
       courtColor,
       courts: courtsConfig,
       shuttlecock,
+      coverPhoto,
+      coverPhotoPublicId,
     } = createSessionDto;
 
     // Validate requiredLevels
@@ -593,6 +595,8 @@ export class SessionsService {
         venueId,
         courtColor: courtColor || '#179a3b',
         shuttlecock,
+        coverPhoto,
+        coverPhotoPublicId,
       },
       include: {
         host: {
@@ -1797,5 +1801,412 @@ export class SessionsService {
     });
 
     return updatedSession;
+  }
+
+  /**
+   * Bulk session creation - creates multiple sessions at once
+   */
+  async createBulkSessions(
+    bulkDto: {
+      mode: string;
+      baseSession: CreateSessionDto;
+      specificDates?: { dates: string[] };
+      recurringWeekdays?: {
+        weekdays: number[];
+        numberOfWeeks: number;
+        startDate?: string;
+      };
+    },
+    hostId: string
+  ) {
+    const { mode, baseSession, specificDates, recurringWeekdays } = bulkDto;
+
+    // Validate mode and configs
+    if (mode === 'specific-dates' && !specificDates?.dates?.length) {
+      throw new BadRequestException(
+        'specificDates.dates is required for specific-dates mode'
+      );
+    }
+
+    if (
+      mode === 'recurring-weekdays' &&
+      (!recurringWeekdays?.weekdays?.length ||
+        !recurringWeekdays?.numberOfWeeks)
+    ) {
+      throw new BadRequestException(
+        'recurringWeekdays.weekdays and numberOfWeeks are required for recurring-weekdays mode'
+      );
+    }
+
+    // Use Prisma transaction for all-or-nothing semantics
+    try {
+      const sessions = await this.prisma.$transaction(async (tx) => {
+        const createdSessions: Awaited<
+          ReturnType<typeof this.createSessionInternal>
+        >[] = [];
+
+        if (mode === 'single') {
+          // Single session creation
+          const session = await this.createSessionInternal(
+            baseSession,
+            hostId,
+            tx
+          );
+          createdSessions.push(session);
+        } else if (mode === 'specific-dates' && specificDates) {
+          // Create base session first
+          const baseSessionCreated = await this.createSessionInternal(
+            baseSession,
+            hostId,
+            tx
+          );
+          createdSessions.push(baseSessionCreated);
+
+          // Clone to specific dates
+          for (const dateStr of specificDates.dates) {
+            const clonedSessionDto = this.cloneSessionWithNewDate(
+              baseSession,
+              new Date(dateStr)
+            );
+            const clonedSession = await this.createSessionInternal(
+              clonedSessionDto,
+              hostId,
+              tx
+            );
+            createdSessions.push(clonedSession);
+          }
+        } else if (mode === 'recurring-weekdays' && recurringWeekdays) {
+          // Create base session first
+          const baseSessionCreated = await this.createSessionInternal(
+            baseSession,
+            hostId,
+            tx
+          );
+          createdSessions.push(baseSessionCreated);
+
+          // Calculate recurring dates
+          const startDate = recurringWeekdays.startDate
+            ? new Date(recurringWeekdays.startDate)
+            : baseSession.startTime
+              ? new Date(baseSession.startTime)
+              : new Date();
+
+          const recurringDates = this.calculateRecurringDates(
+            startDate,
+            recurringWeekdays.weekdays,
+            recurringWeekdays.numberOfWeeks
+          );
+
+          // Filter out base session date to avoid duplicates
+          const baseSessionDate = baseSession.startTime
+            ? new Date(baseSession.startTime)
+            : new Date();
+          const baseDateStr = this.formatDateOnly(baseSessionDate);
+
+          const uniqueDates = recurringDates.filter(
+            (date) => this.formatDateOnly(date) !== baseDateStr
+          );
+
+          // Create sessions for each unique date
+          for (const date of uniqueDates) {
+            const clonedSessionDto = this.cloneSessionWithNewDate(
+              baseSession,
+              date
+            );
+            const clonedSession = await this.createSessionInternal(
+              clonedSessionDto,
+              hostId,
+              tx
+            );
+            createdSessions.push(clonedSession);
+          }
+        }
+
+        return createdSessions;
+      });
+
+      return {
+        success: true,
+        sessionsCreated: sessions.length,
+        sessions,
+        errors: [],
+      };
+    } catch (error) {
+      console.error('Bulk session creation failed:', error);
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      throw new BadRequestException(
+        `Failed to create bulk sessions: ${errorMessage}`
+      );
+    }
+  }
+
+  /**
+   * Internal method to create a single session within a transaction
+   */
+  private async createSessionInternal(
+    createSessionDto: CreateSessionDto,
+    hostId: string,
+    tx?: Prisma.TransactionClient
+  ) {
+    const prismaClient = tx || this.prisma;
+
+    const {
+      name,
+      numberOfCourts = 2,
+      sessionDuration = 120,
+      maxPlayersPerCourt = 8,
+      requirePlayerInfo = true,
+      allowGuestJoin = true,
+      allowNewPlayers = true,
+      requiredLevels = [],
+      startTime,
+      endTime,
+      description,
+      location,
+      hostName,
+      hostPhone,
+      venue,
+      courtColor,
+      courts: courtsConfig,
+      shuttlecock,
+      coverPhoto,
+      coverPhotoPublicId,
+    } = createSessionDto;
+
+    // Validate requiredLevels
+    if (requiredLevels !== undefined && !Array.isArray(requiredLevels)) {
+      throw new BadRequestException('requiredLevels must be an array');
+    }
+
+    const validLevels = VALID_LEVELS;
+    const invalidLevels = requiredLevels?.filter(
+      (level) => !validLevels.includes(level)
+    );
+
+    if (invalidLevels && invalidLevels.length > 0) {
+      throw new BadRequestException(
+        `Invalid level values: ${invalidLevels.join(', ')}. Valid levels are: ${validLevels.join(', ')}`
+      );
+    }
+
+    // Determine actual number of courts
+    const finalNumberOfCourts =
+      courtsConfig && Array.isArray(courtsConfig) && courtsConfig.length > 0
+        ? courtsConfig.length
+        : numberOfCourts;
+
+    // Check if host exists
+    const host = await prismaClient.user.findUnique({
+      where: { id: hostId },
+    });
+
+    if (!host) {
+      throw new NotFoundException('Host not found');
+    }
+
+    // Handle Venue Logic
+    let venueId: string | undefined;
+    let finalLocation = location;
+
+    if (venue) {
+      let existingVenue = await prismaClient.venue.findUnique({
+        where: { placeId: venue.placeId },
+      });
+
+      if (!existingVenue) {
+        existingVenue = await prismaClient.venue.create({
+          data: {
+            placeId: venue.placeId,
+            name: venue.name,
+            address: venue.address,
+            lat: venue.lat,
+            lng: venue.lng,
+            district: venue.district,
+            city: venue.city,
+          },
+        });
+      }
+      venueId = existingVenue.id;
+      if (!finalLocation) {
+        finalLocation = venue.address;
+      }
+    }
+
+    // Create session
+    const session = await prismaClient.session.create({
+      data: {
+        name,
+        hostId,
+        numberOfCourts: finalNumberOfCourts,
+        sessionDuration,
+        maxPlayersPerCourt,
+        requirePlayerInfo,
+        allowGuestJoin,
+        allowNewPlayers,
+        requiredLevels: requiredLevels || [],
+        startTime: startTime ? new Date(startTime) : new Date(),
+        endTime: endTime
+          ? new Date(endTime)
+          : new Date(Date.now() + sessionDuration * 60 * 1000),
+        status: 'PREPARING',
+        description,
+        location: finalLocation,
+        hostName,
+        hostPhone,
+        venueId,
+        courtColor: courtColor || '#179a3b',
+        shuttlecock,
+        coverPhoto,
+        coverPhotoPublicId,
+      },
+      include: {
+        host: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+          },
+        },
+        venue: true,
+      },
+    });
+
+    // Create courts for the session
+    const courts: Array<{
+      sessionId: string;
+      courtNumber: number;
+      courtName: string | null;
+      direction: CourtDirection;
+      status: 'EMPTY';
+    }> = [];
+
+    if (courtsConfig && Array.isArray(courtsConfig)) {
+      for (const courtConfig of courtsConfig) {
+        courts.push({
+          sessionId: session.id,
+          courtNumber: courtConfig.courtNumber,
+          courtName: courtConfig.courtName || null,
+          direction: courtConfig.direction || CourtDirection.HORIZONTAL,
+          status: 'EMPTY' as const,
+        });
+      }
+    } else {
+      for (let i = 1; i <= session.numberOfCourts; i++) {
+        courts.push({
+          sessionId: session.id,
+          courtNumber: i,
+          courtName: null,
+          direction: CourtDirection.HORIZONTAL,
+          status: 'EMPTY' as const,
+        });
+      }
+    }
+
+    await prismaClient.court.createMany({
+      data: courts,
+    });
+
+    // Create fee configuration if provided
+    if (createSessionDto.feeConfig) {
+      await prismaClient.sessionFeeConfig.create({
+        data: {
+          sessionId: session.id,
+          feeType: createSessionDto.feeConfig.feeType,
+          maleFee: createSessionDto.feeConfig.maleFee ?? null,
+          femaleFee: createSessionDto.feeConfig.femaleFee ?? null,
+          notes: createSessionDto.feeConfig.notes ?? null,
+        },
+      });
+    }
+
+    // Return session with full details
+    return prismaClient.session.findUnique({
+      where: { id: session.id },
+      include: {
+        host: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+          },
+        },
+        courts: {
+          orderBy: { courtNumber: 'asc' },
+        },
+        venue: true,
+        feeConfig: true,
+        _count: {
+          select: {
+            players: { where: { registrationStatus: 'APPROVED' as const } },
+            courts: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Clone session data with a new date while preserving time
+   */
+  private cloneSessionWithNewDate(
+    baseSession: CreateSessionDto,
+    newDate: Date
+  ): CreateSessionDto {
+    const startTime = baseSession.startTime
+      ? new Date(baseSession.startTime)
+      : new Date();
+    const endTime = baseSession.endTime
+      ? new Date(baseSession.endTime)
+      : new Date();
+
+    // Preserve time (hours:minutes) from base session
+    const newStartTime = new Date(newDate);
+    newStartTime.setHours(startTime.getHours(), startTime.getMinutes(), 0, 0);
+
+    const newEndTime = new Date(newDate);
+    newEndTime.setHours(endTime.getHours(), endTime.getMinutes(), 0, 0);
+
+    return {
+      ...baseSession,
+      startTime: newStartTime.toISOString(),
+      endTime: newEndTime.toISOString(),
+    };
+  }
+
+  /**
+   * Calculate recurring dates based on weekdays and number of weeks
+   */
+  private calculateRecurringDates(
+    startDate: Date,
+    weekdays: number[],
+    numberOfWeeks: number
+  ): Date[] {
+    const dates: Date[] = [];
+
+    for (let week = 0; week < numberOfWeeks; week++) {
+      for (const weekday of weekdays) {
+        const date = new Date(startDate);
+
+        // Calculate days to add
+        const currentWeekday = startDate.getDay();
+        let daysToAdd = (weekday - currentWeekday + 7) % 7;
+        daysToAdd += week * 7;
+
+        date.setDate(startDate.getDate() + daysToAdd);
+        dates.push(date);
+      }
+    }
+
+    return dates;
+  }
+
+  /**
+   * Format date to YYYY-MM-DD for comparison
+   */
+  private formatDateOnly(date: Date): string {
+    return date.toISOString().split('T')[0];
   }
 }

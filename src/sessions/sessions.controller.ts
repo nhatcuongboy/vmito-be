@@ -22,6 +22,7 @@ import { CreateSessionDto } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { UpdateWaitTimesDto } from './dto/update-wait-times.dto';
+import { BulkSessionCreationDto } from './dto/bulk-session.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
@@ -96,6 +97,21 @@ export class SessionsController {
       throw new ForbiddenException('Only authorized users can create sessions');
     }
     return this.sessionsService.create(createSessionDto, user.userId);
+  }
+
+  @Post('bulk')
+  async createBulkSessions(
+    @Body() bulkSessionDto: BulkSessionCreationDto,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    if (
+      user.role !== 'HOST' &&
+      user.role !== 'ADMIN' &&
+      user.role !== 'PLAYER'
+    ) {
+      throw new ForbiddenException('Only authorized users can create sessions');
+    }
+    return this.sessionsService.createBulkSessions(bulkSessionDto, user.userId);
   }
 
   @Put(':id')
