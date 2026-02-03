@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { NotificationType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -13,6 +13,8 @@ import {
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessionsGateway: SessionsGateway
@@ -170,10 +172,17 @@ export class NotificationsService {
    * Broadcast a notification to all users (Admin only)
    */
   async broadcastToAll(dto: BroadcastNotificationDto) {
+    const startTime = Date.now();
+    this.logger.log(
+      `[Broadcast] Starting broadcast: "${dto.title.substring(0, 50)}..."`
+    );
+
     // Get all user IDs
     const users = await this.prisma.user.findMany({
       select: { id: true },
     });
+
+    this.logger.log(`[Broadcast] Found ${users.length} users to notify`);
 
     if (users.length === 0) {
       return { message: 'No users to notify', count: 0 };
@@ -189,15 +198,26 @@ export class NotificationsService {
       })),
     });
 
+    this.logger.log(
+      `[Broadcast] Created ${notifications.length} notifications in database`
+    );
+
     // Send real-time notifications via socket to each user
     // We do this in a loop, but the database part is now much faster
+    let sentCount = 0;
     for (const notification of notifications) {
       this.sessionsGateway.notifyUser(
         notification.userId,
         SessionEventType.NOTIFICATION_RECEIVED,
         notification
       );
+      sentCount++;
     }
+
+    const duration = Date.now() - startTime;
+    this.logger.log(
+      `[Broadcast] Completed: Sent ${sentCount} socket events to ${users.length} users in ${duration}ms`
+    );
 
     return {
       message: `Notification broadcast to ${users.length} users`,
