@@ -77,11 +77,18 @@ export class PlayersController {
   @ApiOperation({
     summary: 'Get all sessions that the current user has participated in',
   })
-  getMySessions(@CurrentUser() user: { userId: string }) {
+  getMySessions(
+    @CurrentUser() user: { userId: string },
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ) {
     if (!user || typeof user.userId !== 'string') {
       throw new Error('Invalid user object');
     }
-    return this.playersService.getMySessions(user.userId);
+    return this.playersService.getMySessions(user.userId, {
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
   }
 
   @Get('me/registrations')

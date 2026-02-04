@@ -23,10 +23,21 @@ export class SessionsService {
     private cloudinaryService: CloudinaryService
   ) {}
 
-  async findAll(user?: { userId: string; role: string }) {
+  async findAll(
+    user?: { userId: string; role: string },
+    filters?: { page?: number; limit?: number; hostId?: string }
+  ) {
+    const page = filters?.page || 1;
+    const limit = filters?.limit || 12;
+    const skip = (page - 1) * limit;
+
     const where: { hostId?: string } = {};
 
-    if (user && user.role === 'HOST') {
+    // If hostId is provided in filters, use it (could add security check here)
+    if (filters?.hostId) {
+      where.hostId = filters.hostId;
+    } else if (user && user.role !== 'ADMIN') {
+      // Default to filtering by current user if not admin
       where.hostId = user.userId;
     }
 
@@ -55,6 +66,8 @@ export class SessionsService {
       orderBy: {
         createdAt: 'desc',
       },
+      skip,
+      take: limit,
     });
   }
 
@@ -71,7 +84,13 @@ export class SessionsService {
     lat?: number;
     lng?: number;
     sortByDistance?: boolean;
+    page?: number;
+    limit?: number;
   }) {
+    const page = filters?.page || 1;
+    const limit = filters?.limit || 12;
+    const skip = (page - 1) * limit;
+
     const where: Prisma.SessionWhereInput = {
       status: 'PREPARING', // Only show sessions that haven't started
       endTime: {
@@ -223,6 +242,8 @@ export class SessionsService {
       orderBy: {
         startTime: 'asc',
       },
+      skip,
+      take: limit,
     });
 
     // Post-fetch filters (for complex calculations)

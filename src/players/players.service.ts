@@ -1437,27 +1437,29 @@ export class PlayersService {
     };
   }
 
-  async getMySessions(userId: string) {
+  async getMySessions(
+    userId: string,
+    filters?: { page?: number; limit?: number }
+  ) {
     if (!userId) {
       throw new BadRequestException('User ID is required');
     }
 
-    // Find all sessions that the current user has participated in
+    const page = filters?.page || 1;
+    const limit = filters?.limit || 12;
+    const skip = (page - 1) * limit;
+
+    // Find all sessions that the current user has registered for (Pending/Approved)
     const sessions = await this.prisma.session.findMany({
       where: {
-        OR: [
-          {
-            players: {
-              some: {
-                userId: userId,
-                // isJoined: true, // Only get sessions where user actually joined
-              },
+        players: {
+          some: {
+            userId: userId,
+            registrationStatus: {
+              in: ['PENDING', 'APPROVED'],
             },
           },
-          {
-            hostId: userId,
-          },
-        ],
+        },
       },
       include: {
         host: {
@@ -1493,6 +1495,8 @@ export class PlayersService {
       orderBy: {
         createdAt: 'desc',
       },
+      skip,
+      take: limit,
     });
 
     return sessions;
