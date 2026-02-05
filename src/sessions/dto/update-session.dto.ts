@@ -8,7 +8,7 @@ import {
   Min,
 } from 'class-validator';
 
-import { VenueDto, FeeConfigDto } from './create-session.dto';
+import { VenueDto, FeeConfigDto, CourtConfigDto } from './create-session.dto';
 
 export class UpdateSessionDto {
   @IsString()
@@ -93,4 +93,8 @@ export class UpdateSessionDto {
 
   @IsOptional()
   feeConfig?: FeeConfigDto | null;
+
+  @IsArray()
+  @IsOptional()
+  courts?: CourtConfigDto[];
 }

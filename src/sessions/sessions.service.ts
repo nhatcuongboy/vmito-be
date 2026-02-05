@@ -869,6 +869,29 @@ export class SessionsService {
       }
     }
 
+    // Handle specific court updates (names, directions)
+    if (updateSessionDto.courts && Array.isArray(updateSessionDto.courts)) {
+      for (const courtConfig of updateSessionDto.courts) {
+        // Find the court by session ID and court number
+        const existingCourt = await this.prisma.court.findFirst({
+          where: {
+            sessionId: id,
+            courtNumber: courtConfig.courtNumber,
+          },
+        });
+
+        if (existingCourt) {
+          await this.prisma.court.update({
+            where: { id: existingCourt.id },
+            data: {
+              courtName: courtConfig.courtName,
+              direction: courtConfig.direction,
+            },
+          });
+        }
+      }
+    }
+
     // Handle fee configuration updates
     if (updateSessionDto.feeConfig !== undefined) {
       const existingFeeConfig = await this.prisma.sessionFeeConfig.findUnique({
