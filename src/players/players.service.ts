@@ -691,9 +691,7 @@ export class PlayersService {
 
     return {
       createdPlayers,
-      message: isHost
-        ? 'Players added successfully'
-        : 'Registration submitted successfully',
+      message: isHost ? 'Đăng ký slot thành công' : 'Đăng ký slot thành công',
     };
   }
 
