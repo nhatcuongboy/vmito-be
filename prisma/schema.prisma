@@ -173,20 +173,36 @@ model Session {
 }
 
 model Venue {
-  id        String   @id @default(cuid())
-  placeId   String   @unique // Google Place ID
-  name      String
-  address   String
-  lat       Float?
-  lng       Float?
-  district  String?
-  city      String?
-  isVerified Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  sessions  Session[]
+  id             String      @id @default(cuid())
+  placeId        String      @unique // Google Place ID
+  name           String
+  address        String
+  lat            Float?
+  lng            Float?
+  district       String?
+  city           String?
+  isVerified     Boolean     @default(false)
+  openingHours   String?
+  numberOfCourts Int?
+  status         VenueStatus @default(ACTIVE)
+  phone          String?
+  website        String?
+  hourlyRateFixed  Int?
+  hourlyRateWalkIn Int?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  sessions       Session[]
 
+  @@index([status])
+  @@index([city])
+  @@index([district])
+  @@index([lat, lng])
   @@map("venues")
+}
+
+enum VenueStatus {
+  ACTIVE
+  INACTIVE
 }
 
 model Player {
