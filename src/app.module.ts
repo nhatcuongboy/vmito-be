@@ -23,6 +23,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { RatingsModule } from './ratings/ratings.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { FixedMembersModule } from './fixed-members/fixed-members.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import configuration from './config';
 
@@ -53,6 +54,7 @@ import configuration from './config';
     UploadsModule,
     RatingsModule,
     NotificationsModule,
+    FixedMembersModule,
   ],
   controllers: [AppController],
   providers: [

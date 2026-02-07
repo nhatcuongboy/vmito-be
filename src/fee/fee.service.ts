@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateFeeConfigDto, UpdateFeeConfigDto } from './dto';
 import { FeeType, Gender, PaymentStatus } from '@prisma/client';
+import { FixedMembersService } from '../fixed-members/fixed-members.service';
 
 @Injectable()
 export class FeeService {
@@ -24,7 +25,10 @@ export class FeeService {
     updatedAt: true,
   };
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private fixedMembersService: FixedMembersService
+  ) {}
 
   async findBySessionId(sessionId: string) {
     return this.prisma.sessionFeeConfig.findUnique({
@@ -206,30 +210,59 @@ export class FeeService {
     // No fee config, no payment record needed
     if (!feeConfig) return;
 
-    // Get player info
+    // Get session for date lookup
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { startTime: true },
+    });
+
+    if (!session) return;
+
+    // Get player info including fixed member status
     const player = await this.prisma.player.findUnique({
       where: { id: playerId },
       select: {
         id: true,
         gender: true,
         createdByUserId: true,
+        isFixedMember: true,
+        fixedMemberGroupId: true,
       },
     });
 
     if (!player) return;
 
-    // Calculate amount
-    const amount = this.calculatePlayerFee(
-      feeConfig,
-      player.gender || Gender.MALE
-    );
+    // Calculate amount based on fixed member status
+    let amount: number;
+
+    if (
+      player.isFixedMember &&
+      player.fixedMemberGroupId &&
+      session.startTime
+    ) {
+      // Try to get fixed member per-session fee
+      const fixedMemberFee = await this.fixedMembersService.getPerSessionFee(
+        player.fixedMemberGroupId,
+        player.gender || Gender.MALE,
+        session.startTime
+      );
+
+      // Use fixed member fee if available, otherwise fall back to session fee
+      amount =
+        fixedMemberFee !== null
+          ? fixedMemberFee
+          : this.calculatePlayerFee(feeConfig, player.gender || Gender.MALE);
+    } else {
+      // Regular player - use session fee config
+      amount = this.calculatePlayerFee(feeConfig, player.gender || Gender.MALE);
+    }
 
     // Check if payment record already exists
     const existing = await this.prisma.paymentRecord.findUnique({
       where: { playerId: player.id },
     });
 
-    // Create payment record if not exists
+    // Create or update payment record
     if (!existing) {
       await this.prisma.paymentRecord.create({
         data: {
@@ -240,6 +273,80 @@ export class FeeService {
           amount,
           status: PaymentStatus.PENDING,
         },
+      });
+    } else if (existing.amount !== amount) {
+      // Update amount if it has changed (e.g., player became a fixed member)
+      await this.prisma.paymentRecord.update({
+        where: { id: existing.id },
+        data: { amount },
+      });
+    }
+  }
+
+  /**
+   * Recalculate and update the payment record for a single player
+   */
+  async recalculatePlayerPayment(
+    sessionId: string,
+    playerId: string
+  ): Promise<void> {
+    const feeConfig = await this.prisma.sessionFeeConfig.findUnique({
+      where: { sessionId },
+    });
+
+    if (!feeConfig) return;
+
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { startTime: true },
+    });
+
+    if (!session) return;
+
+    const player = await this.prisma.player.findUnique({
+      where: { id: playerId },
+      select: {
+        id: true,
+        gender: true,
+        isFixedMember: true,
+        fixedMemberGroupId: true,
+      },
+    });
+
+    if (!player) return;
+
+    let newAmount: number;
+
+    if (
+      player.isFixedMember &&
+      player.fixedMemberGroupId &&
+      session.startTime
+    ) {
+      const fixedMemberFee = await this.fixedMembersService.getPerSessionFee(
+        player.fixedMemberGroupId,
+        player.gender || Gender.MALE,
+        session.startTime
+      );
+
+      newAmount =
+        fixedMemberFee !== null
+          ? fixedMemberFee
+          : this.calculatePlayerFee(feeConfig, player.gender || Gender.MALE);
+    } else {
+      newAmount = this.calculatePlayerFee(
+        feeConfig,
+        player.gender || Gender.MALE
+      );
+    }
+
+    const payment = await this.prisma.paymentRecord.findUnique({
+      where: { playerId: player.id },
+    });
+
+    if (payment && payment.amount !== newAmount) {
+      await this.prisma.paymentRecord.update({
+        where: { id: payment.id },
+        data: { amount: newAmount },
       });
     }
   }
@@ -276,6 +383,14 @@ export class FeeService {
 
     if (!feeConfig) return;
 
+    // Get session to access session date for fixed member fee lookup
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { startTime: true },
+    });
+
+    if (!session) return;
+
     const players = await this.prisma.player.findMany({
       where: {
         sessionId,
@@ -285,14 +400,39 @@ export class FeeService {
         id: true,
         gender: true,
         createdByUserId: true,
+        isFixedMember: true,
+        fixedMemberGroupId: true,
       },
     });
 
     for (const player of players) {
-      const amount = this.calculatePlayerFee(
-        feeConfig,
-        player.gender || Gender.MALE
-      );
+      let amount: number;
+
+      // Check if player is a fixed member with a group
+      if (
+        player.isFixedMember &&
+        player.fixedMemberGroupId &&
+        session.startTime
+      ) {
+        // Try to get fixed member per-session fee
+        const fixedMemberFee = await this.fixedMembersService.getPerSessionFee(
+          player.fixedMemberGroupId,
+          player.gender || Gender.MALE,
+          session.startTime
+        );
+
+        // Use fixed member fee if available, otherwise fall back to session fee
+        amount =
+          fixedMemberFee !== null
+            ? fixedMemberFee
+            : this.calculatePlayerFee(feeConfig, player.gender || Gender.MALE);
+      } else {
+        // Regular player - use session fee config
+        amount = this.calculatePlayerFee(
+          feeConfig,
+          player.gender || Gender.MALE
+        );
+      }
 
       // Check if payment record already exists
       const existing = await this.prisma.paymentRecord.findUnique({
@@ -319,16 +459,58 @@ export class FeeService {
     sessionId: string,
     feeConfig: { maleFee?: number | null; femaleFee?: number | null }
   ) {
+    // Get session for date lookup
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { startTime: true },
+    });
+
+    if (!session) return;
+
     const payments = await this.prisma.paymentRecord.findMany({
       where: { sessionId },
-      include: { player: { select: { gender: true } } },
+      include: {
+        player: {
+          select: {
+            gender: true,
+            isFixedMember: true,
+            fixedMemberGroupId: true,
+          },
+        },
+      },
     });
 
     for (const payment of payments) {
-      const newAmount = this.calculatePlayerFee(
-        { feeType: FeeType.FIXED, ...feeConfig },
-        payment.player.gender || Gender.MALE
-      );
+      let newAmount: number;
+
+      // Check if player is a fixed member with a group
+      if (
+        payment.player.isFixedMember &&
+        payment.player.fixedMemberGroupId &&
+        session.startTime
+      ) {
+        // Try to get fixed member per-session fee
+        const fixedMemberFee = await this.fixedMembersService.getPerSessionFee(
+          payment.player.fixedMemberGroupId,
+          payment.player.gender || Gender.MALE,
+          session.startTime
+        );
+
+        // Use fixed member fee if available, otherwise fall back to session fee
+        newAmount =
+          fixedMemberFee !== null
+            ? fixedMemberFee
+            : this.calculatePlayerFee(
+                { feeType: FeeType.FIXED, ...feeConfig },
+                payment.player.gender || Gender.MALE
+              );
+      } else {
+        // Regular player - use session fee config
+        newAmount = this.calculatePlayerFee(
+          { feeType: FeeType.FIXED, ...feeConfig },
+          payment.player.gender || Gender.MALE
+        );
+      }
 
       if (payment.amount !== newAmount) {
         await this.prisma.paymentRecord.update({

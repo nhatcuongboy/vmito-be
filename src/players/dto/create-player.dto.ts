@@ -50,4 +50,12 @@ export class CreatePlayerDto {
   @IsBoolean()
   @IsOptional()
   requireConfirmInfo?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  isFixedMember?: boolean;
+
+  @IsString()
+  @IsOptional()
+  fixedMemberGroupId?: string;
 }

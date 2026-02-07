@@ -48,6 +48,14 @@ export class UpdatePlayerInSessionDto {
   @IsBoolean()
   requireConfirmInfo?: boolean;
 
+  @IsOptional()
+  @IsBoolean()
+  isFixedMember?: boolean;
+
+  @IsOptional()
+  @IsString()
+  fixedMemberGroupId?: string;
+
   // ============ Fields to ignore (sent by FE but not used) ============
   // These fields are allowed in the request body but will be ignored
   @IsOptional()
@@ -107,4 +115,7 @@ export class UpdatePlayerInSessionDto {
 
   @IsOptional()
   updatedAt?: Date;
+
+  @IsOptional()
+  fixedMemberGroup?: unknown;
 }

@@ -45,4 +45,12 @@ export class UpdatePlayerDto {
   @IsBoolean()
   @IsOptional()
   requireConfirmInfo?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  isFixedMember?: boolean;
+
+  @IsString()
+  @IsOptional()
+  fixedMemberGroupId?: string;
 }

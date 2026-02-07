@@ -368,6 +368,15 @@ export class SessionsService {
                 currentCourtId: true,
                 courtPosition: true,
                 updatedAt: true,
+                isFixedMember: true,
+                fixedMemberGroupId: true,
+                fixedMemberGroup: {
+                  select: {
+                    id: true,
+                    name: true,
+                    color: true,
+                  },
+                },
               },
               orderBy: {
                 courtPosition: 'asc',
@@ -421,7 +430,16 @@ export class SessionsService {
             requireConfirmInfo: true,
             joinCode: true,
             registrationStatus: true,
+            isFixedMember: true,
+            fixedMemberGroupId: true,
 
+            fixedMemberGroup: {
+              select: {
+                id: true,
+                name: true,
+                color: true,
+              },
+            },
             currentCourt: {
               select: {
                 id: true,
@@ -707,6 +725,15 @@ export class SessionsService {
             name: true,
             isJoined: true,
 
+            isFixedMember: true,
+            fixedMemberGroupId: true,
+            fixedMemberGroup: {
+              select: {
+                id: true,
+                name: true,
+                color: true,
+              },
+            },
             isGuest: true,
             user: {
               select: {
@@ -1262,6 +1289,13 @@ export class SessionsService {
         user: {
           select: {
             image: true,
+          },
+        },
+        fixedMemberGroup: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
           },
         },
       },

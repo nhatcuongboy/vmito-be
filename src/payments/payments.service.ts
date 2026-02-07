@@ -41,6 +41,15 @@ export class PaymentsService {
         id: true,
         name: true,
         gender: true,
+        isFixedMember: true,
+        fixedMemberGroupId: true,
+        fixedMemberGroup: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
         user: {
           select: {
             id: true,

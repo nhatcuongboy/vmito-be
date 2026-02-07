@@ -115,6 +115,8 @@ export class PlayersService {
         confirmedByPlayer: updatePlayerDto.confirmedByPlayer,
         preFilledByHost: updatePlayerDto.preFilledByHost,
         requireConfirmInfo: updatePlayerDto.requireConfirmInfo,
+        isFixedMember: updatePlayerDto.isFixedMember,
+        fixedMemberGroupId: updatePlayerDto.fixedMemberGroupId,
       },
     });
 
@@ -123,6 +125,12 @@ export class PlayersService {
       existingPlayer.sessionId,
       SessionEventType.PLAYER_UPDATED,
       { playerId: id }
+    );
+
+    // Recalculate payment if any relevant field might have changed
+    await this.feeService.recalculatePlayerPayment(
+      existingPlayer.sessionId,
+      id
     );
 
     return updatedPlayer;
@@ -398,6 +406,8 @@ export class PlayersService {
             preFilledByHost: playerData.preFilledByHost || false,
             confirmedByPlayer: playerData.confirmedByPlayer || false,
             requireConfirmInfo: playerData.requireConfirmInfo || false,
+            isFixedMember: playerData.isFixedMember || false,
+            fixedMemberGroupId: playerData.fixedMemberGroupId || null,
             status: 'WAITING',
             waitingSince: new Date(),
           },
@@ -476,6 +486,8 @@ export class PlayersService {
       preFilledByHost?: boolean;
       confirmedByPlayer?: boolean;
       requireConfirmInfo?: boolean;
+      isFixedMember?: boolean;
+      fixedMemberGroupId?: string;
     }>
   ) {
     // Check if session exists
@@ -513,6 +525,13 @@ export class PlayersService {
           data: updateData,
         });
       })
+    );
+
+    // Recalculate payments for all updated players
+    await Promise.all(
+      updatedPlayers.map((p) =>
+        this.feeService.recalculatePlayerPayment(sessionId, p.id)
+      )
     );
 
     // Emit realtime event
@@ -639,6 +658,8 @@ export class PlayersService {
             preFilledByHost: playerData.preFilledByHost || false,
             confirmedByPlayer: playerData.confirmedByPlayer || false,
             requireConfirmInfo: playerData.requireConfirmInfo || false,
+            isFixedMember: playerData.isFixedMember || false,
+            fixedMemberGroupId: playerData.fixedMemberGroupId || null,
             status: 'WAITING',
             registrationStatus: registrationStatus,
             waitingSince: new Date(),
@@ -974,6 +995,8 @@ export class PlayersService {
       preFilledByHost?: boolean;
       confirmedByPlayer?: boolean;
       requireConfirmInfo?: boolean;
+      isFixedMember?: boolean;
+      fixedMemberGroupId?: string;
     }
   ) {
     // Check if session exists
@@ -1031,8 +1054,19 @@ export class PlayersService {
           updateData.requireConfirmInfo !== undefined
             ? updateData.requireConfirmInfo
             : existingPlayer.requireConfirmInfo,
+        isFixedMember:
+          updateData.isFixedMember !== undefined
+            ? updateData.isFixedMember
+            : existingPlayer.isFixedMember,
+        fixedMemberGroupId:
+          updateData.fixedMemberGroupId !== undefined
+            ? updateData.fixedMemberGroupId
+            : existingPlayer.fixedMemberGroupId,
       },
     });
+
+    // Recalculate payment
+    await this.feeService.recalculatePlayerPayment(sessionId, playerId);
 
     return updatedPlayer;
   }

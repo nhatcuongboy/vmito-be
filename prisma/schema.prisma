@@ -43,6 +43,10 @@ model User {
   ratingsReceived     Rating[]               @relation("RatingsReceived")
   notifications       Notification[]
 
+  // Fixed Member Group relations
+  hostedFixedMemberGroups FixedMemberGroup[] @relation("HostFixedMemberGroups")
+  fixedMemberGroupMemberships FixedMemberGroupMember[] @relation("UserFixedMemberGroups")
+
   @@map("users")
 }
 
@@ -209,6 +213,11 @@ model Player {
   courtPosition      Int? // Position on court (0-3), null when not on court
   registrationStatus RegistrationStatus @default(APPROVED)
 
+  // Fixed Member fields
+  isFixedMember          Boolean  @default(false)
+  fixedMemberGroupId     String?  // Which group's fee to apply
+  fixedMemberFeeApplied  Boolean  @default(false)
+
   // Player-specific join fields
   joinCode   String    @unique // Unique join code for this player slot
   qrCodeData String? // QR code data for this player
@@ -222,11 +231,13 @@ model Player {
   currentCourt Court?        @relation(fields: [currentCourtId], references: [id])
   session      Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   user         User?         @relation(fields: [userId], references: [id])
+  fixedMemberGroup FixedMemberGroup? @relation(fields: [fixedMemberGroupId], references: [id])
 
   // Payment relation
   paymentRecord PaymentRecord?
 
   @@unique([sessionId, playerNumber])
+  @@index([fixedMemberGroupId])
   @@map("players")
 }
 
@@ -731,4 +742,62 @@ model Rating {
   @@index([raterUserId])
   @@index([sessionId])
   @@map("ratings")
+}
+
+// ===========================================
+// Fixed Member Group Management Models
+// ===========================================
+
+model FixedMemberGroup {
+  id          String   @id @default(cuid())
+  hostId      String
+  name        String   // "VIP", "Thường xuyên", etc.
+  description String?
+  color       String?  // Color for visual distinction
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  host       User                          @relation("HostFixedMemberGroups", fields: [hostId], references: [id], onDelete: Cascade)
+  members    FixedMemberGroupMember[]
+  feeConfigs FixedMemberGroupFeeConfig[]
+  players    Player[]
+
+  @@unique([hostId, name])
+  @@index([hostId])
+  @@map("fixed_member_groups")
+}
+
+model FixedMemberGroupMember {
+  id        String   @id @default(cuid())
+  groupId   String
+  userId    String
+  createdAt DateTime @default(now())
+
+  group FixedMemberGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User             @relation("UserFixedMemberGroups", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+  @@index([groupId])
+  @@map("fixed_member_group_members")
+}
+
+model FixedMemberGroupFeeConfig {
+  id                  String   @id @default(cuid())
+  groupId             String
+  month               Int      // Month (1-12)
+  year                Int      // Year
+  maleFeeMonthly      Int?     // Total monthly fee for males (for tracking)
+  femaleFeeMonthly    Int?     // Total monthly fee for females (for tracking)
+  maleFeePerSession   Int?     // Per-session fee for males (used in PaymentRecord)
+  femaleFeePerSession Int?     // Per-session fee for females (used in PaymentRecord)
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  group FixedMemberGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, month, year])
+  @@index([groupId])
+  @@map("fixed_member_group_fee_configs")
 }
