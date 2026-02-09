@@ -1,7 +1,8 @@
 #!/bin/bash
 set -e
 
-# Deployment script for manual deployments or troubleshooting
+# Deployment script for PRODUCTION environment
+# For staging deployment, use deploy-staging.sh instead
 
 SERVER_IP="139.180.145.154"
 DEPLOY_PATH="/opt/badminton"

@@ -1,0 +1,92 @@
+version: "3.9"
+
+services:
+  db-staging:
+    image: postgres:16-alpine
+    container_name: badminton-db-staging
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-badminton}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-badminton_staging}
+    volumes:
+      - postgres_data_staging:/var/lib/postgresql/data
+    networks:
+      - badminton-network-staging
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-badminton}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend-staging:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_USERNAME}/badminton-backend:${BACKEND_VERSION:-staging}
+    container_name: badminton-backend-staging
+    restart: unless-stopped
+    depends_on:
+      db-staging:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-badminton}:${POSTGRES_PASSWORD}@db-staging:5432/${POSTGRES_DB:-badminton_staging}?schema=public
+      DIRECT_URL: postgresql://${POSTGRES_USER:-badminton}:${POSTGRES_PASSWORD}@db-staging:5432/${POSTGRES_DB:-badminton_staging}?schema=public
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      PORT: 3001
+      NODE_ENV: staging
+      CORS_ORIGIN: ${FRONTEND_URL}
+      CORS_CREDENTIALS: "true"
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL}
+      CLOUDINARY_URL: ${CLOUDINARY_URL}
+    networks:
+      - badminton-network-staging
+    ports:
+      - "8001:3001"
+
+  frontend-staging:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_USERNAME}/badminton-frontend:${FRONTEND_VERSION:-staging}
+    container_name: badminton-frontend-staging
+    restart: unless-stopped
+    depends_on:
+      - backend-staging
+    environment:
+      NEXT_PUBLIC_API_URL: ${BACKEND_URL}
+      NEXT_PUBLIC_WS_URL: ${WS_URL}
+    networks:
+      - badminton-network-staging
+    ports:
+      - "8000:3000"
+
+  nginx-staging:
+    image: nginx:alpine
+    container_name: badminton-nginx-staging
+    restart: unless-stopped
+    depends_on:
+      - frontend-staging
+      - backend-staging
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./nginx/nginx.staging.conf:/etc/nginx/nginx.conf:ro
+      - ./data/certbot/conf:/etc/letsencrypt
+      - ./data/certbot/www:/var/www/certbot
+    networks:
+      - badminton-network-staging
+
+  certbot-staging:
+    image: certbot/certbot
+    volumes:
+      - ./data/certbot/conf:/etc/letsencrypt
+      - ./data/certbot/www:/var/www/certbot
+
+volumes:
+  postgres_data_staging:
+
+networks:
+  badminton-network-staging:
+    driver: bridge
