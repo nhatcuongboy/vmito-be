@@ -13,6 +13,7 @@ import { VALID_LEVELS } from '../common/constants/level.constants';
 
 import { SessionsGateway } from './sessions.gateway';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
+import { FixedMembersService } from '../fixed-members/fixed-members.service';
 
 @Injectable()
 export class SessionsService {
@@ -20,7 +21,8 @@ export class SessionsService {
     private prisma: PrismaService,
     private configService: ConfigService,
     private sessionsGateway: SessionsGateway,
-    private cloudinaryService: CloudinaryService
+    private cloudinaryService: CloudinaryService,
+    private fixedMembersService: FixedMembersService
   ) {}
 
   async findAll(
@@ -1135,6 +1137,16 @@ export class SessionsService {
             endTime: new Date(),
           },
         });
+
+        // Record club attendance
+        await this.fixedMembersService.recordAttendance(
+          id,
+          sessionData.players.map((p) => ({
+            userId: p.userId || undefined,
+            fixedMemberGroupId: p.fixedMemberGroupId || undefined,
+          })),
+          tx
+        );
 
         // Generate session statistics
         const finalStats = await tx.player.findMany({

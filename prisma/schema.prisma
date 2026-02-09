@@ -46,6 +46,8 @@ model User {
   // Fixed Member Group relations
   hostedFixedMemberGroups FixedMemberGroup[] @relation("HostFixedMemberGroups")
   fixedMemberGroupMemberships FixedMemberGroupMember[] @relation("UserFixedMemberGroups")
+  clubJoinRequests ClubJoinRequest[] @relation("UserClubJoinRequests")
+  clubAnnouncements ClubAnnouncement[] @relation("UserClubAnnouncements")
 
   @@map("users")
 }
@@ -168,6 +170,7 @@ model Session {
   feeConfig      SessionFeeConfig?
   paymentRecords PaymentRecord[]
   ratings        Rating[]
+  clubSessions   ClubSession[]
 
   @@map("sessions")
 }
@@ -770,6 +773,19 @@ model FixedMemberGroup {
   name        String   // "VIP", "Thường xuyên", etc.
   description String?
   color       String?  // Color for visual distinction
+  
+  // Club visibility and access settings
+  isPublic    Boolean  @default(false)
+  joinPolicy  ClubJoinPolicy @default(APPROVAL_REQUIRED)
+  maxMembers  Int?
+  image       String?  // Cloudinary URL for club image
+  imagePublicId String? // Cloudinary public ID
+  location    String?  // Primary location/venue
+  
+  // Statistics (cached for performance)
+  sessionCount Int @default(0)
+  totalPlayersServed Int @default(0)
+  
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -777,9 +793,13 @@ model FixedMemberGroup {
   members    FixedMemberGroupMember[]
   feeConfigs FixedMemberGroupFeeConfig[]
   players    Player[]
+  joinRequests ClubJoinRequest[]
+  announcements ClubAnnouncement[]
+  clubSessions ClubSession[]
 
   @@unique([hostId, name])
   @@index([hostId])
+  @@index([isPublic])
   @@map("fixed_member_groups")
 }
 
@@ -787,7 +807,17 @@ model FixedMemberGroupMember {
   id        String   @id @default(cuid())
   groupId   String
   userId    String
+  
+  // Member role and status
+  role      MemberRole   @default(MEMBER)
+  status    MemberStatus @default(ACTIVE)
+  
+  // Activity tracking
+  attendanceCount Int @default(0)
+  lastAttendedAt DateTime?
+  
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   group FixedMemberGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
   user  User             @relation("UserFixedMemberGroups", fields: [userId], references: [id], onDelete: Cascade)
@@ -795,6 +825,8 @@ model FixedMemberGroupMember {
   @@unique([groupId, userId])
   @@index([userId])
   @@index([groupId])
+  @@index([role])
+  @@index([status])
   @@map("fixed_member_group_members")
 }
 
@@ -817,3 +849,99 @@ model FixedMemberGroupFeeConfig {
   @@index([groupId])
   @@map("fixed_member_group_fee_configs")
 }
+
+// ===========================================
+// Club Management Enums
+// ===========================================
+
+enum ClubJoinPolicy {
+  OPEN              // Anyone can join immediately
+  APPROVAL_REQUIRED // Requires admin approval
+  INVITATION_ONLY   // Only invited users can join
+}
+
+enum MemberRole {
+  ADMIN
+  MODERATOR
+  MEMBER
+}
+
+enum MemberStatus {
+  ACTIVE
+  PENDING
+  SUSPENDED
+}
+
+enum JoinRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// ===========================================
+// Club Join Request Model
+// ===========================================
+
+model ClubJoinRequest {
+  id        String   @id @default(cuid())
+  groupId   String
+  userId    String
+  message   String?  // Optional message from requester
+  status    JoinRequestStatus @default(PENDING)
+  response  String?  // Optional response from admin
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  group FixedMemberGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User @relation("UserClubJoinRequests", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@index([userId])
+  @@index([status])
+  @@map("club_join_requests")
+}
+
+// ===========================================
+// Club Announcement Model
+// ===========================================
+
+model ClubAnnouncement {
+  id          String    @id @default(cuid())
+  groupId     String
+  authorId    String
+  title       String
+  content     String    @db.Text
+  pinnedUntil DateTime? // Optional pinning expiration
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  group  FixedMemberGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  author User @relation("UserClubAnnouncements", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@index([authorId])
+  @@index([pinnedUntil])
+  @@map("club_announcements")
+}
+
+// ===========================================
+// Club Session Tracking Model
+// ===========================================
+
+model ClubSession {
+  id              String   @id @default(cuid())
+  groupId         String
+  sessionId       String
+  attendanceCount Int      @default(0) // Number of club members who attended
+  createdAt       DateTime @default(now())
+
+  group   FixedMemberGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, sessionId])
+  @@index([groupId])
+  @@index([sessionId])
+  @@map("club_sessions")
+}
+

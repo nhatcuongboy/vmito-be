@@ -791,7 +791,12 @@ export class PlayersService {
     return updatedPlayer;
   }
 
-  async findPendingRequests(hostId: string, role?: string) {
+  async findPendingRequests(
+    hostId: string,
+    role?: string,
+    page = 1,
+    limit = 20,
+  ) {
     const where: Prisma.PlayerWhereInput = {
       registrationStatus: 'PENDING',
     };
@@ -802,16 +807,124 @@ export class PlayersService {
       };
     }
 
-    return this.prisma.player.findMany({
-      where,
-      include: {
-        session: {
-          select: { name: true, startTime: true },
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.player.findMany({
+        where,
+        include: {
+          session: {
+            select: {
+              id: true,
+              name: true,
+              startTime: true,
+              venue: { select: { name: true } },
+            },
+          },
         },
-      },
-      orderBy: {
-        createdAt: 'asc',
-      },
+        orderBy: {
+          createdAt: 'asc',
+        },
+        skip,
+        take: limit,
+      }),
+      this.prisma.player.count({ where }),
+    ]);
+
+    return {
+      data,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async countPendingRequests(hostId: string, role?: string) {
+    const where: Prisma.PlayerWhereInput = {
+      registrationStatus: 'PENDING',
+    };
+
+    if (role !== 'ADMIN') {
+      where.session = {
+        hostId: hostId,
+      };
+    }
+
+    const count = await this.prisma.player.count({ where });
+    return { count };
+  }
+
+  async batchUpdatePlayerStatus(
+    playerIds: string[],
+    status: 'APPROVED' | 'REJECTED',
+    currentUserId: string,
+    role?: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      // Fetch all players with their sessions
+      const players = await tx.player.findMany({
+        where: {
+          id: { in: playerIds },
+          registrationStatus: 'PENDING',
+        },
+        include: {
+          session: { select: { id: true, hostId: true, name: true } },
+        },
+      });
+
+      if (players.length === 0) {
+        throw new NotFoundException('No pending players found');
+      }
+
+      // Verify authorization for all sessions
+      if (role !== 'ADMIN') {
+        const unauthorized = players.find(
+          (p) => p.session.hostId !== currentUserId,
+        );
+        if (unauthorized) {
+          throw new ForbiddenException(
+            'Only the host or admin can approve/reject players',
+          );
+        }
+      }
+
+      // Batch update
+      await tx.player.updateMany({
+        where: { id: { in: playerIds } },
+        data: { registrationStatus: status },
+      });
+
+      // Send notifications and create payment records per player
+      for (const player of players) {
+        this.sessionsGateway.notifyEvent(
+          player.sessionId,
+          SessionEventType.PLAYER_UPDATED,
+          { playerId: player.id, registrationStatus: status },
+        );
+
+        if (player.userId) {
+          this.sessionsGateway.notifyUser(
+            player.userId,
+            SessionEventType.REGISTRATION_STATUS_UPDATED,
+            {
+              sessionId: player.sessionId,
+              sessionName: player.session.name || 'Badminton Session',
+              status,
+              playerId: player.id,
+            },
+          );
+        }
+
+        if (status === 'APPROVED') {
+          await this.feeService.createPaymentRecordForPlayer(
+            player.sessionId,
+            player.id,
+            player.session.hostId,
+          );
+        }
+      }
+
+      return { updated: players.length, status };
     });
   }
 

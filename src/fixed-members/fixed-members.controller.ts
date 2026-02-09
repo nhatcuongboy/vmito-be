@@ -10,7 +10,13 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { FixedMembersService } from './fixed-members.service';
-import { CreateGroupDto, UpdateGroupDto, CreateGroupFeeDto } from './dto';
+import {
+  CreateGroupDto,
+  UpdateGroupDto,
+  CreateGroupFeeDto,
+  UpdateMemberRoleDto,
+  RejectJoinRequestDto,
+} from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -55,6 +61,7 @@ export class FixedMembersController {
   }
 
   @Post()
+  @Roles(Role.ADMIN)
   async createGroup(@CurrentUser() user: JwtUser, @Body() dto: CreateGroupDto) {
     return this.fixedMembersService.createGroup(user.userId, dto);
   }
@@ -111,6 +118,61 @@ export class FixedMembersController {
       groupId,
       userId,
       user.userId
+    );
+  }
+
+  @Put(':groupId/members/:userId/role')
+  async updateMemberRole(
+    @Param('groupId') groupId: string,
+    @Param('userId') userId: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: UpdateMemberRoleDto
+  ) {
+    return this.fixedMembersService.updateMemberRole(
+      groupId,
+      userId,
+      user.userId,
+      dto.role
+    );
+  }
+
+  // ===========================================
+  // Join Request Endpoints
+  // ===========================================
+
+  @Get(':groupId/join-requests')
+  async getJoinRequests(
+    @Param('groupId') groupId: string,
+    @CurrentUser() user: JwtUser
+  ) {
+    return this.fixedMembersService.getJoinRequests(groupId, user.userId);
+  }
+
+  @Post(':groupId/join-requests/:requestId/approve')
+  async approveJoinRequest(
+    @Param('groupId') groupId: string,
+    @Param('requestId') requestId: string,
+    @CurrentUser() user: JwtUser
+  ) {
+    return this.fixedMembersService.approveJoinRequest(
+      groupId,
+      requestId,
+      user.userId
+    );
+  }
+
+  @Post(':groupId/join-requests/:requestId/reject')
+  async rejectJoinRequest(
+    @Param('groupId') groupId: string,
+    @Param('requestId') requestId: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: RejectJoinRequestDto
+  ) {
+    return this.fixedMembersService.rejectJoinRequest(
+      groupId,
+      requestId,
+      user.userId,
+      dto.response
     );
   }
 

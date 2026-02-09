@@ -17,6 +17,7 @@ import { UpdatePlayerDto } from './dto/update-player.dto';
 import { ConfirmPlayerDto } from './dto/confirm-player.dto';
 import { UpdatePlayerInSessionDto } from './dto/update-player-in-session.dto';
 import { JoinByCodeDto } from './dto/join-by-code.dto';
+import { BatchUpdateStatusDto } from './dto/batch-update-status.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Public } from '../auth/decorators/public.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -69,8 +70,39 @@ export class PlayersController {
 
   @Get('pending-requests')
   @ApiOperation({ summary: 'Get pending player requests for host' })
-  getPendingRequests(@CurrentUser() user: { userId: string; role: string }) {
-    return this.playersService.findPendingRequests(user.userId, user.role);
+  getPendingRequests(
+    @CurrentUser() user: { userId: string; role: string },
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.playersService.findPendingRequests(
+      user.userId,
+      user.role,
+      page ? parseInt(page, 10) : undefined,
+      limit ? parseInt(limit, 10) : undefined,
+    );
+  }
+
+  @Get('pending-requests/count')
+  @ApiOperation({ summary: 'Get count of pending player requests for host' })
+  getPendingRequestsCount(
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.playersService.countPendingRequests(user.userId, user.role);
+  }
+
+  @Post('pending-requests/batch')
+  @ApiOperation({ summary: 'Batch approve or reject pending player requests' })
+  batchUpdateStatus(
+    @Body() dto: BatchUpdateStatusDto,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.playersService.batchUpdatePlayerStatus(
+      dto.playerIds,
+      dto.status,
+      user.userId,
+      user.role,
+    );
   }
 
   @Get('me/sessions')

@@ -24,6 +24,7 @@ import { UploadsModule } from './uploads/uploads.module';
 import { RatingsModule } from './ratings/ratings.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { FixedMembersModule } from './fixed-members/fixed-members.module';
+import { ClubsModule } from './clubs/clubs.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import configuration from './config';
 
@@ -55,6 +56,7 @@ import configuration from './config';
     RatingsModule,
     NotificationsModule,
     FixedMembersModule,
+    ClubsModule,
   ],
   controllers: [AppController],
   providers: [

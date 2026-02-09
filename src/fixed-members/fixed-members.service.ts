@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateGroupDto, UpdateGroupDto, CreateGroupFeeDto } from './dto';
-import { Gender } from '@prisma/client';
+import { Prisma, Gender, MemberRole, JoinRequestStatus } from '@prisma/client';
 
 @Injectable()
 export class FixedMembersService {
@@ -90,10 +90,9 @@ export class FixedMembersService {
 
     return this.prisma.fixedMemberGroup.create({
       data: {
+        ...dto,
         hostId,
-        name: dto.name,
-        description: dto.description,
-        color: dto.color,
+        isPublic: dto.isPublic ?? true, // Default to public as requested
       },
     });
   }
@@ -274,6 +273,159 @@ export class FixedMembersService {
     });
 
     return { success: true };
+  }
+
+  /**
+   * Update a member's role in a group
+   */
+  async updateMemberRole(
+    groupId: string,
+    userId: string,
+    hostId: string,
+    role: MemberRole
+  ) {
+    const group = await this.prisma.fixedMemberGroup.findFirst({
+      where: { id: groupId, hostId },
+    });
+
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+
+    const member = await this.prisma.fixedMemberGroupMember.findUnique({
+      where: {
+        groupId_userId: { groupId, userId },
+      },
+    });
+
+    if (!member) {
+      throw new NotFoundException('Member not found in this group');
+    }
+
+    return this.prisma.fixedMemberGroupMember.update({
+      where: { id: member.id },
+      data: { role },
+    });
+  }
+
+  /**
+   * Get all join requests for a group
+   */
+  async getJoinRequests(groupId: string, hostId: string) {
+    const group = await this.prisma.fixedMemberGroup.findFirst({
+      where: { id: groupId, hostId },
+    });
+
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+
+    return this.prisma.clubJoinRequest.findMany({
+      where: { groupId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+            gender: true,
+            level: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * Approve a join request
+   */
+  async approveJoinRequest(groupId: string, requestId: string, hostId: string) {
+    const group = await this.prisma.fixedMemberGroup.findFirst({
+      where: { id: groupId, hostId },
+    });
+
+    if (!group) {
+      throw new NotFoundException('Group not found or unauthorized');
+    }
+
+    const request = await this.prisma.clubJoinRequest.findUnique({
+      where: { id: requestId },
+    });
+
+    if (!request || request.groupId !== groupId) {
+      throw new NotFoundException('Join request not found');
+    }
+
+    if (request.status !== JoinRequestStatus.PENDING) {
+      throw new BadRequestException('Request is already processed');
+    }
+
+    // Start transaction to approve request and add member
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Update request status
+      await tx.clubJoinRequest.update({
+        where: { id: requestId },
+        data: { status: JoinRequestStatus.APPROVED },
+      });
+
+      // 2. Check if already a member (shouldn't happen with unique constraint, but safe)
+      const existingMember = await tx.fixedMemberGroupMember.findUnique({
+        where: {
+          groupId_userId: { groupId, userId: request.userId },
+        },
+      });
+
+      if (existingMember) {
+        return { status: 'already_member' };
+      }
+
+      // 3. Create member record
+      const member = await tx.fixedMemberGroupMember.create({
+        data: {
+          groupId,
+          userId: request.userId,
+          role: MemberRole.MEMBER,
+        },
+      });
+
+      return member;
+    });
+  }
+
+  /**
+   * Reject a join request
+   */
+  async rejectJoinRequest(
+    groupId: string,
+    requestId: string,
+    hostId: string,
+    response?: string
+  ) {
+    const group = await this.prisma.fixedMemberGroup.findFirst({
+      where: { id: groupId, hostId },
+    });
+
+    if (!group) {
+      throw new NotFoundException('Group not found or unauthorized');
+    }
+
+    const request = await this.prisma.clubJoinRequest.findUnique({
+      where: { id: requestId },
+    });
+
+    if (!request || request.groupId !== groupId) {
+      throw new NotFoundException('Join request not found');
+    }
+
+    return this.prisma.clubJoinRequest.update({
+      where: { id: requestId },
+      data: {
+        status: JoinRequestStatus.REJECTED,
+        response,
+      },
+    });
   }
 
   /**
@@ -532,5 +684,66 @@ export class FixedMembersService {
     });
 
     return !!member;
+  }
+
+  /**
+   * Record attendance for members when a session ends
+   */
+  async recordAttendance(
+    sessionId: string,
+    playerData: Array<{ userId?: string; fixedMemberGroupId?: string }>,
+    tx?: Prisma.TransactionClient
+  ) {
+    const prismaClient = tx || this.prisma;
+
+    // 1. Group players by club
+    const clubPlayersMap = new Map<string, string[]>();
+    for (const player of playerData) {
+      if (player.userId && player.fixedMemberGroupId) {
+        const users = clubPlayersMap.get(player.fixedMemberGroupId) || [];
+        users.push(player.userId);
+        clubPlayersMap.set(player.fixedMemberGroupId, users);
+      }
+    }
+
+    const now = new Date();
+
+    // 2. Process each club's attendance
+    for (const [groupId, userIds] of clubPlayersMap.entries()) {
+      // Create ClubSession record to link session to group
+      await prismaClient.clubSession.upsert({
+        where: {
+          groupId_sessionId: { groupId, sessionId },
+        },
+        create: {
+          groupId,
+          sessionId,
+          attendanceCount: userIds.length,
+        },
+        update: {
+          attendanceCount: userIds.length,
+        },
+      });
+
+      // Update individual member attendance
+      for (const userId of userIds) {
+        await prismaClient.fixedMemberGroupMember.updateMany({
+          where: { groupId, userId },
+          data: {
+            attendanceCount: { increment: 1 },
+            lastAttendedAt: now,
+          },
+        });
+      }
+
+      // Update group statistics
+      await prismaClient.fixedMemberGroup.update({
+        where: { id: groupId },
+        data: {
+          sessionCount: { increment: 1 },
+          totalPlayersServed: { increment: userIds.length },
+        },
+      });
+    }
   }
 }
