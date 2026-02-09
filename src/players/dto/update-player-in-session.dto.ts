@@ -50,11 +50,11 @@ export class UpdatePlayerInSessionDto {
 
   @IsOptional()
   @IsBoolean()
-  isFixedMember?: boolean;
+  isClubMember?: boolean;
 
   @IsOptional()
   @IsString()
-  fixedMemberGroupId?: string;
+  clubId?: string;
 
   // ============ Fields to ignore (sent by FE but not used) ============
   // These fields are allowed in the request body but will be ignored
@@ -117,5 +117,5 @@ export class UpdatePlayerInSessionDto {
   updatedAt?: Date;
 
   @IsOptional()
-  fixedMemberGroup?: unknown;
+  club?: unknown;
 }

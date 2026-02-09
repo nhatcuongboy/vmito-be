@@ -4,10 +4,10 @@ import { SessionsService } from './sessions.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SessionsGateway } from './sessions.gateway';
 import { CloudinaryModule } from '../cloudinary/cloudinary.module';
-import { FixedMembersModule } from '../fixed-members/fixed-members.module';
+import { ClubsModule } from '../clubs/clubs.module';
 
 @Module({
-  imports: [PrismaModule, CloudinaryModule, FixedMembersModule],
+  imports: [PrismaModule, CloudinaryModule, ClubsModule],
   controllers: [SessionsController],
   providers: [SessionsService, SessionsGateway],
   exports: [SessionsService, SessionsGateway],

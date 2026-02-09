@@ -7,7 +7,7 @@ import {
   MaxLength,
 } from 'class-validator';
 
-export class CreateGroupFeeDto {
+export class CreateClubFeeDto {
   @IsInt()
   @Min(1)
   @Max(12)

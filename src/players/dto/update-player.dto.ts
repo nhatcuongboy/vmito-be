@@ -48,9 +48,9 @@ export class UpdatePlayerDto {
 
   @IsBoolean()
   @IsOptional()
-  isFixedMember?: boolean;
+  isClubMember?: boolean;
 
   @IsString()
   @IsOptional()
-  fixedMemberGroupId?: string;
+  clubId?: string;
 }

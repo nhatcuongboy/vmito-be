@@ -115,8 +115,8 @@ export class PlayersService {
         confirmedByPlayer: updatePlayerDto.confirmedByPlayer,
         preFilledByHost: updatePlayerDto.preFilledByHost,
         requireConfirmInfo: updatePlayerDto.requireConfirmInfo,
-        isFixedMember: updatePlayerDto.isFixedMember,
-        fixedMemberGroupId: updatePlayerDto.fixedMemberGroupId,
+        isClubMember: updatePlayerDto.isClubMember,
+        clubId: updatePlayerDto.clubId,
       },
     });
 
@@ -406,8 +406,8 @@ export class PlayersService {
             preFilledByHost: playerData.preFilledByHost || false,
             confirmedByPlayer: playerData.confirmedByPlayer || false,
             requireConfirmInfo: playerData.requireConfirmInfo || false,
-            isFixedMember: playerData.isFixedMember || false,
-            fixedMemberGroupId: playerData.fixedMemberGroupId || null,
+            isClubMember: playerData.isClubMember || false,
+            clubId: playerData.clubId || null,
             status: 'WAITING',
             waitingSince: new Date(),
           },
@@ -486,8 +486,8 @@ export class PlayersService {
       preFilledByHost?: boolean;
       confirmedByPlayer?: boolean;
       requireConfirmInfo?: boolean;
-      isFixedMember?: boolean;
-      fixedMemberGroupId?: string;
+      isClubMember?: boolean;
+      clubId?: string;
     }>
   ) {
     // Check if session exists
@@ -658,8 +658,8 @@ export class PlayersService {
             preFilledByHost: playerData.preFilledByHost || false,
             confirmedByPlayer: playerData.confirmedByPlayer || false,
             requireConfirmInfo: playerData.requireConfirmInfo || false,
-            isFixedMember: playerData.isFixedMember || false,
-            fixedMemberGroupId: playerData.fixedMemberGroupId || null,
+            isClubMember: playerData.isClubMember || false,
+            clubId: playerData.clubId || null,
             status: 'WAITING',
             registrationStatus: registrationStatus,
             waitingSince: new Date(),
@@ -795,7 +795,7 @@ export class PlayersService {
     hostId: string,
     role?: string,
     page = 1,
-    limit = 20,
+    limit = 20
   ) {
     const where: Prisma.PlayerWhereInput = {
       registrationStatus: 'PENDING',
@@ -858,7 +858,7 @@ export class PlayersService {
     playerIds: string[],
     status: 'APPROVED' | 'REJECTED',
     currentUserId: string,
-    role?: string,
+    role?: string
   ) {
     return this.prisma.$transaction(async (tx) => {
       // Fetch all players with their sessions
@@ -879,11 +879,11 @@ export class PlayersService {
       // Verify authorization for all sessions
       if (role !== 'ADMIN') {
         const unauthorized = players.find(
-          (p) => p.session.hostId !== currentUserId,
+          (p) => p.session.hostId !== currentUserId
         );
         if (unauthorized) {
           throw new ForbiddenException(
-            'Only the host or admin can approve/reject players',
+            'Only the host or admin can approve/reject players'
           );
         }
       }
@@ -899,7 +899,7 @@ export class PlayersService {
         this.sessionsGateway.notifyEvent(
           player.sessionId,
           SessionEventType.PLAYER_UPDATED,
-          { playerId: player.id, registrationStatus: status },
+          { playerId: player.id, registrationStatus: status }
         );
 
         if (player.userId) {
@@ -911,7 +911,7 @@ export class PlayersService {
               sessionName: player.session.name || 'Badminton Session',
               status,
               playerId: player.id,
-            },
+            }
           );
         }
 
@@ -919,7 +919,7 @@ export class PlayersService {
           await this.feeService.createPaymentRecordForPlayer(
             player.sessionId,
             player.id,
-            player.session.hostId,
+            player.session.hostId
           );
         }
       }
@@ -1108,8 +1108,8 @@ export class PlayersService {
       preFilledByHost?: boolean;
       confirmedByPlayer?: boolean;
       requireConfirmInfo?: boolean;
-      isFixedMember?: boolean;
-      fixedMemberGroupId?: string;
+      isClubMember?: boolean;
+      clubId?: string;
     }
   ) {
     // Check if session exists
@@ -1167,14 +1167,14 @@ export class PlayersService {
           updateData.requireConfirmInfo !== undefined
             ? updateData.requireConfirmInfo
             : existingPlayer.requireConfirmInfo,
-        isFixedMember:
-          updateData.isFixedMember !== undefined
-            ? updateData.isFixedMember
-            : existingPlayer.isFixedMember,
-        fixedMemberGroupId:
-          updateData.fixedMemberGroupId !== undefined
-            ? updateData.fixedMemberGroupId
-            : existingPlayer.fixedMemberGroupId,
+        isClubMember:
+          updateData.isClubMember !== undefined
+            ? updateData.isClubMember
+            : (existingPlayer as any).isClubMember,
+        clubId:
+          updateData.clubId !== undefined
+            ? updateData.clubId
+            : (existingPlayer as any).clubId,
       },
     });
 

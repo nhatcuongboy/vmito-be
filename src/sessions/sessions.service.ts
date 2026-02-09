@@ -13,7 +13,7 @@ import { VALID_LEVELS } from '../common/constants/level.constants';
 
 import { SessionsGateway } from './sessions.gateway';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
-import { FixedMembersService } from '../fixed-members/fixed-members.service';
+import { ClubsService } from '../clubs/clubs.service';
 
 @Injectable()
 export class SessionsService {
@@ -22,7 +22,7 @@ export class SessionsService {
     private configService: ConfigService,
     private sessionsGateway: SessionsGateway,
     private cloudinaryService: CloudinaryService,
-    private fixedMembersService: FixedMembersService
+    private clubsService: ClubsService
   ) {}
 
   async findAll(
@@ -370,9 +370,9 @@ export class SessionsService {
                 currentCourtId: true,
                 courtPosition: true,
                 updatedAt: true,
-                isFixedMember: true,
-                fixedMemberGroupId: true,
-                fixedMemberGroup: {
+                isClubMember: true,
+                clubId: true,
+                club: {
                   select: {
                     id: true,
                     name: true,
@@ -432,10 +432,10 @@ export class SessionsService {
             requireConfirmInfo: true,
             joinCode: true,
             registrationStatus: true,
-            isFixedMember: true,
-            fixedMemberGroupId: true,
+            isClubMember: true,
+            clubId: true,
 
-            fixedMemberGroup: {
+            club: {
               select: {
                 id: true,
                 name: true,
@@ -727,9 +727,9 @@ export class SessionsService {
             name: true,
             isJoined: true,
 
-            isFixedMember: true,
-            fixedMemberGroupId: true,
-            fixedMemberGroup: {
+            isClubMember: true,
+            clubId: true,
+            club: {
               select: {
                 id: true,
                 name: true,
@@ -1139,11 +1139,11 @@ export class SessionsService {
         });
 
         // Record club attendance
-        await this.fixedMembersService.recordAttendance(
+        await this.clubsService.recordAttendance(
           id,
           sessionData.players.map((p) => ({
             userId: p.userId || undefined,
-            fixedMemberGroupId: p.fixedMemberGroupId || undefined,
+            clubId: p.clubId || undefined,
           })),
           tx
         );
@@ -1303,7 +1303,7 @@ export class SessionsService {
             image: true,
           },
         },
-        fixedMemberGroup: {
+        club: {
           select: {
             id: true,
             name: true,

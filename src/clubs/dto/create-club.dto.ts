@@ -10,7 +10,7 @@ import {
 } from 'class-validator';
 import { ClubJoinPolicy } from '@prisma/client';
 
-export class CreateGroupDto {
+export class CreateClubDto {
   @IsString()
   @MaxLength(50)
   name: string;

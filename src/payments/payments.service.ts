@@ -41,9 +41,9 @@ export class PaymentsService {
         id: true,
         name: true,
         gender: true,
-        isFixedMember: true,
-        fixedMemberGroupId: true,
-        fixedMemberGroup: {
+        isClubMember: true,
+        clubId: true,
+        club: {
           select: {
             id: true,
             name: true,

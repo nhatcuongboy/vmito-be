@@ -8,7 +8,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateFeeConfigDto, UpdateFeeConfigDto } from './dto';
 import { FeeType, Gender, PaymentStatus } from '@prisma/client';
-import { FixedMembersService } from '../fixed-members/fixed-members.service';
+import { ClubsService } from '../clubs/clubs.service';
 
 @Injectable()
 export class FeeService {
@@ -27,7 +27,7 @@ export class FeeService {
 
   constructor(
     private prisma: PrismaService,
-    private fixedMembersService: FixedMembersService
+    private clubsService: ClubsService
   ) {}
 
   async findBySessionId(sessionId: string) {
@@ -225,8 +225,8 @@ export class FeeService {
         id: true,
         gender: true,
         createdByUserId: true,
-        isFixedMember: true,
-        fixedMemberGroupId: true,
+        isClubMember: true,
+        clubId: true,
       },
     });
 
@@ -235,14 +235,10 @@ export class FeeService {
     // Calculate amount based on fixed member status
     let amount: number;
 
-    if (
-      player.isFixedMember &&
-      player.fixedMemberGroupId &&
-      session.startTime
-    ) {
-      // Try to get fixed member per-session fee
-      const fixedMemberFee = await this.fixedMembersService.getPerSessionFee(
-        player.fixedMemberGroupId,
+    if (player.isClubMember && player.clubId && session.startTime) {
+      // Try to get club per-session fee
+      const fixedMemberFee = await this.clubsService.getPerSessionFee(
+        player.clubId,
         player.gender || Gender.MALE,
         session.startTime
       );
@@ -308,8 +304,8 @@ export class FeeService {
       select: {
         id: true,
         gender: true,
-        isFixedMember: true,
-        fixedMemberGroupId: true,
+        isClubMember: true,
+        clubId: true,
       },
     });
 
@@ -317,13 +313,9 @@ export class FeeService {
 
     let newAmount: number;
 
-    if (
-      player.isFixedMember &&
-      player.fixedMemberGroupId &&
-      session.startTime
-    ) {
-      const fixedMemberFee = await this.fixedMembersService.getPerSessionFee(
-        player.fixedMemberGroupId,
+    if (player.isClubMember && player.clubId && session.startTime) {
+      const fixedMemberFee = await this.clubsService.getPerSessionFee(
+        player.clubId,
         player.gender || Gender.MALE,
         session.startTime
       );
@@ -400,8 +392,8 @@ export class FeeService {
         id: true,
         gender: true,
         createdByUserId: true,
-        isFixedMember: true,
-        fixedMemberGroupId: true,
+        isClubMember: true,
+        clubId: true,
       },
     });
 
@@ -409,14 +401,10 @@ export class FeeService {
       let amount: number;
 
       // Check if player is a fixed member with a group
-      if (
-        player.isFixedMember &&
-        player.fixedMemberGroupId &&
-        session.startTime
-      ) {
-        // Try to get fixed member per-session fee
-        const fixedMemberFee = await this.fixedMembersService.getPerSessionFee(
-          player.fixedMemberGroupId,
+      if (player.isClubMember && player.clubId && session.startTime) {
+        // Try to get club per-session fee
+        const fixedMemberFee = await this.clubsService.getPerSessionFee(
+          player.clubId,
           player.gender || Gender.MALE,
           session.startTime
         );
@@ -473,8 +461,8 @@ export class FeeService {
         player: {
           select: {
             gender: true,
-            isFixedMember: true,
-            fixedMemberGroupId: true,
+            isClubMember: true,
+            clubId: true,
           },
         },
       },
@@ -485,13 +473,13 @@ export class FeeService {
 
       // Check if player is a fixed member with a group
       if (
-        payment.player.isFixedMember &&
-        payment.player.fixedMemberGroupId &&
+        payment.player.isClubMember &&
+        payment.player.clubId &&
         session.startTime
       ) {
-        // Try to get fixed member per-session fee
-        const fixedMemberFee = await this.fixedMembersService.getPerSessionFee(
-          payment.player.fixedMemberGroupId,
+        // Try to get club per-session fee
+        const fixedMemberFee = await this.clubsService.getPerSessionFee(
+          payment.player.clubId,
           payment.player.gender || Gender.MALE,
           session.startTime
         );

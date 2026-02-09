@@ -43,9 +43,9 @@ model User {
   ratingsReceived     Rating[]               @relation("RatingsReceived")
   notifications       Notification[]
 
-  // Fixed Member Group relations
-  hostedFixedMemberGroups FixedMemberGroup[] @relation("HostFixedMemberGroups")
-  fixedMemberGroupMemberships FixedMemberGroupMember[] @relation("UserFixedMemberGroups")
+  // Club relations
+  hostedClubs Club[] @relation("HostClubs")
+  clubMemberships ClubMember[] @relation("UserClubs")
   clubJoinRequests ClubJoinRequest[] @relation("UserClubJoinRequests")
   clubAnnouncements ClubAnnouncement[] @relation("UserClubAnnouncements")
 
@@ -232,10 +232,10 @@ model Player {
   courtPosition      Int? // Position on court (0-3), null when not on court
   registrationStatus RegistrationStatus @default(APPROVED)
 
-  // Fixed Member fields
-  isFixedMember          Boolean  @default(false)
-  fixedMemberGroupId     String?  // Which group's fee to apply
-  fixedMemberFeeApplied  Boolean  @default(false)
+  // Club fields
+  isClubMember           Boolean  @default(false)
+  clubId                 String?  // Which club's fee to apply
+  clubFeeApplied         Boolean  @default(false)
 
   // Player-specific join fields
   joinCode   String    @unique // Unique join code for this player slot
@@ -250,13 +250,13 @@ model Player {
   currentCourt Court?        @relation(fields: [currentCourtId], references: [id])
   session      Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   user         User?         @relation(fields: [userId], references: [id])
-  fixedMemberGroup FixedMemberGroup? @relation(fields: [fixedMemberGroupId], references: [id])
+  club Club? @relation(fields: [clubId], references: [id])
 
   // Payment relation
   paymentRecord PaymentRecord?
 
   @@unique([sessionId, playerNumber])
-  @@index([fixedMemberGroupId])
+  @@index([clubId])
   @@map("players")
 }
 
@@ -767,7 +767,7 @@ model Rating {
 // Fixed Member Group Management Models
 // ===========================================
 
-model FixedMemberGroup {
+model Club {
   id          String   @id @default(cuid())
   hostId      String
   name        String   // "VIP", "Thường xuyên", etc.
@@ -786,12 +786,15 @@ model FixedMemberGroup {
   sessionCount Int @default(0)
   totalPlayersServed Int @default(0)
   
+  status      ClubStatus @default(APPROVED)
+  rejectionReason String?
+  
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  host       User                          @relation("HostFixedMemberGroups", fields: [hostId], references: [id], onDelete: Cascade)
-  members    FixedMemberGroupMember[]
-  feeConfigs FixedMemberGroupFeeConfig[]
+  host       User                          @relation("HostClubs", fields: [hostId], references: [id], onDelete: Cascade)
+  members    ClubMember[]
+  feeConfigs ClubFeeConfig[]
   players    Player[]
   joinRequests ClubJoinRequest[]
   announcements ClubAnnouncement[]
@@ -800,12 +803,12 @@ model FixedMemberGroup {
   @@unique([hostId, name])
   @@index([hostId])
   @@index([isPublic])
-  @@map("fixed_member_groups")
+  @@map("clubs")
 }
 
-model FixedMemberGroupMember {
+model ClubMember {
   id        String   @id @default(cuid())
-  groupId   String
+  clubId    String
   userId    String
   
   // Member role and status
@@ -819,20 +822,20 @@ model FixedMemberGroupMember {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  group FixedMemberGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user  User             @relation("UserFixedMemberGroups", fields: [userId], references: [id], onDelete: Cascade)
+  club  Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user  User @relation("UserClubs", fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([groupId, userId])
+  @@unique([clubId, userId])
   @@index([userId])
-  @@index([groupId])
+  @@index([clubId])
   @@index([role])
   @@index([status])
-  @@map("fixed_member_group_members")
+  @@map("club_members")
 }
 
-model FixedMemberGroupFeeConfig {
+model ClubFeeConfig {
   id                  String   @id @default(cuid())
-  groupId             String
+  clubId              String
   month               Int      // Month (1-12)
   year                Int      // Year
   maleFeeMonthly      Int?     // Total monthly fee for males (for tracking)
@@ -843,11 +846,11 @@ model FixedMemberGroupFeeConfig {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  group FixedMemberGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
-  @@unique([groupId, month, year])
-  @@index([groupId])
-  @@map("fixed_member_group_fee_configs")
+  @@unique([clubId, month, year])
+  @@index([clubId])
+  @@map("club_fee_configs")
 }
 
 // ===========================================
@@ -878,13 +881,19 @@ enum JoinRequestStatus {
   REJECTED
 }
 
+enum ClubStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 // ===========================================
 // Club Join Request Model
 // ===========================================
 
 model ClubJoinRequest {
   id        String   @id @default(cuid())
-  groupId   String
+  clubId    String
   userId    String
   message   String?  // Optional message from requester
   status    JoinRequestStatus @default(PENDING)
@@ -892,11 +901,11 @@ model ClubJoinRequest {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  group FixedMemberGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user  User @relation("UserClubJoinRequests", fields: [userId], references: [id], onDelete: Cascade)
+  club      Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user      User @relation("UserClubJoinRequests", fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([groupId, userId])
-  @@index([groupId])
+  @@unique([clubId, userId])
+  @@index([clubId])
   @@index([userId])
   @@index([status])
   @@map("club_join_requests")
@@ -908,7 +917,7 @@ model ClubJoinRequest {
 
 model ClubAnnouncement {
   id          String    @id @default(cuid())
-  groupId     String
+  clubId      String
   authorId    String
   title       String
   content     String    @db.Text
@@ -916,10 +925,10 @@ model ClubAnnouncement {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  group  FixedMemberGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  club   Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
   author User @relation("UserClubAnnouncements", fields: [authorId], references: [id], onDelete: Cascade)
 
-  @@index([groupId])
+  @@index([clubId])
   @@index([authorId])
   @@index([pinnedUntil])
   @@map("club_announcements")
@@ -931,16 +940,16 @@ model ClubAnnouncement {
 
 model ClubSession {
   id              String   @id @default(cuid())
-  groupId         String
+  clubId          String
   sessionId       String
   attendanceCount Int      @default(0) // Number of club members who attended
   createdAt       DateTime @default(now())
 
-  group   FixedMemberGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  club    Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
   session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  @@unique([groupId, sessionId])
-  @@index([groupId])
+  @@unique([clubId, sessionId])
+  @@index([clubId])
   @@index([sessionId])
   @@map("club_sessions")
 }
