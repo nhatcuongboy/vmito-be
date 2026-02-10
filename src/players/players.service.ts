@@ -1170,11 +1170,11 @@ export class PlayersService {
         isClubMember:
           updateData.isClubMember !== undefined
             ? updateData.isClubMember
-            : (existingPlayer as any).isClubMember,
+            : existingPlayer.isClubMember,
         clubId:
           updateData.clubId !== undefined
             ? updateData.clubId
-            : (existingPlayer as any).clubId,
+            : existingPlayer.clubId,
       },
     });
 

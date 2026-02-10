@@ -1,10 +1,21 @@
-import { IsOptional, IsString, IsNumber, IsEnum, IsBoolean, Min, Max } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsNumber,
+  IsEnum,
+  IsBoolean,
+  Min,
+  Max,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 import { VenueStatus } from '@prisma/client';
 
 export class SearchVenueDto {
-  @ApiProperty({ required: false, description: 'Search by venue name or address' })
+  @ApiProperty({
+    required: false,
+    description: 'Search by venue name or address',
+  })
   @IsOptional()
   @IsString()
   keyword?: string;
@@ -19,19 +30,29 @@ export class SearchVenueDto {
   @IsString()
   district?: string;
 
-  @ApiProperty({ required: false, description: 'User latitude for distance calculation' })
+  @ApiProperty({
+    required: false,
+    description: 'User latitude for distance calculation',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   lat?: number;
 
-  @ApiProperty({ required: false, description: 'User longitude for distance calculation' })
+  @ApiProperty({
+    required: false,
+    description: 'User longitude for distance calculation',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   lng?: number;
 
-  @ApiProperty({ required: false, description: 'Search radius in kilometers', default: 10 })
+  @ApiProperty({
+    required: false,
+    description: 'Search radius in kilometers',
+    default: 10,
+  })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -50,7 +71,11 @@ export class SearchVenueDto {
   @IsBoolean()
   isVerified?: boolean;
 
-  @ApiProperty({ required: false, enum: ['name', 'createdAt', 'distance'], default: 'name' })
+  @ApiProperty({
+    required: false,
+    enum: ['name', 'createdAt', 'distance'],
+    default: 'name',
+  })
   @IsOptional()
   @IsString()
   sortBy?: 'name' | 'createdAt' | 'distance' = 'name';
