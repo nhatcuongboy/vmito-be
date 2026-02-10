@@ -3,7 +3,7 @@ set -e
 
 # Deployment script for staging environment
 
-SERVER_IP="139.180.145.154"
+SERVER_IP="45.76.176.24"
 DEPLOY_PATH="/opt/badminton"
 
 echo "=== Badminton Staging Deployment Script ==="
