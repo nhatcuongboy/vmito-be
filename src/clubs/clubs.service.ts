@@ -65,6 +65,12 @@ export class ClubsService {
               image: true,
             },
           },
+          schedules: {
+            orderBy: { dayOfWeek: 'asc' },
+          },
+          defaultVenue: {
+            select: { id: true, name: true, address: true },
+          },
           _count: {
             select: {
               members: {
@@ -90,6 +96,8 @@ export class ClubsService {
         memberCount: club._count.members,
         sessionCount: club.sessionCount,
         host: club.host,
+        schedules: club.schedules,
+        defaultVenue: club.defaultVenue,
         createdAt: club.createdAt,
       })),
       total,
@@ -113,6 +121,12 @@ export class ClubsService {
             email: true,
             image: true,
           },
+        },
+        schedules: {
+          orderBy: { dayOfWeek: 'asc' },
+        },
+        defaultVenue: {
+          select: { id: true, name: true, address: true },
         },
         members: {
           where: { status: MemberStatus.ACTIVE },
@@ -185,6 +199,8 @@ export class ClubsService {
       sessionCount: club.sessionCount,
       totalPlayersServed: club.totalPlayersServed,
       host: club.host,
+      schedules: club.schedules,
+      defaultVenue: club.defaultVenue,
       members: club.members.map((m) => ({
         id: m.id,
         role: m.role,
@@ -337,6 +353,12 @@ export class ClubsService {
                 image: true,
               },
             },
+            schedules: {
+              orderBy: { dayOfWeek: 'asc' },
+            },
+            defaultVenue: {
+              select: { id: true, name: true, address: true },
+            },
             _count: {
               select: {
                 members: {
@@ -359,6 +381,8 @@ export class ClubsService {
       role: m.role,
       memberCount: m.club._count.members,
       host: m.club.host,
+      schedules: m.club.schedules,
+      defaultVenue: m.club.defaultVenue,
       joinedAt: m.createdAt,
     }));
   }
@@ -412,6 +436,12 @@ export class ClubsService {
         _count: {
           select: { members: true },
         },
+        schedules: {
+          orderBy: { dayOfWeek: 'asc' },
+        },
+        defaultVenue: {
+          select: { id: true, name: true, address: true },
+        },
         feeConfigs: {
           where: {
             month: new Date().getMonth() + 1,
@@ -441,6 +471,12 @@ export class ClubsService {
       include: {
         _count: {
           select: { members: true },
+        },
+        schedules: {
+          orderBy: { dayOfWeek: 'asc' },
+        },
+        defaultVenue: {
+          select: { id: true, name: true, address: true },
         },
         feeConfigs: {
           orderBy: [{ year: 'desc' }, { month: 'desc' }],
@@ -474,12 +510,40 @@ export class ClubsService {
       throw new ConflictException('A club with this name already exists');
     }
 
+    // Validate venue exists if provided
+    if (dto.defaultVenueId) {
+      const venue = await this.prisma.venue.findUnique({
+        where: { id: dto.defaultVenueId },
+      });
+      if (!venue) {
+        throw new NotFoundException('Venue not found');
+      }
+    }
+
+    const { schedules, ...clubData } = dto;
+
     return this.prisma.club.create({
       data: {
-        ...dto,
+        ...clubData,
         hostId,
-        isPublic: dto.isPublic ?? true, // Default to public
+        isPublic: dto.isPublic ?? true,
         status: role === Role.ADMIN ? ClubStatus.APPROVED : ClubStatus.PENDING,
+        ...(schedules?.length && {
+          schedules: {
+            create: schedules.map((s) => ({
+              dayOfWeek: s.dayOfWeek,
+              startTime: s.startTime,
+              endTime: s.endTime,
+              notes: s.notes,
+            })),
+          },
+        }),
+      },
+      include: {
+        schedules: true,
+        defaultVenue: {
+          select: { id: true, name: true, address: true },
+        },
       },
     });
   }
@@ -509,9 +573,57 @@ export class ClubsService {
       }
     }
 
+    // Validate venue exists if provided
+    if (dto.defaultVenueId) {
+      const venue = await this.prisma.venue.findUnique({
+        where: { id: dto.defaultVenueId },
+      });
+      if (!venue) {
+        throw new NotFoundException('Venue not found');
+      }
+    }
+
+    const { schedules, ...clubData } = dto;
+
+    // If schedules provided, delete old and create new in transaction
+    if (schedules !== undefined) {
+      return this.prisma.$transaction(async (tx) => {
+        await tx.clubSchedule.deleteMany({ where: { clubId } });
+
+        return tx.club.update({
+          where: { id: clubId },
+          data: {
+            ...clubData,
+            ...(schedules.length > 0 && {
+              schedules: {
+                create: schedules.map((s) => ({
+                  dayOfWeek: s.dayOfWeek,
+                  startTime: s.startTime,
+                  endTime: s.endTime,
+                  notes: s.notes,
+                })),
+              },
+            }),
+          },
+          include: {
+            schedules: true,
+            defaultVenue: {
+              select: { id: true, name: true, address: true },
+            },
+          },
+        });
+      });
+    }
+
     return this.prisma.club.update({
       where: { id: clubId },
-      data: dto,
+      data: clubData,
+      include: {
+        schedules: true,
+        defaultVenue: {
+          select: { id: true, name: true, address: true },
+        },
+      },
     });
   }
 

@@ -111,6 +111,18 @@ export class CloudinaryService {
     });
   }
 
+  async uploadClubImage(
+    file: Express.Multer.File
+  ): Promise<CloudinaryUploadResult> {
+    return this.uploadImage(file, 'club-images', {
+      transformation: [
+        { width: 800, height: 800, crop: 'fill' },
+        { quality: 'auto:good' },
+        { fetch_format: 'auto' },
+      ],
+    });
+  }
+
   async uploadSessionCoverPhoto(
     file: Express.Multer.File
   ): Promise<CloudinaryUploadResult> {

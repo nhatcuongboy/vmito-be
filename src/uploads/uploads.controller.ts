@@ -129,4 +129,38 @@ export class UploadsController {
   ) {
     return await this.uploadsService.saveAvatar(file);
   }
+
+  @Post('club-image')
+  @ApiOperation({ summary: 'Upload club image' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        clubImage: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Club image uploaded successfully',
+    type: UploadResponseDto,
+  })
+  @UseInterceptors(FileInterceptor('clubImage'))
+  async uploadClubImage(
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }), // 5MB
+          new FileTypeValidator({ fileType: /^image\/(jpeg|png|gif|webp)$/ }),
+        ],
+      })
+    )
+    file: Express.Multer.File
+  ) {
+    return await this.uploadsService.saveClubImage(file);
+  }
 }

@@ -7,8 +7,32 @@ import {
   IsInt,
   Min,
   Max,
+  IsArray,
+  ValidateNested,
+  Matches,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ClubJoinPolicy } from '@prisma/client';
+
+export class ClubScheduleDto {
+  @IsInt()
+  @Min(0)
+  @Max(6)
+  dayOfWeek: number; // 0=CN, 1=T2, 2=T3, 3=T4, 4=T5, 5=T6, 6=T7
+
+  @IsString()
+  @Matches(/^\d{2}:\d{2}$/, { message: 'startTime must be in HH:mm format' })
+  startTime: string;
+
+  @IsString()
+  @Matches(/^\d{2}:\d{2}$/, { message: 'endTime must be in HH:mm format' })
+  endTime: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  notes?: string;
+}
 
 export class CreateClubDto {
   @IsString()
@@ -43,4 +67,22 @@ export class CreateClubDto {
   @IsString()
   @MaxLength(200)
   location?: string;
+
+  @IsOptional()
+  @IsString()
+  defaultVenueId?: string;
+
+  @IsOptional()
+  @IsString()
+  image?: string;
+
+  @IsOptional()
+  @IsString()
+  imagePublicId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ClubScheduleDto)
+  schedules?: ClubScheduleDto[];
 }

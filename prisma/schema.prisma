@@ -195,6 +195,7 @@ model Venue {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
   sessions       Session[]
+  clubs          Club[]
 
   @@index([status])
   @@index([city])
@@ -781,6 +782,7 @@ model Club {
   image       String?  // Cloudinary URL for club image
   imagePublicId String? // Cloudinary public ID
   location    String?  // Primary location/venue
+  defaultVenueId String? // Link to default venue
   
   // Statistics (cached for performance)
   sessionCount Int @default(0)
@@ -792,13 +794,15 @@ model Club {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  host       User                          @relation("HostClubs", fields: [hostId], references: [id], onDelete: Cascade)
-  members    ClubMember[]
-  feeConfigs ClubFeeConfig[]
-  players    Player[]
+  host         User                          @relation("HostClubs", fields: [hostId], references: [id], onDelete: Cascade)
+  defaultVenue Venue?                        @relation(fields: [defaultVenueId], references: [id], onDelete: SetNull)
+  members      ClubMember[]
+  feeConfigs   ClubFeeConfig[]
+  players      Player[]
   joinRequests ClubJoinRequest[]
   announcements ClubAnnouncement[]
   clubSessions ClubSession[]
+  schedules    ClubSchedule[]
 
   @@unique([hostId, name])
   @@index([hostId])
@@ -952,5 +956,26 @@ model ClubSession {
   @@index([clubId])
   @@index([sessionId])
   @@map("club_sessions")
+}
+
+// ===========================================
+// Club Schedule Model
+// ===========================================
+
+model ClubSchedule {
+  id        String  @id @default(cuid())
+  clubId    String
+  dayOfWeek Int     // 0=CN, 1=T2, 2=T3, 3=T4, 4=T5, 5=T6, 6=T7
+  startTime String  // "19:00"
+  endTime   String  // "21:00"
+  notes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId])
+  @@map("club_schedules")
 }
 
