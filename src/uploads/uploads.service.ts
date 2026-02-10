@@ -22,6 +22,12 @@ export class UploadsService {
     return await this.cloudinaryService.uploadAvatar(file);
   }
 
+  async saveClubImage(
+    file: Express.Multer.File
+  ): Promise<CloudinaryUploadResult> {
+    return await this.cloudinaryService.uploadClubImage(file);
+  }
+
   async deleteImage(publicId: string): Promise<void> {
     await this.cloudinaryService.deleteImage(publicId);
   }
