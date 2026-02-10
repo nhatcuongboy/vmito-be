@@ -87,4 +87,5 @@ volumes:
 
 networks:
   badminton-network:
+    name: badminton-shared-net
     driver: bridge

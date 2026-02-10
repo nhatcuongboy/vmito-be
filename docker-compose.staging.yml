@@ -5,6 +5,7 @@ services:
     image: postgres:16-alpine
     container_name: badminton-db-staging
     restart: unless-stopped
+    env_file: .env.staging
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-badminton}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -25,6 +26,7 @@ services:
     image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_USERNAME}/badminton-backend:${BACKEND_VERSION:-staging}
     container_name: badminton-backend-staging
     restart: unless-stopped
+    env_file: .env.staging
     depends_on:
       db-staging:
         condition: service_healthy
@@ -51,6 +53,7 @@ services:
     image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_USERNAME}/badminton-frontend:${FRONTEND_VERSION:-staging}
     container_name: badminton-frontend-staging
     restart: unless-stopped
+    env_file: .env.staging
     depends_on:
       - backend-staging
     environment:
@@ -66,4 +69,5 @@ volumes:
 
 networks:
   badminton-network:
+    name: badminton-shared-net
     external: true
