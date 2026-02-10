@@ -59,7 +59,11 @@ export class CreateVenueDto {
   @Min(1)
   numberOfCourts?: number;
 
-  @ApiProperty({ required: false, enum: VenueStatus, default: VenueStatus.ACTIVE })
+  @ApiProperty({
+    required: false,
+    enum: VenueStatus,
+    default: VenueStatus.ACTIVE,
+  })
   @IsOptional()
   @IsEnum(VenueStatus)
   status?: VenueStatus;
@@ -74,13 +78,21 @@ export class CreateVenueDto {
   @IsString()
   website?: string;
 
-  @ApiProperty({ required: false, example: 150000, description: 'Hourly rate for fixed members (VND)' })
+  @ApiProperty({
+    required: false,
+    example: 150000,
+    description: 'Hourly rate for fixed members (VND)',
+  })
   @IsOptional()
   @IsInt()
   @Min(0)
   hourlyRateFixed?: number;
 
-  @ApiProperty({ required: false, example: 200000, description: 'Hourly rate for walk-in (VND)' })
+  @ApiProperty({
+    required: false,
+    example: 200000,
+    description: 'Hourly rate for walk-in (VND)',
+  })
   @IsOptional()
   @IsInt()
   @Min(0)

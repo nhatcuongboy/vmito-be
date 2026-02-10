@@ -73,20 +73,20 @@ export class PlayersController {
   getPendingRequests(
     @CurrentUser() user: { userId: string; role: string },
     @Query('page') page?: string,
-    @Query('limit') limit?: string,
+    @Query('limit') limit?: string
   ) {
     return this.playersService.findPendingRequests(
       user.userId,
       user.role,
       page ? parseInt(page, 10) : undefined,
-      limit ? parseInt(limit, 10) : undefined,
+      limit ? parseInt(limit, 10) : undefined
     );
   }
 
   @Get('pending-requests/count')
   @ApiOperation({ summary: 'Get count of pending player requests for host' })
   getPendingRequestsCount(
-    @CurrentUser() user: { userId: string; role: string },
+    @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.playersService.countPendingRequests(user.userId, user.role);
   }
@@ -95,13 +95,13 @@ export class PlayersController {
   @ApiOperation({ summary: 'Batch approve or reject pending player requests' })
   batchUpdateStatus(
     @Body() dto: BatchUpdateStatusDto,
-    @CurrentUser() user: { userId: string; role: string },
+    @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.playersService.batchUpdatePlayerStatus(
       dto.playerIds,
       dto.status,
       user.userId,
-      user.role,
+      user.role
     );
   }
 

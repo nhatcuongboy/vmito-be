@@ -11,6 +11,7 @@ import {
   ArrayMinSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { Session } from '@prisma/client';
 import { CreateSessionDto } from './create-session.dto';
 
 export enum BulkCreationMode {
@@ -74,6 +75,6 @@ export class BulkSessionErrorDto {
 export class BulkSessionCreationResponseDto {
   success: boolean;
   sessionsCreated: number;
-  sessions: any[]; // Will be actual Session entities
+  sessions: Session[];
   errors?: BulkSessionErrorDto[];
 }

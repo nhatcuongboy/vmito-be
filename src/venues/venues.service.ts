@@ -81,7 +81,7 @@ export class VenuesService {
     // Filter by radius
     if (lat !== undefined && lng !== undefined && radius !== undefined) {
       result = result.filter(
-        (v) => v.distance === null || v.distance <= radius,
+        (v) => v.distance === null || v.distance <= radius
       );
     }
 
@@ -104,7 +104,7 @@ export class VenuesService {
         limit,
         total: radius !== undefined ? result.length : total,
         totalPages: Math.ceil(
-          (radius !== undefined ? result.length : total) / limit,
+          (radius !== undefined ? result.length : total) / limit
         ),
       },
     };
@@ -162,7 +162,7 @@ export class VenuesService {
 
   private buildOrderBy(
     sortBy: string,
-    sortOrder: string,
+    sortOrder: string
   ): Prisma.VenueOrderByWithRelationInput {
     if (sortBy === 'distance') {
       return { name: sortOrder as Prisma.SortOrder };
@@ -175,7 +175,7 @@ export class VenuesService {
     lat1: number,
     lng1: number,
     lat2: number,
-    lng2: number,
+    lng2: number
   ): number {
     const R = 6371; // Earth's radius in km
     const dLat = this.toRad(lat2 - lat1);
