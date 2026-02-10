@@ -4,7 +4,7 @@ set -e
 # Deployment script for PRODUCTION environment
 # For staging deployment, use deploy-staging.sh instead
 
-SERVER_IP="139.180.145.154"
+SERVER_IP="45.76.176.24"
 DEPLOY_PATH="/opt/badminton"
 
 echo "=== Badminton App Deployment Script ==="

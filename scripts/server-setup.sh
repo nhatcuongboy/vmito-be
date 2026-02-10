@@ -2,7 +2,8 @@
 set -e
 
 echo "=== Badminton App Server Setup ==="
-echo "Server IP: 139.180.145.154"
+SERVER_IP=${1:-"45.76.176.24"}
+echo "Target Server IP: $SERVER_IP"
 
 # Update system
 echo "[1/6] Updating system..."
