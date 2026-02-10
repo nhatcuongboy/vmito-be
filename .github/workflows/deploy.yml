@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v2
         with:
@@ -40,7 +40,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
+
     steps:
       - uses: actions/checkout@v4
 
@@ -75,7 +75,7 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
+
     steps:
       - name: Deploy to Vultr Server
         uses: appleboy/ssh-action@v1.0.3
@@ -87,4 +87,4 @@ jobs:
             cd /opt/badminton
             docker compose pull backend
             docker compose up -d backend
-            docker image prune -f
+            docker image prune -a -f
