@@ -84,6 +84,6 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             cd /opt/badminton
-            docker compose -f docker-compose.staging.yml pull backend-staging
-            docker compose -f docker-compose.staging.yml up -d backend-staging
+            docker compose --env-file .env.staging -f docker-compose.staging.yml pull backend-staging
+            docker compose --env-file .env.staging -f docker-compose.staging.yml up -d backend-staging
             docker image prune -f
