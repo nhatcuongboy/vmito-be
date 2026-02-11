@@ -31,6 +31,7 @@ export class VenuesController {
     return this.venuesService.searchVenues(searchVenueDto);
   }
 
+  @Public()
   @Get()
   findAll(@Query('page') page?: string, @Query('limit') limit?: string) {
     return this.venuesService.findAll({
@@ -39,6 +40,7 @@ export class VenuesController {
     });
   }
 
+  @Public()
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.venuesService.findOne(id);
