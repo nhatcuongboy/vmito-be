@@ -14,6 +14,7 @@ import { VALID_LEVELS } from '../common/constants/level.constants';
 import { SessionsGateway } from './sessions.gateway';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { ClubsService } from '../clubs/clubs.service';
+import { removeVietnameseTones } from '../common/utils/string.utils';
 
 @Injectable()
 export class SessionsService {
@@ -27,13 +28,18 @@ export class SessionsService {
 
   async findAll(
     user?: { userId: string; role: string },
-    filters?: { page?: number; limit?: number; hostId?: string }
+    filters?: {
+      page?: number;
+      limit?: number;
+      hostId?: string;
+      searchQuery?: string;
+    }
   ) {
     const page = filters?.page || 1;
     const limit = filters?.limit || 12;
     const skip = (page - 1) * limit;
 
-    const where: { hostId?: string } = {};
+    const where: Prisma.SessionWhereInput = {};
 
     // If hostId is provided in filters, use it (could add security check here)
     if (filters?.hostId) {
@@ -41,6 +47,19 @@ export class SessionsService {
     } else if (user && user.role !== 'ADMIN') {
       // Default to filtering by current user if not admin
       where.hostId = user.userId;
+    }
+
+    if (filters?.searchQuery) {
+      const searchTerm = removeVietnameseTones(
+        filters.searchQuery
+      ).toLowerCase();
+      where.OR = [
+        { searchTerms: { contains: searchTerm, mode: 'insensitive' } },
+        { name: { contains: searchTerm, mode: 'insensitive' } },
+        { location: { contains: searchTerm, mode: 'insensitive' } },
+        { venue: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { venue: { address: { contains: searchTerm, mode: 'insensitive' } } },
+      ];
     }
 
     return this.prisma.session.findMany({
@@ -191,9 +210,13 @@ export class SessionsService {
 
     // Search query - full text search across multiple fields
     if (filters?.searchQuery) {
-      const searchTerm = filters.searchQuery.toLowerCase();
+      const searchTerm = removeVietnameseTones(
+        filters.searchQuery
+      ).toLowerCase();
       const searchConditions: Prisma.SessionWhereInput = {
         OR: [
+          { searchTerms: { contains: searchTerm, mode: 'insensitive' } },
+          // Fallback to old search fields for safety or if data not yet migrated
           { name: { contains: searchTerm, mode: 'insensitive' } },
           { location: { contains: searchTerm, mode: 'insensitive' } },
           { host: { name: { contains: searchTerm, mode: 'insensitive' } } },

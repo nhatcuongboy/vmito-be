@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateVenueDto } from './dto/create-venue.dto';
 import { UpdateVenueDto } from './dto/update-venue.dto';
 import { SearchVenueDto } from './dto/search-venue.dto';
+import { removeVietnameseTones } from '../common/utils/string.utils';
 
 @Injectable()
 export class VenuesService {
@@ -32,6 +33,12 @@ export class VenuesService {
     if (keyword) {
       andConditions.push({
         OR: [
+          {
+            searchTerms: {
+              contains: removeVietnameseTones(keyword).toLowerCase(),
+              mode: 'insensitive',
+            },
+          },
           { name: { contains: keyword, mode: 'insensitive' } },
           { address: { contains: keyword, mode: 'insensitive' } },
         ],
@@ -143,14 +150,28 @@ export class VenuesService {
 
   async create(createVenueDto: CreateVenueDto) {
     return this.prisma.venue.create({
-      data: createVenueDto,
+      data: {
+        ...createVenueDto,
+        searchTerms: removeVietnameseTones(
+          `${createVenueDto.name} ${createVenueDto.address} ${createVenueDto.district || ''} ${createVenueDto.city || ''}`
+        ).toLowerCase(),
+      },
     });
   }
 
   async update(id: string, updateVenueDto: UpdateVenueDto) {
     return this.prisma.venue.update({
       where: { id },
-      data: updateVenueDto,
+      data: {
+        ...updateVenueDto,
+        ...(updateVenueDto.name || updateVenueDto.address
+          ? {
+              searchTerms: removeVietnameseTones(
+                `${updateVenueDto.name || ''} ${updateVenueDto.address || ''} ${updateVenueDto.district || ''} ${updateVenueDto.city || ''}`
+              ).toLowerCase(),
+            }
+          : {}),
+      },
     });
   }
 

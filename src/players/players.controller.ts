@@ -112,7 +112,8 @@ export class PlayersController {
   getMySessions(
     @CurrentUser() user: { userId: string },
     @Query('page') page?: string,
-    @Query('limit') limit?: string
+    @Query('limit') limit?: string,
+    @Query('searchQuery') searchQuery?: string
   ) {
     if (!user || typeof user.userId !== 'string') {
       throw new Error('Invalid user object');
@@ -120,6 +121,7 @@ export class PlayersController {
     return this.playersService.getMySessions(user.userId, {
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
+      searchQuery,
     });
   }
 

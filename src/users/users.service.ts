@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import * as bcrypt from 'bcryptjs';
+import { removeVietnameseTones } from '../common/utils/string.utils';
 
 @Injectable()
 export class UsersService {
@@ -35,12 +36,15 @@ export class UsersService {
       OR?: {
         email?: { contains: string; mode: 'insensitive' };
         name?: { contains: string; mode: 'insensitive' };
+        searchTerms?: { contains: string; mode: 'insensitive' };
       }[];
       role?: Role;
     } = {};
 
     if (options?.search) {
+      const searchTerm = removeVietnameseTones(options.search).toLowerCase();
       where.OR = [
+        { searchTerms: { contains: searchTerm, mode: 'insensitive' } },
         { email: { contains: options.search, mode: 'insensitive' } },
         { name: { contains: options.search, mode: 'insensitive' } },
       ];
@@ -96,6 +100,9 @@ export class UsersService {
         role: createUserDto.role,
         gender: createUserDto.gender,
         phone: createUserDto.phone,
+        searchTerms: removeVietnameseTones(
+          `${createUserDto.name} ${createUserDto.email} ${createUserDto.phone || ''}`
+        ).toLowerCase(),
       },
       select: this.userSelect,
     });
@@ -113,9 +120,24 @@ export class UsersService {
     }
 
     // Hash password if updating
-    const data: UpdateUserDto & { password?: string } = { ...updateUserDto };
+    const data: UpdateUserDto & { password?: string; searchTerms?: string } = {
+      ...updateUserDto,
+    };
     if (updateUserDto.password) {
       data.password = await bcrypt.hash(updateUserDto.password, 12);
+    }
+
+    if (updateUserDto.name || updateUserDto.phone) {
+      // We need current values to form complete search terms, but optimization:
+      // just verify if we can get them from `user` object above since we did findUnique
+      const name = updateUserDto.name || user.name;
+      const phone =
+        updateUserDto.phone !== undefined ? updateUserDto.phone : user.phone;
+      const email = user.email;
+
+      data.searchTerms = removeVietnameseTones(
+        `${name} ${email} ${phone || ''}`
+      ).toLowerCase();
     }
 
     return this.prisma.user.update({
