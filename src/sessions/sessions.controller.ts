@@ -96,6 +96,24 @@ export class SessionsController {
     });
   }
 
+  @Get('suggestions')
+  getSuggestions(
+    @CurrentUser() user: { userId: string; role: string },
+    @Query('lat') lat?: string,
+    @Query('lng') lng?: string,
+    @Query('radius') radius?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ) {
+    return this.sessionsService.getSuggestions(user.userId, {
+      lat: lat ? parseFloat(lat) : undefined,
+      lng: lng ? parseFloat(lng) : undefined,
+      radius: radius ? parseFloat(radius) : 15,
+      page: page ? parseInt(page, 10) : 1,
+      limit: limit ? parseInt(limit, 10) : 12,
+    });
+  }
+
   @Public()
   @Get(':id')
   findOne(@Param('id') id: string) {

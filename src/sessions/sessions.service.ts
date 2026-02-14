@@ -2322,4 +2322,204 @@ export class SessionsService {
   private formatDateOnly(date: Date): string {
     return date.toISOString().split('T')[0];
   }
+
+  /**
+   * Get suggested sessions for a user based on level, location, and play history
+   */
+  async getSuggestions(
+    userId: string,
+    query: {
+      lat?: number;
+      lng?: number;
+      radius?: number;
+      page?: number;
+      limit?: number;
+    }
+  ) {
+    const radius = query.radius || 15;
+    const page = query.page || 1;
+    const limit = query.limit || 12;
+
+    // 1. Get user profile
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, level: true, gender: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    // 2. Get user's play history (last 20 sessions)
+    const recentPlayers = await this.prisma.player.findMany({
+      where: {
+        userId,
+        registrationStatus: 'APPROVED',
+        session: { status: { in: ['FINISHED', 'IN_PROGRESS'] } },
+      },
+      include: {
+        session: {
+          select: { venueId: true, startTime: true },
+        },
+      },
+      orderBy: { joinedAt: 'desc' },
+      take: 20,
+    });
+
+    // Extract patterns from history
+    const venueFrequency: Record<string, number> = {};
+    const dayFrequency: Record<number, number> = {};
+    const hourFrequency: Record<number, number> = {};
+
+    for (const p of recentPlayers) {
+      if (p.session.venueId) {
+        venueFrequency[p.session.venueId] =
+          (venueFrequency[p.session.venueId] || 0) + 1;
+      }
+      if (p.session.startTime) {
+        const day = p.session.startTime.getDay();
+        const hour = p.session.startTime.getHours();
+        dayFrequency[day] = (dayFrequency[day] || 0) + 1;
+        hourFrequency[hour] = (hourFrequency[hour] || 0) + 1;
+      }
+    }
+
+    const topVenueIds = Object.entries(venueFrequency)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([id]) => id);
+
+    const maxDayFreq = Math.max(...Object.values(dayFrequency), 1);
+    const maxHourFreq = Math.max(...Object.values(hourFrequency), 1);
+    const hasHistory = recentPlayers.length > 0;
+
+    // 3. Get candidate sessions
+    const now = new Date();
+    const candidates = await this.prisma.session.findMany({
+      where: {
+        status: 'PREPARING',
+        endTime: { gt: now },
+        allowNewPlayers: true,
+        // Exclude sessions user already joined
+        NOT: {
+          players: { some: { userId } },
+        },
+      },
+      include: {
+        host: {
+          select: { id: true, name: true, email: true, image: true },
+        },
+        venue: true,
+        feeConfig: true,
+        _count: {
+          select: {
+            players: { where: { registrationStatus: 'APPROVED' } },
+            courts: true,
+          },
+        },
+        courts: {
+          orderBy: { courtNumber: 'asc' },
+        },
+      },
+    });
+
+    // 4. Score each session
+    const scored = candidates.map((session) => {
+      const matchReasons: string[] = [];
+      let totalScore = 0;
+
+      // Level match (weight: 0.30)
+      let levelScore = 0.5;
+      if (
+        !session.requiredLevels ||
+        session.requiredLevels.length === 0
+      ) {
+        levelScore = 1.0;
+        matchReasons.push('level_match');
+      } else if (user.level && session.requiredLevels.includes(user.level)) {
+        levelScore = 1.0;
+        matchReasons.push('level_match');
+      } else if (
+        user.level &&
+        session.requiredLevels.some(
+          (l) => Math.abs(l - user.level!) <= 1
+        )
+      ) {
+        levelScore = 0.5;
+      } else {
+        levelScore = 0.0;
+      }
+      totalScore += 0.3 * levelScore;
+
+      // Distance (weight: 0.25)
+      let distance: number | null = null;
+      let distanceScore = 0.5;
+      if (
+        query.lat !== undefined &&
+        query.lng !== undefined &&
+        session.venue?.lat &&
+        session.venue?.lng
+      ) {
+        distance = this.calculateDistance(
+          query.lat,
+          query.lng,
+          session.venue.lat,
+          session.venue.lng
+        );
+        distanceScore = Math.max(0, 1 - distance / radius);
+        if (distanceScore > 0.5) {
+          matchReasons.push('nearby');
+        }
+      }
+      totalScore += 0.25 * distanceScore;
+
+      // Schedule match (weight: 0.20)
+      let scheduleScore = hasHistory ? 0 : 0.5;
+      if (hasHistory && session.startTime) {
+        const sessionDay = session.startTime.getDay();
+        const sessionHour = session.startTime.getHours();
+        const dayScore = (dayFrequency[sessionDay] || 0) / maxDayFreq;
+        const hourScore =
+          (hourFrequency[sessionHour] || 0) / maxHourFreq;
+        scheduleScore = dayScore * 0.5 + hourScore * 0.5;
+        if (scheduleScore > 0.5) {
+          matchReasons.push('preferred_time');
+        }
+      }
+      totalScore += 0.2 * scheduleScore;
+
+      // Venue familiarity (weight: 0.15)
+      let venueScore = hasHistory ? 0.3 : 0.5;
+      if (session.venueId && topVenueIds.includes(session.venueId)) {
+        venueScore = 1.0;
+        matchReasons.push('familiar_venue');
+      }
+      totalScore += 0.15 * venueScore;
+
+      // Available slots (weight: 0.10)
+      const maxPlayers =
+        session.numberOfCourts * session.maxPlayersPerCourt;
+      const approvedPlayers = session._count?.players || 0;
+      const availableSlots = maxPlayers - approvedPlayers;
+      const slotsScore = Math.min(1, availableSlots / 4);
+      if (availableSlots > 0) {
+        matchReasons.push('available_slots');
+      }
+      totalScore += 0.1 * slotsScore;
+
+      return {
+        ...session,
+        score: Math.round(totalScore * 100) / 100,
+        distance,
+        matchReasons,
+      };
+    });
+
+    // 5. Sort by score descending, paginate
+    scored.sort((a, b) => b.score - a.score);
+    const total = scored.length;
+    const paginated = scored.slice((page - 1) * limit, page * limit);
+
+    return {
+      data: paginated,
+      pagination: { page, limit, total },
+    };
+  }
 }
