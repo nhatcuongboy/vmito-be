@@ -22,6 +22,7 @@ import {
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { Role } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
@@ -42,6 +43,7 @@ export class ClubsController {
   /**
    * Browse public clubs
    */
+  @Public()
   @Get()
   async browseClubs(@Query() query: BrowseClubsDto) {
     return this.clubsService.browsePublicClubs(query);
@@ -50,6 +52,7 @@ export class ClubsController {
   /**
    * Get club details by ID (Public)
    */
+  @Public()
   @Get(':id/details')
   async getClubDetails(@Param('id') id: string) {
     return this.clubsService.getClubDetails(id);
