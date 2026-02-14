@@ -97,4 +97,22 @@ export class CreateVenueDto {
   @IsInt()
   @Min(0)
   hourlyRateWalkIn?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  coverPhoto?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  coverPhotoPublicId?: string;
+
+  @ApiProperty({ required: false, type: [String] })
+  @IsOptional()
+  images?: string[] = [];
+
+  @ApiProperty({ required: false, type: [String] })
+  @IsOptional()
+  imagePublicIds?: string[] = [];
 }

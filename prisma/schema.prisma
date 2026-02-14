@@ -200,6 +200,12 @@ model Venue {
   sessions       Session[]
   clubs          Club[]
 
+  // Images
+  coverPhoto         String?
+  coverPhotoPublicId String?
+  images             String[]    @default([])
+  imagePublicIds     String[]    @default([])
+
   @@index([status])
   @@index([city])
   @@index([district])
