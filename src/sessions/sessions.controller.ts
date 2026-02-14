@@ -64,6 +64,7 @@ export class SessionsController {
     @Query('level') level?: number,
     @Query('city') city?: string,
     @Query('district') district?: string,
+    @Query('venueId') venueId?: string,
     @Query('minFee') minFee?: string,
     @Query('maxFee') maxFee?: string,
     @Query('hasSlots') hasSlots?: string,
@@ -80,6 +81,7 @@ export class SessionsController {
       level,
       city,
       district,
+      venueId,
       minFee: minFee ? parseFloat(minFee) : undefined,
       maxFee: maxFee ? parseFloat(maxFee) : undefined,
       hasSlots:

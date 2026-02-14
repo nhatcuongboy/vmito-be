@@ -97,6 +97,7 @@ export class SessionsService {
     level?: number;
     city?: string;
     district?: string;
+    venueId?: string;
     minFee?: number;
     maxFee?: number;
     hasSlots?: boolean;
@@ -166,6 +167,13 @@ export class SessionsService {
           },
           { location: { contains: filters.district, mode: 'insensitive' } },
         ],
+      });
+    }
+
+    // Venue filter
+    if (filters?.venueId) {
+      andConditions.push({
+        venueId: filters.venueId,
       });
     }
 
