@@ -24,6 +24,7 @@ model User {
   level            Int?      // 1-7 (Beginner to Pro)
   levelDescription String?
   phone            String?
+  searchTerms      String?   // Normalized search string
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -139,6 +140,7 @@ model Session {
   venueId            String?
   hostId             String
   numberOfCourts     Int           @default(2)
+  searchTerms        String?       // Normalized search string
   sessionDuration    Int           @default(120)
   maxPlayersPerCourt Int           @default(8)
   requirePlayerInfo  Boolean       @default(true)
@@ -179,6 +181,7 @@ model Venue {
   id             String      @id @default(cuid())
   placeId        String      @unique // Google Place ID
   name           String
+  searchTerms    String?     // Normalized search string
   address        String
   lat            Float?
   lng            Float?
@@ -774,6 +777,7 @@ model Club {
   name        String   // "VIP", "Thường xuyên", etc.
   description String?
   color       String?  // Color for visual distinction
+  searchTerms String?  // Normalized search string
   
   // Club visibility and access settings
   isPublic    Boolean  @default(false)

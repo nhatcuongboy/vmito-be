@@ -21,6 +21,7 @@ import {
   ClubStatus,
   Role,
 } from '@prisma/client';
+import { removeVietnameseTones } from '../common/utils/string.utils';
 
 @Injectable()
 export class ClubsService {
@@ -42,6 +43,12 @@ export class ClubsService {
       status: ClubStatus.APPROVED,
       ...(search && {
         OR: [
+          {
+            searchTerms: {
+              contains: removeVietnameseTones(search).toLowerCase(),
+              mode: 'insensitive' as const,
+            },
+          },
           { name: { contains: search, mode: 'insensitive' as const } },
           { description: { contains: search, mode: 'insensitive' as const } },
         ],
@@ -538,6 +545,9 @@ export class ClubsService {
             })),
           },
         }),
+        searchTerms: removeVietnameseTones(
+          `${dto.name} ${dto.description || ''} ${dto.location || ''}`
+        ).toLowerCase(),
       },
       include: {
         schedules: true,
@@ -604,6 +614,15 @@ export class ClubsService {
                 })),
               },
             }),
+            ...(clubData.name || clubData.description || clubData.location
+              ? {
+                  searchTerms: removeVietnameseTones(
+                    `${clubData.name || ''} ${clubData.description || ''} ${
+                      clubData.location || ''
+                    }`
+                  ).toLowerCase(),
+                }
+              : {}),
           },
           include: {
             schedules: true,
@@ -617,7 +636,18 @@ export class ClubsService {
 
     return this.prisma.club.update({
       where: { id: clubId },
-      data: clubData,
+      data: {
+        ...clubData,
+        ...(clubData.name || clubData.description || clubData.location
+          ? {
+              searchTerms: removeVietnameseTones(
+                `${clubData.name || ''} ${clubData.description || ''} ${
+                  clubData.location || ''
+                }`
+              ).toLowerCase(),
+            }
+          : {}),
+      },
       include: {
         schedules: true,
         defaultVenue: {

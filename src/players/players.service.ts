@@ -17,6 +17,7 @@ import {
   RegistrationStatus,
   Prisma,
 } from '@prisma/client';
+import { removeVietnameseTones } from '../common/utils/string.utils';
 import {
   SessionsGateway,
   SessionEventType,
@@ -1584,7 +1585,7 @@ export class PlayersService {
 
   async getMySessions(
     userId: string,
-    filters?: { page?: number; limit?: number }
+    filters?: { page?: number; limit?: number; searchQuery?: string }
   ) {
     if (!userId) {
       throw new BadRequestException('User ID is required');
@@ -1595,17 +1596,32 @@ export class PlayersService {
     const skip = (page - 1) * limit;
 
     // Find all sessions that the current user has registered for (Pending/Approved)
-    const sessions = await this.prisma.session.findMany({
-      where: {
-        players: {
-          some: {
-            userId: userId,
-            registrationStatus: {
-              in: ['PENDING', 'APPROVED'],
-            },
+    const where: Prisma.SessionWhereInput = {
+      players: {
+        some: {
+          userId: userId,
+          registrationStatus: {
+            in: ['PENDING', 'APPROVED'],
           },
         },
       },
+    };
+
+    if (filters?.searchQuery) {
+      const searchTerm = removeVietnameseTones(
+        filters.searchQuery
+      ).toLowerCase();
+      where.OR = [
+        { searchTerms: { contains: searchTerm, mode: 'insensitive' } },
+        { name: { contains: searchTerm, mode: 'insensitive' } },
+        { location: { contains: searchTerm, mode: 'insensitive' } },
+        { venue: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { venue: { address: { contains: searchTerm, mode: 'insensitive' } } },
+      ];
+    }
+
+    const sessions = await this.prisma.session.findMany({
+      where,
       include: {
         host: {
           select: {

@@ -43,7 +43,8 @@ export class SessionsController {
     @CurrentUser() user: { userId: string; role: string },
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-    @Query('hostId') hostId?: string
+    @Query('hostId') hostId?: string,
+    @Query('searchQuery') searchQuery?: string
   ) {
     // Security: non-admin users can only see their own hosted sessions
     const effectiveHostId = user.role === 'ADMIN' ? hostId : user.userId;
@@ -52,6 +53,7 @@ export class SessionsController {
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
       hostId: effectiveHostId,
+      searchQuery,
     });
   }
 
@@ -91,6 +93,24 @@ export class SessionsController {
       sortByDistance: sortByDistance === 'true',
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
+    });
+  }
+
+  @Get('suggestions')
+  getSuggestions(
+    @CurrentUser() user: { userId: string; role: string },
+    @Query('lat') lat?: string,
+    @Query('lng') lng?: string,
+    @Query('radius') radius?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ) {
+    return this.sessionsService.getSuggestions(user.userId, {
+      lat: lat ? parseFloat(lat) : undefined,
+      lng: lng ? parseFloat(lng) : undefined,
+      radius: radius ? parseFloat(radius) : 15,
+      page: page ? parseInt(page, 10) : 1,
+      limit: limit ? parseInt(limit, 10) : 12,
     });
   }
 
