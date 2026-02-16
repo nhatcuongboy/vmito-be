@@ -62,7 +62,9 @@ export class SessionsService {
       ];
     }
 
-    return this.prisma.session.findMany({
+    const total = await this.prisma.session.count({ where });
+
+    const data = await this.prisma.session.findMany({
       where,
       include: {
         host: {
@@ -90,6 +92,14 @@ export class SessionsService {
       skip,
       take: limit,
     });
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async findAvailable(filters?: {
@@ -248,6 +258,9 @@ export class SessionsService {
       }
     }
 
+    // Get total count (before pagination but after Prisma filters)
+    const total = await this.prisma.session.count({ where });
+
     // Fetch sessions
     let sessions = await this.prisma.session.findMany({
       where,
@@ -308,13 +321,14 @@ export class SessionsService {
     }
 
     // Calculate distance and sort if geospatial params provided
+    let sessionsToReturn: any[] = sessions;
     if (
       filters?.lat !== undefined &&
       filters?.lng !== undefined &&
       filters?.sortByDistance
     ) {
       // Calculate distance for each session using Haversine formula
-      const sessionsWithDistance = sessions
+      sessionsToReturn = sessions
         .map((session) => {
           if (session.venue?.lat && session.venue?.lng) {
             const distance = this.calculateDistance(
@@ -334,11 +348,17 @@ export class SessionsService {
           if (b.distance === null) return -1;
           return a.distance - b.distance;
         });
-
-      return sessionsWithDistance;
     }
 
-    return sessions;
+    return {
+      data: sessionsToReturn,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   // Haversine formula to calculate distance between two lat/lng points in kilometers
@@ -2435,10 +2455,7 @@ export class SessionsService {
 
       // Level match (weight: 0.30)
       let levelScore = 0.5;
-      if (
-        !session.requiredLevels ||
-        session.requiredLevels.length === 0
-      ) {
+      if (!session.requiredLevels || session.requiredLevels.length === 0) {
         levelScore = 1.0;
         matchReasons.push('level_match');
       } else if (user.level && session.requiredLevels.includes(user.level)) {
@@ -2446,9 +2463,7 @@ export class SessionsService {
         matchReasons.push('level_match');
       } else if (
         user.level &&
-        session.requiredLevels.some(
-          (l) => Math.abs(l - user.level!) <= 1
-        )
+        session.requiredLevels.some((l) => Math.abs(l - user.level!) <= 1)
       ) {
         levelScore = 0.5;
       } else {
@@ -2484,8 +2499,7 @@ export class SessionsService {
         const sessionDay = session.startTime.getDay();
         const sessionHour = session.startTime.getHours();
         const dayScore = (dayFrequency[sessionDay] || 0) / maxDayFreq;
-        const hourScore =
-          (hourFrequency[sessionHour] || 0) / maxHourFreq;
+        const hourScore = (hourFrequency[sessionHour] || 0) / maxHourFreq;
         scheduleScore = dayScore * 0.5 + hourScore * 0.5;
         if (scheduleScore > 0.5) {
           matchReasons.push('preferred_time');
@@ -2502,8 +2516,7 @@ export class SessionsService {
       totalScore += 0.15 * venueScore;
 
       // Available slots (weight: 0.10)
-      const maxPlayers =
-        session.numberOfCourts * session.maxPlayersPerCourt;
+      const maxPlayers = session.numberOfCourts * session.maxPlayersPerCourt;
       const approvedPlayers = session._count?.players || 0;
       const availableSlots = maxPlayers - approvedPlayers;
       const slotsScore = Math.min(1, availableSlots / 4);
