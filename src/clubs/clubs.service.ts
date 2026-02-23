@@ -35,28 +35,59 @@ export class ClubsService {
    * Browse public clubs with search and pagination
    */
   async browsePublicClubs(query: BrowseClubsDto) {
-    const { search, location, page = 1, limit = 10 } = query;
+    const {
+      search,
+      location,
+      city,
+      district,
+      lat,
+      lng,
+      sortBy = 'sessionCount',
+      sortOrder = 'desc',
+      page = 1,
+      limit = 10,
+    } = query;
     const skip = (page - 1) * limit;
 
-    const where = {
-      isPublic: true,
-      status: ClubStatus.APPROVED,
-      ...(search && {
+    const andConditions: Prisma.ClubWhereInput[] = [
+      { isPublic: true },
+      { status: ClubStatus.APPROVED },
+    ];
+
+    if (search) {
+      andConditions.push({
         OR: [
           {
             searchTerms: {
               contains: removeVietnameseTones(search).toLowerCase(),
-              mode: 'insensitive' as const,
+              mode: 'insensitive',
             },
           },
-          { name: { contains: search, mode: 'insensitive' as const } },
-          { description: { contains: search, mode: 'insensitive' as const } },
+          { name: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
         ],
-      }),
-      ...(location && {
-        location: { contains: location, mode: 'insensitive' as const },
-      }),
-    };
+      });
+    }
+
+    if (location) {
+      andConditions.push({
+        location: { contains: location, mode: 'insensitive' },
+      });
+    }
+
+    if (city) {
+      andConditions.push({
+        defaultVenue: { city: { contains: city, mode: 'insensitive' } },
+      });
+    }
+
+    if (district) {
+      andConditions.push({
+        defaultVenue: { district: { equals: district, mode: 'insensitive' } },
+      });
+    }
+
+    const where: Prisma.ClubWhereInput = { AND: andConditions };
 
     const [clubs, total] = await Promise.all([
       this.prisma.club.findMany({
@@ -76,7 +107,7 @@ export class ClubsService {
             orderBy: { dayOfWeek: 'asc' },
           },
           defaultVenue: {
-            select: { id: true, name: true, address: true },
+            select: { id: true, name: true, address: true, lat: true, lng: true },
           },
           _count: {
             select: {
@@ -90,28 +121,78 @@ export class ClubsService {
       this.prisma.club.count({ where }),
     ]);
 
+    // Post-fetch: distance calculation
+    let result = clubs.map((club) => ({
+      id: club.id,
+      name: club.name,
+      description: club.description,
+      color: club.color,
+      image: club.image,
+      location: club.location,
+      joinPolicy: club.joinPolicy,
+      maxMembers: club.maxMembers,
+      memberCount: club._count.members,
+      sessionCount: club.sessionCount,
+      host: club.host,
+      schedules: club.schedules,
+      defaultVenue: club.defaultVenue,
+      createdAt: club.createdAt,
+      distance:
+        lat !== undefined &&
+        lng !== undefined &&
+        club.defaultVenue?.lat &&
+        club.defaultVenue?.lng
+          ? this.calculateDistance(
+              lat,
+              lng,
+              club.defaultVenue.lat,
+              club.defaultVenue.lng,
+            )
+          : null,
+    }));
+
+    // Sort by distance if requested
+    if (sortBy === 'distance' && lat !== undefined && lng !== undefined) {
+      result.sort((a, b) => {
+        if (a.distance === null && b.distance === null) return 0;
+        if (a.distance === null) return 1;
+        if (b.distance === null) return -1;
+        return sortOrder === 'asc'
+          ? a.distance - b.distance
+          : b.distance - a.distance;
+      });
+    }
+
     return {
-      items: clubs.map((club) => ({
-        id: club.id,
-        name: club.name,
-        description: club.description,
-        color: club.color,
-        image: club.image,
-        location: club.location,
-        joinPolicy: club.joinPolicy,
-        maxMembers: club.maxMembers,
-        memberCount: club._count.members,
-        sessionCount: club.sessionCount,
-        host: club.host,
-        schedules: club.schedules,
-        defaultVenue: club.defaultVenue,
-        createdAt: club.createdAt,
-      })),
+      items: result,
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  private calculateDistance(
+    lat1: number,
+    lng1: number,
+    lat2: number,
+    lng2: number,
+  ): number {
+    const R = 6371;
+    const dLat = this.toRad(lat2 - lat1);
+    const dLng = this.toRad(lng2 - lng1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(this.toRad(lat1)) *
+        Math.cos(this.toRad(lat2)) *
+        Math.sin(dLng / 2) *
+        Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Math.round(R * c * 10) / 10;
+  }
+
+  private toRad(degrees: number): number {
+    return degrees * (Math.PI / 180);
   }
 
   /**
