@@ -51,7 +51,7 @@ export class VenuesService {
     }
     if (district) {
       andConditions.push({
-        district: { contains: district, mode: 'insensitive' },
+        district: { equals: district, mode: 'insensitive' },
       });
     }
 
