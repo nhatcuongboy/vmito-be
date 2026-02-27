@@ -1620,47 +1620,56 @@ export class PlayersService {
       ];
     }
 
-    const sessions = await this.prisma.session.findMany({
-      where,
-      include: {
-        host: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
+    const [sessions, total] = await Promise.all([
+      this.prisma.session.findMany({
+        where,
+        include: {
+          host: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
           },
-        },
-        _count: {
-          select: {
-            players: {
-              where: {
-                isJoined: true,
+          _count: {
+            select: {
+              players: {
+                where: {
+                  isJoined: true,
+                },
               },
             },
           },
-        },
-        courts: {
-          orderBy: { courtNumber: 'asc' },
-        },
-        players: {
-          where: { userId: userId },
-          select: {
-            id: true,
-            status: true,
-            registrationStatus: true,
-            playerNumber: true,
+          courts: {
+            orderBy: { courtNumber: 'asc' },
           },
+          players: {
+            where: { userId: userId },
+            select: {
+              id: true,
+              status: true,
+              registrationStatus: true,
+              playerNumber: true,
+            },
+          },
+          feeConfig: true,
         },
-        feeConfig: true,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-      skip,
-      take: limit,
-    });
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip,
+        take: limit,
+      }),
+      this.prisma.session.count({ where }),
+    ]);
 
-    return sessions;
+    return {
+      data: sessions,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async getUserRegistrations(userId: string) {
