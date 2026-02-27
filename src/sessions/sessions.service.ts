@@ -118,6 +118,7 @@ export class SessionsService {
     sortByDistance?: boolean;
     page?: number;
     limit?: number;
+    hostId?: string;
   }) {
     const page = filters?.page || 1;
     const limit = filters?.limit || 12;
@@ -184,6 +185,13 @@ export class SessionsService {
     if (filters?.venueId) {
       andConditions.push({
         venueId: filters.venueId,
+      });
+    }
+
+    // Host filter
+    if (filters?.hostId) {
+      andConditions.push({
+        hostId: filters.hostId,
       });
     }
 

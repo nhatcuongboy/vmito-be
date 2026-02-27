@@ -74,7 +74,8 @@ export class SessionsController {
     @Query('lng') lng?: string,
     @Query('sortByDistance') sortByDistance?: string,
     @Query('page') page?: string,
-    @Query('limit') limit?: string
+    @Query('limit') limit?: string,
+    @Query('hostId') hostId?: string
   ) {
     return this.sessionsService.findAvailable({
       date,
@@ -95,6 +96,7 @@ export class SessionsController {
       sortByDistance: sortByDistance === 'true',
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
+      hostId,
     });
   }
 
