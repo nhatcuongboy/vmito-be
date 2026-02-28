@@ -1585,7 +1585,13 @@ export class PlayersService {
 
   async getMySessions(
     userId: string,
-    filters?: { page?: number; limit?: number; searchQuery?: string }
+    filters?: {
+      page?: number;
+      limit?: number;
+      searchQuery?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+    }
   ) {
     if (!userId) {
       throw new BadRequestException('User ID is required');
@@ -1619,6 +1625,25 @@ export class PlayersService {
         { venue: { address: { contains: searchTerm, mode: 'insensitive' } } },
       ];
     }
+
+    // Build orderBy
+    const isStatusSort = filters?.sortBy === 'status';
+    const buildOrderBy = (): Prisma.SessionOrderByWithRelationInput | Prisma.SessionOrderByWithRelationInput[] => {
+      const order = (filters?.sortOrder || 'asc') as Prisma.SortOrder;
+      switch (filters?.sortBy) {
+        case 'date':
+          return { startTime: order };
+        case 'created':
+          return { createdAt: order };
+        case 'price':
+          return { feeConfig: { maleFee: order } };
+        case 'status':
+          // Status sort handled post-fetch (custom priority: IN_PROGRESS -> PREPARING -> FINISHED)
+          return { startTime: 'asc' };
+        default:
+          return { createdAt: 'desc' };
+      }
+    };
 
     const [sessions, total] = await Promise.all([
       this.prisma.session.findMany({
@@ -1654,14 +1679,36 @@ export class PlayersService {
           },
           feeConfig: true,
         },
-        orderBy: {
-          createdAt: 'desc',
-        },
-        skip,
-        take: limit,
+        orderBy: buildOrderBy(),
+        // For status sort, fetch all then sort + paginate in JS
+        ...(isStatusSort ? {} : { skip, take: limit }),
       }),
       this.prisma.session.count({ where }),
     ]);
+
+    if (isStatusSort) {
+      // Custom status priority: IN_PROGRESS -> PREPARING -> FINISHED
+      const statusPriority: Record<string, number> = {
+        IN_PROGRESS: 0,
+        PREPARING: 1,
+        FINISHED: 2,
+      };
+      const sorted = [...sessions].sort((a, b) => {
+        const orderA = statusPriority[a.status] ?? 3;
+        const orderB = statusPriority[b.status] ?? 3;
+        if (orderA !== orderB) return orderA - orderB;
+        const dateA = a.startTime ? new Date(a.startTime).getTime() : 0;
+        const dateB = b.startTime ? new Date(b.startTime).getTime() : 0;
+        return dateA - dateB;
+      });
+      return {
+        data: sorted.slice(skip, skip + limit),
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      };
+    }
 
     return {
       data: sessions,

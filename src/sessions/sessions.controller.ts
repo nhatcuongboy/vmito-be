@@ -44,7 +44,9 @@ export class SessionsController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('hostId') hostId?: string,
-    @Query('searchQuery') searchQuery?: string
+    @Query('searchQuery') searchQuery?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc'
   ) {
     // Security: non-admin users can only see their own hosted sessions
     const effectiveHostId = user.role === 'ADMIN' ? hostId : user.userId;
@@ -54,6 +56,8 @@ export class SessionsController {
       limit: limit ? parseInt(limit, 10) : undefined,
       hostId: effectiveHostId,
       searchQuery,
+      sortBy,
+      sortOrder,
     });
   }
 
@@ -75,7 +79,9 @@ export class SessionsController {
     @Query('sortByDistance') sortByDistance?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-    @Query('hostId') hostId?: string
+    @Query('hostId') hostId?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc'
   ) {
     return this.sessionsService.findAvailable({
       date,
@@ -97,6 +103,8 @@ export class SessionsController {
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
       hostId,
+      sortBy,
+      sortOrder,
     });
   }
 

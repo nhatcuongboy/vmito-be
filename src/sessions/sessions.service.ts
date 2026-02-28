@@ -26,6 +26,45 @@ export class SessionsService {
     private clubsService: ClubsService
   ) {}
 
+  private readonly STATUS_PRIORITY: Record<string, number> = {
+    IN_PROGRESS: 0,
+    PREPARING: 1,
+    FINISHED: 2,
+  };
+
+  private buildOrderBy(
+    sortBy?: string,
+    sortOrder?: 'asc' | 'desc'
+  ): Prisma.SessionOrderByWithRelationInput | Prisma.SessionOrderByWithRelationInput[] {
+    const order = sortOrder || 'asc';
+    switch (sortBy) {
+      case 'date':
+        return { startTime: order };
+      case 'created':
+        return { createdAt: order };
+      case 'price':
+        return { feeConfig: { maleFee: order } };
+      case 'status':
+        // Status sort handled post-fetch (custom priority order)
+        return { startTime: 'asc' };
+      default:
+        return { createdAt: 'desc' };
+    }
+  }
+
+  private sortByStatus<T extends { status: string; startTime: Date | string | null }>(
+    data: T[]
+  ): T[] {
+    return data.sort((a, b) => {
+      const orderA = this.STATUS_PRIORITY[a.status] ?? 3;
+      const orderB = this.STATUS_PRIORITY[b.status] ?? 3;
+      if (orderA !== orderB) return orderA - orderB;
+      const dateA = a.startTime ? new Date(a.startTime).getTime() : 0;
+      const dateB = b.startTime ? new Date(b.startTime).getTime() : 0;
+      return dateA - dateB;
+    });
+  }
+
   async findAll(
     user?: { userId: string; role: string },
     filters?: {
@@ -33,6 +72,8 @@ export class SessionsService {
       limit?: number;
       hostId?: string;
       searchQuery?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
     }
   ) {
     const page = filters?.page || 1;
@@ -63,6 +104,8 @@ export class SessionsService {
     }
 
     const total = await this.prisma.session.count({ where });
+    const isStatusSort = filters?.sortBy === 'status';
+    const orderBy = this.buildOrderBy(filters?.sortBy, filters?.sortOrder);
 
     const data = await this.prisma.session.findMany({
       where,
@@ -86,12 +129,21 @@ export class SessionsService {
           orderBy: { courtNumber: 'asc' },
         },
       },
-      orderBy: {
-        createdAt: 'desc',
-      },
-      skip,
-      take: limit,
+      orderBy,
+      // For status sort, fetch all then sort + paginate in JS
+      ...(isStatusSort ? {} : { skip, take: limit }),
     });
+
+    if (isStatusSort) {
+      const sorted = this.sortByStatus(data);
+      return {
+        data: sorted.slice(skip, skip + limit),
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      };
+    }
 
     return {
       data,
@@ -119,6 +171,8 @@ export class SessionsService {
     page?: number;
     limit?: number;
     hostId?: string;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
   }) {
     const page = filters?.page || 1;
     const limit = filters?.limit || 12;
@@ -269,6 +323,14 @@ export class SessionsService {
     // Get total count (before pagination but after Prisma filters)
     const total = await this.prisma.session.count({ where });
 
+    // Build orderBy - use sortBy param if provided, otherwise default to startTime asc
+    const orderBy =
+      filters?.sortByDistance
+        ? { startTime: 'asc' as const } // distance sort is handled post-fetch
+        : filters?.sortBy
+          ? this.buildOrderBy(filters.sortBy, filters.sortOrder)
+          : { startTime: 'asc' as const };
+
     // Fetch sessions
     let sessions = await this.prisma.session.findMany({
       where,
@@ -293,9 +355,7 @@ export class SessionsService {
           orderBy: { courtNumber: 'asc' },
         },
       },
-      orderBy: {
-        startTime: 'asc',
-      },
+      orderBy,
       skip,
       take: limit,
     });
@@ -957,26 +1017,40 @@ export class SessionsService {
       }
     }
 
-    // Handle specific court updates (names, directions)
+    // Handle specific court updates (courtNumber, names, directions)
+    // Match by positional index (ordered by current courtNumber) so renaming courtNumber works correctly.
+    // Two-pass update to avoid unique constraint violations on (sessionId, courtNumber):
+    //   Pass 1 – set courtNumber to a temporary large offset (index + 100000)
+    //   Pass 2 – set courtNumber to the final desired value
     if (updateSessionDto.courts && Array.isArray(updateSessionDto.courts)) {
-      for (const courtConfig of updateSessionDto.courts) {
-        // Find the court by session ID and court number
-        const existingCourt = await this.prisma.court.findFirst({
-          where: {
-            sessionId: id,
+      const existingCourts = await this.prisma.court.findMany({
+        where: { sessionId: id },
+        orderBy: { courtNumber: 'asc' },
+      });
+
+      // Pass 1: assign temp courtNumbers to avoid conflicts
+      for (let i = 0; i < updateSessionDto.courts.length; i++) {
+        const existingCourt = existingCourts[i];
+        if (!existingCourt) continue;
+        await this.prisma.court.update({
+          where: { id: existingCourt.id },
+          data: { courtNumber: 100000 + i },
+        });
+      }
+
+      // Pass 2: set final values
+      for (let i = 0; i < updateSessionDto.courts.length; i++) {
+        const courtConfig = updateSessionDto.courts[i];
+        const existingCourt = existingCourts[i];
+        if (!existingCourt) continue;
+        await this.prisma.court.update({
+          where: { id: existingCourt.id },
+          data: {
             courtNumber: courtConfig.courtNumber,
+            courtName: courtConfig.courtName ?? null,
+            direction: courtConfig.direction,
           },
         });
-
-        if (existingCourt) {
-          await this.prisma.court.update({
-            where: { id: existingCourt.id },
-            data: {
-              courtName: courtConfig.courtName,
-              direction: courtConfig.direction,
-            },
-          });
-        }
       }
     }
 

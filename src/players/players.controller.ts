@@ -113,7 +113,9 @@ export class PlayersController {
     @CurrentUser() user: { userId: string },
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-    @Query('searchQuery') searchQuery?: string
+    @Query('searchQuery') searchQuery?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc'
   ) {
     if (!user || typeof user.userId !== 'string') {
       throw new Error('Invalid user object');
@@ -122,6 +124,8 @@ export class PlayersController {
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
       searchQuery,
+      sortBy,
+      sortOrder,
     });
   }
 
