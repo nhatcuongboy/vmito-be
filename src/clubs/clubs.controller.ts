@@ -21,6 +21,7 @@ import {
 } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { PlayerVipGuard } from '../auth/guards/player-vip.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { Role } from '@prisma/client';
@@ -107,29 +108,29 @@ export class ClubsController {
   // ===========================================
 
   @Get('manage')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async getClubs(@CurrentUser() user: JwtUser) {
     return this.clubsService.getClubs(user.userId);
   }
 
   @Post()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async createClub(@CurrentUser() user: JwtUser, @Body() dto: CreateClubDto) {
     return this.clubsService.createClub(user.userId, user.role, dto);
   }
 
   @Get(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async getClub(@Param('id') clubId: string, @CurrentUser() user: JwtUser) {
     return this.clubsService.getClub(clubId, user.userId);
   }
 
   @Put(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async updateClub(
     @Param('id') clubId: string,
     @CurrentUser() user: JwtUser,
@@ -139,8 +140,8 @@ export class ClubsController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async deleteClub(@Param('id') clubId: string, @CurrentUser() user: JwtUser) {
     return this.clubsService.deleteClub(clubId, user.userId);
   }
@@ -150,8 +151,8 @@ export class ClubsController {
   // ===========================================
 
   @Get(':id/members')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async getClubMembers(
     @Param('id') clubId: string,
     @CurrentUser() user: JwtUser
@@ -160,8 +161,8 @@ export class ClubsController {
   }
 
   @Post(':id/members/:userId')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async addMemberToClub(
     @Param('id') clubId: string,
     @Param('userId') userId: string,
@@ -171,8 +172,8 @@ export class ClubsController {
   }
 
   @Delete(':id/members/:userId')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async removeMemberFromClub(
     @Param('id') clubId: string,
     @Param('userId') userId: string,
@@ -182,8 +183,8 @@ export class ClubsController {
   }
 
   @Put(':id/members/:userId/role')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async updateMemberRole(
     @Param('id') clubId: string,
     @Param('userId') userId: string,
@@ -203,8 +204,8 @@ export class ClubsController {
   // ===========================================
 
   @Get(':id/join-requests')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async getJoinRequests(
     @Param('id') clubId: string,
     @CurrentUser() user: JwtUser
@@ -213,8 +214,8 @@ export class ClubsController {
   }
 
   @Post(':id/join-requests/:requestId/approve')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async approveJoinRequest(
     @Param('id') clubId: string,
     @Param('requestId') requestId: string,
@@ -224,8 +225,8 @@ export class ClubsController {
   }
 
   @Post(':id/join-requests/:requestId/reject')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async rejectJoinRequest(
     @Param('id') clubId: string,
     @Param('requestId') requestId: string,
@@ -245,15 +246,15 @@ export class ClubsController {
   // ===========================================
 
   @Get(':id/fees')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async getClubFees(@Param('id') clubId: string, @CurrentUser() user: JwtUser) {
     return this.clubsService.getClubFees(clubId, user.userId);
   }
 
   @Get(':id/fees/:year/:month')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async getClubFeeForMonth(
     @Param('id') clubId: string,
     @Param('year') year: string,
@@ -269,8 +270,8 @@ export class ClubsController {
   }
 
   @Post(':id/fees')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async upsertClubFee(
     @Param('id') clubId: string,
     @CurrentUser() user: JwtUser,
@@ -280,8 +281,8 @@ export class ClubsController {
   }
 
   @Delete(':id/fees/:feeId')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async deleteClubFee(
     @Param('feeId') feeId: string,
     @CurrentUser() user: JwtUser
@@ -294,15 +295,15 @@ export class ClubsController {
   // ===========================================
 
   @Get('search-users')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async searchUsers(@CurrentUser() user: JwtUser, @Query('q') query: string) {
     return this.clubsService.searchUsersForClub(user.userId, query || '');
   }
 
   @Get('user/:userId/list')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.HOST, Role.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async getUserClubs(
     @Param('userId') userId: string,
     @CurrentUser() user: JwtUser
