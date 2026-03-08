@@ -50,8 +50,12 @@ export class VenuesService {
       andConditions.push({ city: { contains: city, mode: 'insensitive' } });
     }
     if (district) {
+      const normalizedDistrict = this.normalizeAdminUnit(district);
       andConditions.push({
-        district: { equals: district, mode: 'insensitive' },
+        OR: [
+          { district: { equals: district, mode: 'insensitive' } },
+          { district: { equals: normalizedDistrict, mode: 'insensitive' } },
+        ],
       });
     }
 
@@ -149,25 +153,41 @@ export class VenuesService {
   }
 
   async create(createVenueDto: CreateVenueDto) {
+    const district = createVenueDto.district
+      ? this.normalizeAdminUnit(createVenueDto.district)
+      : createVenueDto.district;
+    const city = createVenueDto.city
+      ? this.normalizeAdminUnit(createVenueDto.city)
+      : createVenueDto.city;
     return this.prisma.venue.create({
       data: {
         ...createVenueDto,
+        district,
+        city,
         searchTerms: removeVietnameseTones(
-          `${createVenueDto.name} ${createVenueDto.address} ${createVenueDto.district || ''} ${createVenueDto.city || ''}`
+          `${createVenueDto.name} ${createVenueDto.address} ${district || ''} ${city || ''}`
         ).toLowerCase(),
       },
     });
   }
 
   async update(id: string, updateVenueDto: UpdateVenueDto) {
+    const district = updateVenueDto.district
+      ? this.normalizeAdminUnit(updateVenueDto.district)
+      : updateVenueDto.district;
+    const city = updateVenueDto.city
+      ? this.normalizeAdminUnit(updateVenueDto.city)
+      : updateVenueDto.city;
     return this.prisma.venue.update({
       where: { id },
       data: {
         ...updateVenueDto,
+        ...(district !== undefined ? { district } : {}),
+        ...(city !== undefined ? { city } : {}),
         ...(updateVenueDto.name || updateVenueDto.address
           ? {
               searchTerms: removeVietnameseTones(
-                `${updateVenueDto.name || ''} ${updateVenueDto.address || ''} ${updateVenueDto.district || ''} ${updateVenueDto.city || ''}`
+                `${updateVenueDto.name || ''} ${updateVenueDto.address || ''} ${district || ''} ${city || ''}`
               ).toLowerCase(),
             }
           : {}),
@@ -179,6 +199,15 @@ export class VenuesService {
     return this.prisma.venue.delete({
       where: { id },
     });
+  }
+
+  /**
+   * Strips Vietnamese administrative unit prefixes (Quận, Huyện, Thị xã,
+   * Thành phố) from a location name so values are stored/queried consistently
+   * without the prefix (e.g. "Quận Bình Thạnh" → "Bình Thạnh").
+   */
+  private normalizeAdminUnit(value: string): string {
+    return value.replace(/^(Quận|Huyện|Thị xã|Thành phố)\s+/i, '').trim();
   }
 
   private buildOrderBy(
