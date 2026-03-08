@@ -122,7 +122,7 @@ export class ClubsService {
     ]);
 
     // Post-fetch: distance calculation
-    let result = clubs.map((club) => ({
+    const result = clubs.map((club) => ({
       id: club.id,
       name: club.name,
       description: club.description,
@@ -610,32 +610,51 @@ export class ClubsService {
 
     const { schedules, ...clubData } = dto;
 
-    return this.prisma.club.create({
-      data: {
-        ...clubData,
-        hostId,
-        isPublic: dto.isPublic ?? true,
-        status: role === Role.ADMIN ? ClubStatus.APPROVED : ClubStatus.PENDING,
-        ...(schedules?.length && {
-          schedules: {
-            create: schedules.map((s) => ({
-              dayOfWeek: s.dayOfWeek,
-              startTime: s.startTime,
-              endTime: s.endTime,
-              notes: s.notes,
-            })),
-          },
-        }),
-        searchTerms: removeVietnameseTones(
-          `${dto.name} ${dto.description || ''} ${dto.location || ''}`
-        ).toLowerCase(),
-      },
-      include: {
-        schedules: true,
-        defaultVenue: {
-          select: { id: true, name: true, address: true },
+    // Only ADMIN-created clubs are approved immediately;
+    // HOST and PLAYER VIP go through admin review (PENDING)
+    const clubStatus =
+      role === Role.ADMIN ? ClubStatus.APPROVED : ClubStatus.PENDING;
+
+    return this.prisma.$transaction(async (tx) => {
+      const club = await tx.club.create({
+        data: {
+          ...clubData,
+          hostId,
+          isPublic: dto.isPublic ?? true,
+          status: clubStatus,
+          ...(schedules?.length && {
+            schedules: {
+              create: schedules.map((s) => ({
+                dayOfWeek: s.dayOfWeek,
+                startTime: s.startTime,
+                endTime: s.endTime,
+                notes: s.notes,
+              })),
+            },
+          }),
+          searchTerms: removeVietnameseTones(
+            `${dto.name} ${dto.description || ''} ${dto.location || ''}`
+          ).toLowerCase(),
         },
-      },
+        include: {
+          schedules: true,
+          defaultVenue: {
+            select: { id: true, name: true, address: true },
+          },
+        },
+      });
+
+      // Automatically add the host as an ADMIN member of their own club
+      await tx.clubMember.create({
+        data: {
+          clubId: club.id,
+          userId: hostId,
+          role: MemberRole.ADMIN,
+          status: MemberStatus.ACTIVE,
+        },
+      });
+
+      return club;
     });
   }
 
