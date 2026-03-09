@@ -73,12 +73,12 @@ export class SearchVenueDto {
 
   @ApiProperty({
     required: false,
-    enum: ['name', 'createdAt', 'distance'],
+    enum: ['name', 'createdAt', 'distance', 'numberOfCourts', 'hourlyRateFixed'],
     default: 'name',
   })
   @IsOptional()
   @IsString()
-  sortBy?: 'name' | 'createdAt' | 'distance' = 'name';
+  sortBy?: 'name' | 'createdAt' | 'distance' | 'numberOfCourts' | 'hourlyRateFixed' = 'name';
 
   @ApiProperty({ required: false, enum: ['asc', 'desc'], default: 'asc' })
   @IsOptional()

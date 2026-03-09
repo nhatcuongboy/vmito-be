@@ -215,10 +215,23 @@ export class VenuesService {
     sortOrder: string
   ): Prisma.VenueOrderByWithRelationInput {
     if (sortBy === 'distance') {
+      // Distance sort is handled post-fetch; use name as DB fallback
       return { name: sortOrder as Prisma.SortOrder };
     }
-    const field = ['name', 'createdAt'].includes(sortBy) ? sortBy : 'name';
-    return { [field]: sortOrder as Prisma.SortOrder };
+    const supportedFields = [
+      'name',
+      'createdAt',
+      'numberOfCourts',
+      'hourlyRateFixed',
+    ];
+    const field = supportedFields.includes(sortBy) ? sortBy : 'name';
+    const order = sortOrder as Prisma.SortOrder;
+    // Push null values to the end for nullable numeric fields
+    const nullableFields = ['numberOfCourts', 'hourlyRateFixed'];
+    if (nullableFields.includes(field)) {
+      return { [field]: { sort: order, nulls: 'last' } };
+    }
+    return { [field]: order };
   }
 
   private calculateDistance(
