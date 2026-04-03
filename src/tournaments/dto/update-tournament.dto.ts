@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsDateString, IsIn } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsIn, IsBoolean } from 'class-validator';
 
 export class UpdateTournamentDto {
   @IsOptional()
@@ -16,4 +16,8 @@ export class UpdateTournamentDto {
   @IsOptional()
   @IsIn(['PREPARING', 'IN_PROGRESS', 'FINISHED', 'CANCELLED'])
   status?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isPublished?: boolean;
 }
