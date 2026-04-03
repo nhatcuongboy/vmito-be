@@ -199,6 +199,7 @@ model Venue {
   updatedAt      DateTime    @updatedAt
   sessions       Session[]
   clubs          Club[]
+  tournaments    Tournament[]
 
   // Images
   coverPhoto         String?
@@ -384,16 +385,20 @@ enum MatchStatus {
 
 model Tournament {
   id        String           @id @default(cuid())
+  slug      String           @unique
   name      String
   startDate DateTime
   endDate   DateTime
-  hostId    String
-  status    TournamentStatus @default(PREPARING)
+  hostId      String
+  venueId     String?
+  status      TournamentStatus @default(PREPARING)
+  isPublished Boolean          @default(false)
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
 
   // Relations
   host           User                      @relation("HostedTournaments", fields: [hostId], references: [id])
+  venue          Venue?                    @relation(fields: [venueId], references: [id])
   categories     Category[]
   umpires        TournamentUmpire[]
   scoringDevices TournamentScoringDevice[]
@@ -412,18 +417,22 @@ enum TournamentStatus {
 }
 
 model Category {
-  id                   String       @id @default(cuid())
-  tournamentId         String
-  name                 String
-  type                 CategoryType
-  hasGroupStage        Boolean      @default(false)
-  averageMatchDuration Int?
-  groupCount           Int?
-  winnersPerGroup      Int?
-  playersPerGroup      Int?
-  matchFormat          MatchFormat  @default(BEST_OF_3)
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
+  id                     String          @id @default(cuid())
+  tournamentId           String
+  name                   String
+  type                   CategoryType
+  format                 CategoryFormat  @default(ROUND_ROBIN_TO_SE)
+  hasGroupStage          Boolean         @default(false)
+  averageMatchDuration   Int?
+  groupCount             Int?
+  winnersPerGroup        Int?
+  playersPerGroup        Int?
+  matchFormat            MatchFormat     @default(BEST_OF_3)
+  eliminationMatchFormat MatchFormat?
+  thirdPlaceMatch        Boolean         @default(false)
+  formatConfig           Json?
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
 
   // Relations
   tournament    Tournament             @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
@@ -433,6 +442,12 @@ model Category {
 
   @@unique([tournamentId, name])
   @@map("categories")
+}
+
+enum CategoryFormat {
+  ROUND_ROBIN
+  SINGLE_ELIMINATION
+  ROUND_ROBIN_TO_SE
 }
 
 enum MatchFormat {
@@ -446,6 +461,7 @@ enum CategoryType {
   MENS_DOUBLE
   WOMENS_DOUBLE
   MIXED_DOUBLE
+  CUSTOM
 }
 
 model CategoryRegistration {

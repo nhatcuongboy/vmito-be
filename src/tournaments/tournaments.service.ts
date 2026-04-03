@@ -7,11 +7,43 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
-import { CategoryType, TournamentStatus } from '@prisma/client';
+import { TournamentStatus } from '@prisma/client';
 
 @Injectable()
 export class TournamentsService {
   constructor(private prisma: PrismaService) {}
+
+  private generateSlug(name: string): string {
+    return name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // remove diacritics
+      .replace(/đ/g, 'd')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+  }
+
+  private async uniqueSlug(name: string): Promise<string> {
+    const base = this.generateSlug(name);
+    let slug = base;
+    let suffix = 1;
+    while (await this.prisma.tournament.findUnique({ where: { slug } })) {
+      slug = `${base}-${suffix++}`;
+    }
+    return slug;
+  }
+
+  async findMyTournaments(hostId: string) {
+    return this.prisma.tournament.findMany({
+      where: { hostId },
+      include: {
+        _count: {
+          select: { categories: true, players: true, pairs: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
 
   async findAll() {
     const tournaments = await this.prisma.tournament.findMany({
@@ -40,9 +72,12 @@ export class TournamentsService {
     return tournaments;
   }
 
-  async findOne(id: string) {
-    const tournament = await this.prisma.tournament.findUnique({
-      where: { id },
+  async findOne(idOrSlug: string) {
+    // Try by id first, then by slug
+    const tournament = await this.prisma.tournament.findFirst({
+      where: {
+        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
+      },
       include: {
         host: {
           select: {
@@ -99,15 +134,7 @@ export class TournamentsService {
   }
 
   async create(dto: CreateTournamentDto, hostId: string) {
-    const {
-      name,
-      startDate,
-      endDate,
-      categories,
-      umpires = [],
-      scoringDevices = [],
-      courts = [],
-    } = dto;
+    const { name, startDate, endDate, venueId } = dto;
 
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -116,46 +143,21 @@ export class TournamentsService {
       throw new BadRequestException('Invalid date format');
     }
 
-    if (start >= end) {
-      throw new BadRequestException('End date must be after start date');
+    if (start > end) {
+      throw new BadRequestException('End date must not be before start date');
     }
 
-    if (!categories || categories.length === 0) {
-      throw new BadRequestException('At least one category is required');
-    }
+    const slug = await this.uniqueSlug(name);
 
     const tournament = await this.prisma.tournament.create({
       data: {
         name,
+        slug,
         startDate: start,
         endDate: end,
         hostId,
+        venueId: venueId || undefined,
         status: 'PREPARING',
-        categories: {
-          create: categories.map((cat) => ({
-            name: cat.name,
-            type: cat.type as CategoryType,
-          })),
-        },
-        umpires: {
-          create: umpires.map((umpire) => ({
-            name: umpire.name,
-            email: umpire.email,
-            phone: umpire.phone,
-          })),
-        },
-        scoringDevices: {
-          create: scoringDevices.map((device) => ({
-            name: device.name,
-            deviceType: device.deviceType,
-          })),
-        },
-        courts: {
-          create: courts.map((court) => ({
-            courtNumber: court.courtNumber,
-            courtName: court.courtName,
-          })),
-        },
       },
       include: {
         host: {
@@ -166,6 +168,7 @@ export class TournamentsService {
             image: true,
           },
         },
+        venue: true,
         categories: true,
         umpires: true,
         scoringDevices: true,
@@ -210,6 +213,7 @@ export class TournamentsService {
       startDate?: Date;
       endDate?: Date;
       status?: TournamentStatus;
+      isPublished?: boolean;
     } = {};
 
     if (dto.name !== undefined) {
@@ -236,11 +240,17 @@ export class TournamentsService {
       updateData.status = dto.status as TournamentStatus;
     }
 
-    // Validate date range
-    const finalStartDate = updateData.startDate ?? existingTournament.startDate;
-    const finalEndDate = updateData.endDate ?? existingTournament.endDate;
-    if (finalStartDate >= finalEndDate) {
-      throw new BadRequestException('End date must be after start date');
+    if (dto.isPublished !== undefined) {
+      updateData.isPublished = dto.isPublished;
+    }
+
+    // Validate date range only when dates are being changed
+    if (updateData.startDate || updateData.endDate) {
+      const finalStartDate = updateData.startDate ?? existingTournament.startDate;
+      const finalEndDate = updateData.endDate ?? existingTournament.endDate;
+      if (finalStartDate >= finalEndDate) {
+        throw new BadRequestException('End date must be after start date');
+      }
     }
 
     const tournament = await this.prisma.tournament.update({
@@ -286,5 +296,82 @@ export class TournamentsService {
     });
 
     return { message: 'Tournament deleted successfully' };
+  }
+
+  // --- Player Management ---
+  async getPlayers(tournamentId: string) {
+    return this.prisma.tournamentPlayer.findMany({
+      where: { tournamentId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: { select: { id: true, name: true, image: true } }
+      }
+    });
+  }
+
+  async createPlayer(tournamentId: string, dto: any, userId: string, role?: string) {
+    const tournament = await this.prisma.tournament.findUnique({ where: { id: tournamentId } });
+    if (!tournament) throw new NotFoundException('Tournament not found');
+    if (tournament.hostId !== userId && role !== 'ADMIN') {
+      throw new ForbiddenException('You can only modify your own tournaments');
+    }
+
+    return this.prisma.tournamentPlayer.create({
+      data: {
+        tournamentId,
+        name: dto.name,
+        email: dto.email,
+        phone: dto.phone,
+        gender: dto.gender,
+        level: dto.level,
+        levelDescription: dto.levelDescription,
+        userId: dto.userId,
+      }
+    });
+  }
+
+  async getPlayer(id: string) {
+    const player = await this.prisma.tournamentPlayer.findUnique({ where: { id } });
+    if (!player) throw new NotFoundException('Player not found');
+    return player;
+  }
+
+  async getPlayerMatches(id: string) {
+    return this.prisma.categoryMatch.findMany({
+      where: {
+        participants: {
+          some: {
+            categoryRegistration: {
+              player: { id } // matches where this player is participating directly
+            }
+          }
+        }
+      },
+      include: { category: true }
+    });
+  }
+
+  async updatePlayer(id: string, dto: any, userId: string, role?: string) {
+    const player = await this.getPlayer(id);
+    const tournament = await this.prisma.tournament.findUnique({ where: { id: player.tournamentId } });
+    if (tournament?.hostId !== userId && role !== 'ADMIN') {
+      throw new ForbiddenException('You can only modify your own tournaments');
+    }
+
+    return this.prisma.tournamentPlayer.update({
+      where: { id },
+      data: dto
+    });
+  }
+
+  async deletePlayer(id: string, userId: string, role?: string) {
+    const player = await this.getPlayer(id);
+    const tournament = await this.prisma.tournament.findUnique({ where: { id: player.tournamentId } });
+    if (tournament?.hostId !== userId && role !== 'ADMIN') {
+      throw new ForbiddenException('You can only modify your own tournaments');
+    }
+
+    await this.prisma.tournamentPlayer.delete({ where: { id } });
+    return { message: 'Player deleted successfully' };
   }
 }

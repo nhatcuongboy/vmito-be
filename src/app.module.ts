@@ -14,6 +14,7 @@ import { CourtsModule } from './courts/courts.module';
 import { MatchesModule } from './matches/matches.module';
 import { TournamentsModule } from './tournaments/tournaments.module';
 import { CategoriesModule } from './categories/categories.module';
+import { CategoryMatchesModule } from './category-matches/category-matches.module';
 import { PwaModule } from './pwa/pwa.module';
 import { TasksModule } from './tasks/tasks.module';
 import { VenuesModule } from './venues/venues.module';
@@ -45,6 +46,7 @@ import configuration from './config';
     MatchesModule,
     TournamentsModule,
     CategoriesModule,
+    CategoryMatchesModule,
     TasksModule,
     PwaModule,
     VenuesModule,
