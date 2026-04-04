@@ -1712,4 +1712,86 @@ export class CategoriesService {
     }
     return names;
   }
+
+  // ─── Bulk Schedule Update ──────────────────────────────────
+
+  async bulkUpdateSchedule(
+    updates: Array<{
+      matchId: string;
+      courtId?: string | null;
+      startTime?: string | null;
+      endTime?: string | null;
+    }>,
+    userId: string,
+    role?: string,
+  ) {
+    if (updates.length === 0) return [];
+
+    // Verify ownership via the first match's tournament
+    const firstMatch = await this.prisma.categoryMatch.findUnique({
+      where: { id: updates[0].matchId },
+      include: {
+        category: { include: { tournament: { select: { hostId: true } } } },
+      },
+    });
+    if (!firstMatch) throw new NotFoundException('Match not found');
+    if (firstMatch.category.tournament.hostId !== userId && role !== 'ADMIN') {
+      throw new ForbiddenException('You can only manage your own tournaments');
+    }
+
+    const tournamentId =
+      (firstMatch.category as { tournamentId: string }).tournamentId;
+
+    return this.prisma.$transaction(async (tx) => {
+      const results: Awaited<ReturnType<typeof tx.categoryMatch.update>>[] = [];
+      for (const update of updates) {
+        // Verify match belongs to same tournament
+        const match = await tx.categoryMatch.findUnique({
+          where: { id: update.matchId },
+          include: { category: { select: { tournamentId: true } } },
+        });
+        if (!match) continue;
+        if (match.category.tournamentId !== tournamentId) continue;
+
+        const updated = await tx.categoryMatch.update({
+          where: { id: update.matchId },
+          data: {
+            ...(update.courtId !== undefined && {
+              courtId: update.courtId || null,
+            }),
+            ...(update.startTime !== undefined && {
+              startTime: update.startTime ? new Date(update.startTime) : null,
+            }),
+            ...(update.endTime !== undefined && {
+              endTime: update.endTime ? new Date(update.endTime) : null,
+            }),
+          },
+          include: {
+            participants: {
+              include: {
+                categoryRegistration: {
+                  include: {
+                    player: true,
+                    pair: {
+                      include: {
+                        members: {
+                          include: { player: true },
+                          orderBy: { position: 'asc' as const },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            court: true,
+            group: true,
+            category: true,
+          },
+        });
+        results.push(updated);
+      }
+      return results;
+    });
+  }
 }

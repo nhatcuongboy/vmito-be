@@ -393,6 +393,7 @@ model Tournament {
   venueId     String?
   status      TournamentStatus @default(PREPARING)
   isPublished Boolean          @default(false)
+  scheduleType ScheduleType?
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
 
@@ -414,6 +415,11 @@ enum TournamentStatus {
   IN_PROGRESS
   FINISHED
   CANCELLED
+}
+
+enum ScheduleType {
+  NEXT_AVAILABLE
+  ASSIGNED
 }
 
 model Category {

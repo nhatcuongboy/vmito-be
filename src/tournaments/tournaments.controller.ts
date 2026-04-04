@@ -81,6 +81,18 @@ export class TournamentsController {
     return this.categoriesService.findByTournament(id);
   }
 
+  @Public()
+  @Get(':id/all-matches')
+  getAllMatches(@Param('id') id: string) {
+    return this.tournamentsService.getAllMatches(id);
+  }
+
+  @Public()
+  @Get(':id/courts')
+  getCourts(@Param('id') id: string) {
+    return this.tournamentsService.getCourts(id);
+  }
+
   @Post(':id/categories')
   createCategory(
     @Param('id') id: string,
