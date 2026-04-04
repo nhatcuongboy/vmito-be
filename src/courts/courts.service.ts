@@ -279,6 +279,30 @@ export class CourtsService {
       { courtId: id, playerIds: finalPlayerIds }
     );
 
+    // Also emit to each selected player's user room so the court-call modal
+    // shows even when the player is not on the session page.
+    const selectedPlayersWithUser = await this.prisma.player.findMany({
+      where: { id: { in: finalPlayerIds }, userId: { not: null } },
+      select: { id: true, userId: true },
+    });
+
+    const courtDisplayName = result.courtName || `Sân ${result.courtNumber}`;
+    for (const p of selectedPlayersWithUser) {
+      if (p.userId) {
+        this.sessionsGateway.notifyUser(
+          p.userId,
+          SessionEventType.PLAYERS_SELECTED,
+          {
+            sessionId: court.sessionId,
+            courtId: id,
+            courtName: courtDisplayName,
+            courtNumber: result.courtNumber,
+            playerIds: finalPlayerIds,
+          },
+        );
+      }
+    }
+
     return result;
   }
 
