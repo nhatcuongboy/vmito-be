@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
-import { TournamentStatus } from '@prisma/client';
+import { TournamentStatus, ScheduleType } from '@prisma/client';
 
 @Injectable()
 export class TournamentsService {
@@ -214,6 +214,7 @@ export class TournamentsService {
       endDate?: Date;
       status?: TournamentStatus;
       isPublished?: boolean;
+      scheduleType?: ScheduleType;
     } = {};
 
     if (dto.name !== undefined) {
@@ -242,6 +243,10 @@ export class TournamentsService {
 
     if (dto.isPublished !== undefined) {
       updateData.isPublished = dto.isPublished;
+    }
+
+    if (dto.scheduleType !== undefined) {
+      updateData.scheduleType = dto.scheduleType as ScheduleType;
     }
 
     // Validate date range only when dates are being changed
@@ -296,6 +301,56 @@ export class TournamentsService {
     });
 
     return { message: 'Tournament deleted successfully' };
+  }
+
+  // --- All Matches across categories ---
+  async getAllMatches(tournamentId: string) {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId },
+    });
+    if (!tournament) throw new NotFoundException('Tournament not found');
+
+    return this.prisma.categoryMatch.findMany({
+      where: {
+        category: { tournamentId },
+      },
+      include: {
+        participants: {
+          include: {
+            categoryRegistration: {
+              include: {
+                player: true,
+                pair: {
+                  include: {
+                    members: {
+                      include: { player: true },
+                      orderBy: { position: 'asc' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        court: true,
+        group: true,
+        category: true,
+      },
+      orderBy: [{ category: { createdAt: 'asc' } }, { matchNumber: 'asc' }],
+    });
+  }
+
+  // --- Courts ---
+  async getCourts(tournamentId: string) {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId },
+    });
+    if (!tournament) throw new NotFoundException('Tournament not found');
+
+    return this.prisma.tournamentCourt.findMany({
+      where: { tournamentId },
+      orderBy: { courtNumber: 'asc' },
+    });
   }
 
   // --- Player Management ---

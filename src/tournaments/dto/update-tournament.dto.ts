@@ -20,4 +20,8 @@ export class UpdateTournamentDto {
   @IsOptional()
   @IsBoolean()
   isPublished?: boolean;
+
+  @IsOptional()
+  @IsIn(['NEXT_AVAILABLE', 'ASSIGNED'])
+  scheduleType?: string;
 }

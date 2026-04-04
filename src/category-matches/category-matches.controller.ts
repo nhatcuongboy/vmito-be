@@ -11,6 +11,7 @@ import {
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { CategoriesService } from '../categories/categories.service';
 import { EndCategoryMatchDto } from '../categories/dto/end-category-match.dto';
+import { BulkScheduleDto } from './dto/bulk-schedule.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
@@ -26,6 +27,18 @@ interface CurrentUserPayload {
 @UseGuards(JwtAuthGuard)
 export class CategoryMatchesController {
   constructor(private readonly categoriesService: CategoriesService) {}
+
+  @Put('bulk-schedule')
+  bulkSchedule(
+    @Body() dto: BulkScheduleDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.categoriesService.bulkUpdateSchedule(
+      dto.updates,
+      user.userId,
+      user.role,
+    );
+  }
 
   @Public()
   @Get(':id')
