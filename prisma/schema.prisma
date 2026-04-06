@@ -171,6 +171,7 @@ model Session {
   // Fee & Payment relations
   feeConfig      SessionFeeConfig?
   paymentRecords PaymentRecord[]
+  expenses       SessionExpense[]
   ratings        Rating[]
   clubSessions   ClubSession[]
 
@@ -760,6 +761,21 @@ model PaymentRecord {
   @@index([hostId])
   @@index([registeredByUserId])
   @@map("payment_records")
+}
+
+model SessionExpense {
+  id        String   @id @default(cuid())
+  sessionId String
+  name      String
+  amount    Int // Amount in VND
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("session_expenses")
 }
 
 // ===========================================

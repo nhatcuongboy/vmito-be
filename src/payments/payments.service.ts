@@ -195,9 +195,12 @@ export class PaymentsService {
       throw new ForbiddenException('Only session host can approve payments');
     }
 
-    if (payment.status !== PaymentStatus.SUBMITTED) {
+    if (
+      payment.status !== PaymentStatus.SUBMITTED &&
+      payment.status !== PaymentStatus.PENDING
+    ) {
       throw new BadRequestException(
-        'Payment can only be approved when status is SUBMITTED'
+        'Payment can only be approved when status is SUBMITTED or PENDING'
       );
     }
 
@@ -207,6 +210,10 @@ export class PaymentsService {
         status: PaymentStatus.APPROVED,
         hostNotes: dto.hostNotes,
         approvedAt: new Date(),
+        ...(dto.amount !== undefined && { amount: dto.amount }),
+        ...(dto.paymentMethod !== undefined && {
+          paymentMethod: dto.paymentMethod,
+        }),
       },
       select: this.paymentSelect,
     });

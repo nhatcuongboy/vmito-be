@@ -5,9 +5,10 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { SessionsGateway } from './sessions.gateway';
 import { CloudinaryModule } from '../cloudinary/cloudinary.module';
 import { ClubsModule } from '../clubs/clubs.module';
+import { SessionExpensesModule } from './expenses/session-expenses.module';
 
 @Module({
-  imports: [PrismaModule, CloudinaryModule, ClubsModule],
+  imports: [PrismaModule, CloudinaryModule, ClubsModule, SessionExpensesModule],
   controllers: [SessionsController],
   providers: [SessionsService, SessionsGateway],
   exports: [SessionsService, SessionsGateway],
