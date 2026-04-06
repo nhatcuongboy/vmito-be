@@ -271,10 +271,23 @@ export class FeeService {
         },
       });
     } else if (existing.amount !== amount) {
-      // Update amount if it has changed (e.g., player became a fixed member)
+      // Update amount if it has changed (e.g., player became a fixed member).
+      // Reset approval status since the previously approved amount is no longer valid.
+      const shouldResetStatus =
+        existing.status === PaymentStatus.APPROVED ||
+        existing.status === PaymentStatus.SUBMITTED;
+
       await this.prisma.paymentRecord.update({
         where: { id: existing.id },
-        data: { amount },
+        data: {
+          amount,
+          ...(shouldResetStatus && {
+            status: PaymentStatus.PENDING,
+            submittedAt: null,
+            approvedAt: null,
+            rejectedAt: null,
+          }),
+        },
       });
     }
   }
@@ -336,9 +349,23 @@ export class FeeService {
     });
 
     if (payment && payment.amount !== newAmount) {
+      // When the fee amount changes, the previous approval/submission is no longer
+      // valid for the new amount. Reset back to PENDING so the host must re-approve.
+      const shouldResetStatus =
+        payment.status === PaymentStatus.APPROVED ||
+        payment.status === PaymentStatus.SUBMITTED;
+
       await this.prisma.paymentRecord.update({
         where: { id: payment.id },
-        data: { amount: newAmount },
+        data: {
+          amount: newAmount,
+          ...(shouldResetStatus && {
+            status: PaymentStatus.PENDING,
+            submittedAt: null,
+            approvedAt: null,
+            rejectedAt: null,
+          }),
+        },
       });
     }
   }
@@ -501,9 +528,21 @@ export class FeeService {
       }
 
       if (payment.amount !== newAmount) {
+        const shouldResetStatus =
+          payment.status === PaymentStatus.APPROVED ||
+          payment.status === PaymentStatus.SUBMITTED;
+
         await this.prisma.paymentRecord.update({
           where: { id: payment.id },
-          data: { amount: newAmount },
+          data: {
+            amount: newAmount,
+            ...(shouldResetStatus && {
+              status: PaymentStatus.PENDING,
+              submittedAt: null,
+              approvedAt: null,
+              rejectedAt: null,
+            }),
+          },
         });
       }
     }
