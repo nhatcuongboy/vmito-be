@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import { join } from 'path';
 import { AppModule } from './app.module';
@@ -19,14 +20,16 @@ async function bootstrap() {
   app.use(helmet());
 
   // CORS configuration
-  const corsOrigin = configService.get<string | string[]>('app.cors.origin');
+  const corsOrigin = configService.get<string[]>('app.cors.origin') ?? [
+    'http://localhost:3000',
+  ];
   app.enableCors({
     origin: corsOrigin,
-    credentials: configService.get<boolean>('app.cors.credentials'),
+    credentials: configService.get<boolean>('app.cors.credentials') ?? true,
   });
 
   // Disable caching for all API responses
-  app.use((req, res, next) => {
+  app.use((_req: Request, res: Response, next: NextFunction) => {
     res.setHeader(
       'Cache-Control',
       'no-store, no-cache, must-revalidate, proxy-revalidate'
