@@ -1659,6 +1659,7 @@ export class PlayersService {
               id: true,
               name: true,
               email: true,
+              image: true,
             },
           },
           _count: {
