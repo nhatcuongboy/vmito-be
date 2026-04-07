@@ -8,7 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 import { ConfigService } from '@nestjs/config';
-import { CourtDirection, Prisma } from '@prisma/client';
+import { CourtDirection, Prisma, SessionStatus } from '@prisma/client';
 import { VALID_LEVELS } from '../common/constants/level.constants';
 
 import { SessionsGateway } from './sessions.gateway';
@@ -74,7 +74,7 @@ export class SessionsService {
       searchQuery?: string;
       sortBy?: string;
       sortOrder?: 'asc' | 'desc';
-      status?: string;
+      status?: SessionStatus;
     }
   ) {
     const page = filters?.page || 1;
