@@ -75,6 +75,7 @@ export class SessionsService {
       sortBy?: string;
       sortOrder?: 'asc' | 'desc';
       status?: SessionStatus;
+      excludeStatus?: SessionStatus;
     }
   ) {
     const page = filters?.page || 1;
@@ -106,6 +107,8 @@ export class SessionsService {
 
     if (filters?.status) {
       where.status = filters.status;
+    } else if (filters?.excludeStatus) {
+      where.status = { not: filters.excludeStatus };
     }
 
     const total = await this.prisma.session.count({ where });

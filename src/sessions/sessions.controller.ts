@@ -48,7 +48,8 @@ export class SessionsController {
     @Query('searchQuery') searchQuery?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortOrder') sortOrder?: 'asc' | 'desc',
-    @Query('status') status?: SessionStatus
+    @Query('status') status?: SessionStatus,
+    @Query('excludeStatus') excludeStatus?: SessionStatus
   ) {
     // Security: non-admin users can only see their own hosted sessions
     const effectiveHostId = user.role === 'ADMIN' ? hostId : user.userId;
@@ -61,6 +62,7 @@ export class SessionsController {
       sortBy,
       sortOrder,
       status,
+      excludeStatus,
     });
   }
 
