@@ -1184,6 +1184,12 @@ export class SessionsService {
       );
     }
 
+    if (existingSession.endTime && existingSession.endTime < new Date()) {
+      throw new BadRequestException(
+        'Cannot start a session that has already passed its end time'
+      );
+    }
+
     if (existingSession._count.players === 0) {
       throw new BadRequestException('Cannot start a session with no players');
     }
