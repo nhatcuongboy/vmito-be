@@ -27,6 +27,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { ConfigService } from '@nestjs/config';
+import { SessionStatus } from '@prisma/client';
 
 @ApiTags('sessions')
 @ApiBearerAuth('JWT-auth')
@@ -46,7 +47,9 @@ export class SessionsController {
     @Query('hostId') hostId?: string,
     @Query('searchQuery') searchQuery?: string,
     @Query('sortBy') sortBy?: string,
-    @Query('sortOrder') sortOrder?: 'asc' | 'desc'
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc',
+    @Query('status') status?: SessionStatus,
+    @Query('excludeStatus') excludeStatus?: SessionStatus
   ) {
     // Security: non-admin users can only see their own hosted sessions
     const effectiveHostId = user.role === 'ADMIN' ? hostId : user.userId;
@@ -58,6 +61,8 @@ export class SessionsController {
       searchQuery,
       sortBy,
       sortOrder,
+      status,
+      excludeStatus,
     });
   }
 

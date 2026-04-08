@@ -115,7 +115,8 @@ export class PlayersController {
     @Query('limit') limit?: string,
     @Query('searchQuery') searchQuery?: string,
     @Query('sortBy') sortBy?: string,
-    @Query('sortOrder') sortOrder?: 'asc' | 'desc'
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc',
+    @Query('status') status?: string
   ) {
     if (!user || typeof user.userId !== 'string') {
       throw new Error('Invalid user object');
@@ -126,6 +127,7 @@ export class PlayersController {
       searchQuery,
       sortBy,
       sortOrder,
+      status,
     });
   }
 

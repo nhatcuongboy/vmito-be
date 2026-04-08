@@ -1591,6 +1591,7 @@ export class PlayersService {
       searchQuery?: string;
       sortBy?: string;
       sortOrder?: 'asc' | 'desc';
+      status?: string;
     }
   ) {
     if (!userId) {
@@ -1612,6 +1613,10 @@ export class PlayersService {
         },
       },
     };
+
+    if (filters?.status) {
+      where.status = filters.status as any;
+    }
 
     if (filters?.searchQuery) {
       const searchTerm = removeVietnameseTones(
@@ -1654,6 +1659,7 @@ export class PlayersService {
               id: true,
               name: true,
               email: true,
+              image: true,
             },
           },
           _count: {

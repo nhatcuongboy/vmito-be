@@ -8,7 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 import { ConfigService } from '@nestjs/config';
-import { CourtDirection, Prisma } from '@prisma/client';
+import { CourtDirection, Prisma, SessionStatus } from '@prisma/client';
 import { VALID_LEVELS } from '../common/constants/level.constants';
 
 import { SessionsGateway } from './sessions.gateway';
@@ -74,6 +74,8 @@ export class SessionsService {
       searchQuery?: string;
       sortBy?: string;
       sortOrder?: 'asc' | 'desc';
+      status?: SessionStatus;
+      excludeStatus?: SessionStatus;
     }
   ) {
     const page = filters?.page || 1;
@@ -101,6 +103,12 @@ export class SessionsService {
         { venue: { name: { contains: searchTerm, mode: 'insensitive' } } },
         { venue: { address: { contains: searchTerm, mode: 'insensitive' } } },
       ];
+    }
+
+    if (filters?.status) {
+      where.status = filters.status;
+    } else if (filters?.excludeStatus) {
+      where.status = { not: filters.excludeStatus };
     }
 
     const total = await this.prisma.session.count({ where });
@@ -1173,6 +1181,12 @@ export class SessionsService {
     if (existingSession.status !== 'PREPARING') {
       throw new BadRequestException(
         'Session has already been started or finished'
+      );
+    }
+
+    if (existingSession.endTime && existingSession.endTime < new Date()) {
+      throw new BadRequestException(
+        'Cannot start a session that has already passed its end time'
       );
     }
 
