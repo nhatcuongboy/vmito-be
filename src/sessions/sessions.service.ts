@@ -1184,7 +1184,15 @@ export class SessionsService {
       );
     }
 
-    if (existingSession.endTime && existingSession.endTime < new Date()) {
+    let computedEndTime = existingSession.endTime;
+    if (!computedEndTime && existingSession.startTime) {
+      computedEndTime = new Date(existingSession.startTime);
+      computedEndTime.setMinutes(
+        computedEndTime.getMinutes() + existingSession.sessionDuration
+      );
+    }
+
+    if (computedEndTime && computedEndTime < new Date()) {
       throw new BadRequestException(
         'Cannot start a session that has already passed its end time'
       );
