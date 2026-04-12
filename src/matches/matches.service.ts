@@ -10,6 +10,58 @@ import { UpdateMatchDto } from './dto/update-match.dto';
 export class MatchesService {
   constructor(private prisma: PrismaService) {}
 
+  async remove(id: string) {
+    const match = await this.prisma.match.findUnique({
+      where: { id },
+      include: {
+        players: {
+          select: { playerId: true },
+        },
+      },
+    });
+
+    if (!match) {
+      throw new NotFoundException('Match not found');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const playerIds = match.players.map((mp) => mp.playerId);
+
+      // Decrement matchesPlayed for all players in this match
+      if (playerIds.length > 0) {
+        await tx.player.updateMany({
+          where: { id: { in: playerIds } },
+          data: {
+            matchesPlayed: { decrement: 1 },
+            courtPosition: null, // Clear court position
+            status: 'WAITING',
+          },
+        });
+      }
+
+      // Clear currentMatchId from court if this match is currently active
+      await tx.court.updateMany({
+        where: { currentMatchId: id },
+        data: { currentMatchId: null, status: 'EMPTY' },
+      });
+
+      // Delete the MatchPlayer records (might be needed depending on cascade setup)
+      await tx.matchPlayer.deleteMany({
+        where: { matchId: id },
+      });
+
+      // Delete the match
+      return tx.match.delete({
+        where: { id },
+        include: {
+          players: true,
+          court: true,
+          session: true,
+        },
+      });
+    });
+  }
+
   async findOne(id: string) {
     const match = await this.prisma.match.findUnique({
       where: { id },
