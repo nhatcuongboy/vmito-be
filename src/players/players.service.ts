@@ -1684,7 +1684,6 @@ export class PlayersService {
               playerNumber: true,
             },
           },
-          feeConfig: true,
         },
         orderBy: buildOrderBy(),
         // For status sort, fetch all then sort + paginate in JS
