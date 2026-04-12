@@ -1662,6 +1662,7 @@ export class PlayersService {
               image: true,
             },
           },
+          feeConfig: true,
           _count: {
             select: {
               players: {

@@ -203,7 +203,7 @@ export class MatchesService {
         // Get current match players to compare
         const currentMatchPlayers = await tx.matchPlayer.findMany({
           where: { matchId: id },
-          select: { playerId: true },
+          select: { playerId: true, position: true },
         });
 
         const currentPlayerIds = currentMatchPlayers.map((mp) => mp.playerId);
@@ -217,7 +217,23 @@ export class MatchesService {
           (pid) => !currentPlayerIds.includes(pid)
         );
 
-        if (playersToRemove.length > 0 || playersToAdd.length > 0) {
+        // Check if positions changed for existing players
+        let positionsChanged = false;
+        for (let i = 0; i < 4; i++) {
+          const currentPositionPlayer = currentMatchPlayers.find(
+            (mp) => mp.position === i
+          )?.playerId;
+          if (currentPositionPlayer !== newPlayerIds[i]) {
+            positionsChanged = true;
+            break;
+          }
+        }
+
+        if (
+          playersToRemove.length > 0 ||
+          playersToAdd.length > 0 ||
+          positionsChanged
+        ) {
           // Verify new players exist in session
           const newPlayersCount = await tx.player.count({
             where: {
