@@ -16,6 +16,7 @@ import {
   PlayerStatus,
   RegistrationStatus,
   Prisma,
+  SessionStatus,
 } from '@prisma/client';
 import { removeVietnameseTones } from '../common/utils/string.utils';
 import {
@@ -558,6 +559,11 @@ export class PlayersService {
         id: true,
         name: true,
         hostId: true,
+        host: {
+          select: {
+            role: true,
+          },
+        },
         requiredLevels: true,
         players: {
           select: { playerNumber: true },
@@ -683,8 +689,8 @@ export class PlayersService {
       );
     }
 
-    // Notify Host if there are pending registrations
-    if (registrationStatus === 'PENDING') {
+    // Notify Host if there are pending registrations and host is not an ADMIN
+    if (registrationStatus === 'PENDING' && session.host?.role !== 'ADMIN') {
       const pendingPlayerNames = createdPlayers
         .map((p) => p.name || 'Guest')
         .join(', ');
@@ -1615,7 +1621,7 @@ export class PlayersService {
     };
 
     if (filters?.status) {
-      where.status = filters.status as any;
+      where.status = filters.status as SessionStatus;
     }
 
     if (filters?.searchQuery) {
@@ -1633,7 +1639,9 @@ export class PlayersService {
 
     // Build orderBy
     const isStatusSort = filters?.sortBy === 'status';
-    const buildOrderBy = (): Prisma.SessionOrderByWithRelationInput | Prisma.SessionOrderByWithRelationInput[] => {
+    const buildOrderBy = ():
+      | Prisma.SessionOrderByWithRelationInput
+      | Prisma.SessionOrderByWithRelationInput[] => {
       const order = (filters?.sortOrder || 'asc') as Prisma.SortOrder;
       switch (filters?.sortBy) {
         case 'date':
