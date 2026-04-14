@@ -76,6 +76,29 @@ export class UsersService {
     return user;
   }
 
+  async getPublicProfile(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        image: true,
+        role: true,
+        gender: true,
+        level: true,
+        levelDescription: true,
+        phone: true,
+        createdAt: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return user;
+  }
+
   async create(createUserDto: CreateUserDto) {
     // Check if email already exists
     const existingUser = await this.prisma.user.findUnique({

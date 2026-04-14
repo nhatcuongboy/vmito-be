@@ -16,6 +16,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
@@ -54,6 +55,15 @@ export class UsersController {
       throw new ForbiddenException('Access denied');
     }
     return this.usersService.findOne(id);
+  }
+
+  /**
+   * Get basic public info for a user
+   */
+  @Public()
+  @Get('public/:id')
+  getPublicProfile(@Param('id') id: string) {
+    return this.usersService.getPublicProfile(id);
   }
 
   /**
