@@ -171,6 +171,34 @@ export class VenuesService {
     });
   }
 
+  async createBulk(createBulkVenueDto: { venues: CreateVenueDto[] }) {
+    const venuesData = createBulkVenueDto.venues.map((venue) => {
+      const district = venue.district
+        ? this.normalizeAdminUnit(venue.district)
+        : venue.district;
+      const city = venue.city ? this.normalizeAdminUnit(venue.city) : venue.city;
+      
+      return {
+        ...venue,
+        district,
+        city,
+        searchTerms: removeVietnameseTones(
+          `${venue.name} ${venue.address} ${district || ''} ${city || ''}`
+        ).toLowerCase(),
+      };
+    });
+
+    const result = await this.prisma.venue.createMany({
+      data: venuesData,
+      skipDuplicates: true, // This ignores venues with duplicate placeId
+    });
+
+    return {
+      message: 'Bulk created successfully',
+      count: result.count,
+    };
+  }
+
   async update(id: string, updateVenueDto: UpdateVenueDto) {
     const district = updateVenueDto.district
       ? this.normalizeAdminUnit(updateVenueDto.district)

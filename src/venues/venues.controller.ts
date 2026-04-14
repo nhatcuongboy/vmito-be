@@ -17,6 +17,7 @@ import { Public } from '../auth/decorators/public.decorator';
 import { CreateVenueDto } from './dto/create-venue.dto';
 import { UpdateVenueDto } from './dto/update-venue.dto';
 import { SearchVenueDto } from './dto/search-venue.dto';
+import { CreateBulkVenueDto } from './dto/create-bulk-venue.dto';
 
 @ApiTags('venues')
 @ApiBearerAuth('JWT-auth')
@@ -50,6 +51,12 @@ export class VenuesController {
   @UseGuards(AdminGuard)
   create(@Body() createVenueDto: CreateVenueDto) {
     return this.venuesService.create(createVenueDto);
+  }
+
+  @Post('bulk')
+  @UseGuards(AdminGuard)
+  createBulk(@Body() createBulkVenueDto: CreateBulkVenueDto) {
+    return this.venuesService.createBulk(createBulkVenueDto);
   }
 
   @Patch(':id')
