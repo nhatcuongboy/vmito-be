@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -30,6 +31,11 @@ export class MatchesController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateMatchDto: UpdateMatchDto) {
     return this.matchesService.update(id, updateMatchDto);
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.matchesService.remove(id);
   }
 }
 

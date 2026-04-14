@@ -197,10 +197,12 @@ export class PaymentsService {
 
     if (
       payment.status !== PaymentStatus.SUBMITTED &&
-      payment.status !== PaymentStatus.PENDING
+      payment.status !== PaymentStatus.PENDING &&
+      payment.status !== PaymentStatus.APPROVED &&
+      payment.status !== PaymentStatus.REJECTED
     ) {
       throw new BadRequestException(
-        'Payment can only be approved when status is SUBMITTED or PENDING'
+        'Payment can only be approved when status is SUBMITTED, PENDING, APPROVED or REJECTED'
       );
     }
 
@@ -209,7 +211,8 @@ export class PaymentsService {
       data: {
         status: PaymentStatus.APPROVED,
         hostNotes: dto.hostNotes,
-        approvedAt: new Date(),
+        approvedAt: payment.status === PaymentStatus.APPROVED ? payment.approvedAt : new Date(),
+        rejectedAt: null, // Clear rejection date if approving
         ...(dto.amount !== undefined && { amount: dto.amount }),
         ...(dto.paymentMethod !== undefined && {
           paymentMethod: dto.paymentMethod,
@@ -241,9 +244,14 @@ export class PaymentsService {
       throw new ForbiddenException('Only session host can reject payments');
     }
 
-    if (payment.status !== PaymentStatus.SUBMITTED) {
+    if (
+      payment.status !== PaymentStatus.SUBMITTED &&
+      payment.status !== PaymentStatus.PENDING &&
+      payment.status !== PaymentStatus.APPROVED &&
+      payment.status !== PaymentStatus.REJECTED
+    ) {
       throw new BadRequestException(
-        'Payment can only be rejected when status is SUBMITTED'
+        'Payment can only be rejected when status is SUBMITTED, PENDING, APPROVED or REJECTED'
       );
     }
 
@@ -252,7 +260,11 @@ export class PaymentsService {
       data: {
         status: PaymentStatus.REJECTED,
         hostNotes: dto.hostNotes,
-        rejectedAt: new Date(),
+        rejectedAt:
+          payment.status === PaymentStatus.REJECTED
+            ? payment.rejectedAt
+            : new Date(),
+        approvedAt: null, // Clear approval date if rejecting
       },
       select: this.paymentSelect,
     });

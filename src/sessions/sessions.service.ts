@@ -127,6 +127,7 @@ export class SessionsService {
           },
         },
         venue: true,
+        feeConfig: true,
         _count: {
           select: {
             players: { where: { registrationStatus: 'APPROVED' as const } },

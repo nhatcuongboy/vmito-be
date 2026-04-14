@@ -288,7 +288,7 @@ export class CourtsService {
 
     const courtDisplayName = result.courtName || `Sân ${result.courtNumber}`;
     for (const p of selectedPlayersWithUser) {
-      if (p.userId) {
+      if (p.userId && p.userId !== court.session.hostId) {
         this.sessionsGateway.notifyUser(
           p.userId,
           SessionEventType.PLAYERS_SELECTED,
@@ -298,7 +298,7 @@ export class CourtsService {
             courtName: courtDisplayName,
             courtNumber: result.courtNumber,
             playerIds: finalPlayerIds,
-          },
+          }
         );
       }
     }
