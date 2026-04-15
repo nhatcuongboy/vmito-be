@@ -49,6 +49,9 @@ model User {
   clubJoinRequests  ClubJoinRequest[]  @relation("UserClubJoinRequests")
   clubAnnouncements ClubAnnouncement[] @relation("UserClubAnnouncements")
 
+  // Image gallery
+  uploadedImages UserImage[] @relation("UserImages")
+
   @@map("users")
 }
 
@@ -158,6 +161,8 @@ model Session {
   courtColor         String  @default("#179a3b")
   coverPhoto         String? // Cloudinary URL for session cover photo
   coverPhotoPublicId String? // Cloudinary public ID for cover photo
+  images             String[] @default([]) // Additional session images (max 5)
+  imagePublicIds     String[] @default([]) // Cloudinary public IDs for additional images
   shuttlecock        String?
 
   createdAt DateTime @default(now())
@@ -1025,4 +1030,39 @@ model ClubSchedule {
 
   @@index([clubId])
   @@map("club_schedules")
+}
+
+// ===========================================
+// User Image Gallery (Feature: multi-image upload)
+// ===========================================
+
+enum ImageCategory {
+  SESSION_COVER
+  AVATAR
+  CLUB
+  QR_CODE
+  PAYMENT_PROOF
+  OTHER
+}
+
+model UserImage {
+  id           String        @id @default(cuid())
+  userId       String
+  url          String // Cloudinary secure URL
+  publicId     String // Cloudinary public ID
+  originalName String? // Original filename
+  format       String? // jpg, png, webp, etc.
+  width        Int?
+  height       Int?
+  bytes        Int?
+  category     ImageCategory @default(OTHER)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation("UserImages", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, category])
+  @@map("user_images")
 }

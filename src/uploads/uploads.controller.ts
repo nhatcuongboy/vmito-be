@@ -18,6 +18,7 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UploadsService } from './uploads.service';
 import { UploadResponseDto } from '../cloudinary/dto/upload-response.dto';
 
@@ -57,9 +58,10 @@ export class UploadsController {
         ],
       })
     )
-    file: Express.Multer.File
+    file: Express.Multer.File,
+    @CurrentUser() user: { userId: string }
   ) {
-    return await this.uploadsService.saveQrCode(file);
+    return await this.uploadsService.saveQrCode(file, user.userId);
   }
 
   @Post('payment-proof')
@@ -91,9 +93,10 @@ export class UploadsController {
         ],
       })
     )
-    file: Express.Multer.File
+    file: Express.Multer.File,
+    @CurrentUser() user: { userId: string }
   ) {
-    return await this.uploadsService.savePaymentProof(file);
+    return await this.uploadsService.savePaymentProof(file, user.userId);
   }
 
   @Post('avatar')
@@ -125,9 +128,10 @@ export class UploadsController {
         ],
       })
     )
-    file: Express.Multer.File
+    file: Express.Multer.File,
+    @CurrentUser() user: { userId: string }
   ) {
-    return await this.uploadsService.saveAvatar(file);
+    return await this.uploadsService.saveAvatar(file, user.userId);
   }
 
   @Post('club-image')
@@ -159,8 +163,9 @@ export class UploadsController {
         ],
       })
     )
-    file: Express.Multer.File
+    file: Express.Multer.File,
+    @CurrentUser() user: { userId: string }
   ) {
-    return await this.uploadsService.saveClubImage(file);
+    return await this.uploadsService.saveClubImage(file, user.userId);
   }
 }

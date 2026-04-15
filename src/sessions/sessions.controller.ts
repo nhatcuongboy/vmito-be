@@ -286,4 +286,34 @@ export class SessionsController {
   ) {
     return this.sessionsService.deleteCoverPhoto(id, user.userId, user.role);
   }
+
+  @Put(':id/images')
+  async updateSessionImages(
+    @Param('id') id: string,
+    @Body() body: { images: string[]; imagePublicIds: string[] },
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    return this.sessionsService.updateSessionImages(
+      id,
+      body.images,
+      body.imagePublicIds,
+      user.userId,
+      user.role
+    );
+  }
+
+  @Put(':id/banner')
+  async updateSessionBanner(
+    @Param('id') id: string,
+    @Body() body: { coverPhoto: string; coverPhotoPublicId: string },
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    return this.sessionsService.updateSessionBanner(
+      id,
+      body.coverPhoto,
+      body.coverPhotoPublicId,
+      user.userId,
+      user.role
+    );
+  }
 }
