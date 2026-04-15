@@ -128,7 +128,7 @@ export class CloudinaryService {
   ): Promise<CloudinaryUploadResult> {
     return this.uploadImage(file, 'session-covers', {
       transformation: [
-        { width: 1200, height: 630, crop: 'fill' },
+        { width: 2000, crop: 'limit' },
         { quality: 'auto:good' },
         { fetch_format: 'auto' },
       ],
