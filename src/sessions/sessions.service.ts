@@ -2290,6 +2290,7 @@ export class SessionsService {
     const session = await prismaClient.session.create({
       data: {
         name,
+        slug: `${generateSlug(name)}-${Math.random().toString(36).substring(2, 7)}`,
         hostId,
         numberOfCourts: finalNumberOfCourts,
         sessionDuration,
