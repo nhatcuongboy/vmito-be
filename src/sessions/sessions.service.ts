@@ -14,7 +14,7 @@ import { VALID_LEVELS } from '../common/constants/level.constants';
 import { SessionsGateway } from './sessions.gateway';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { ClubsService } from '../clubs/clubs.service';
-import { removeVietnameseTones } from '../common/utils/string.utils';
+import { generateSlug, removeVietnameseTones } from '../common/utils/string.utils';
 
 @Injectable()
 export class SessionsService {
@@ -466,9 +466,14 @@ export class SessionsService {
     return degrees * (Math.PI / 180);
   }
 
-  async findOne(id: string) {
-    const session = await this.prisma.session.findUnique({
-      where: { id },
+  async findOne(identifier: string) {
+    const session = await this.prisma.session.findFirst({
+      where: {
+        OR: [
+          { id: identifier },
+          { slug: identifier }
+        ]
+      },
       include: {
         host: {
           select: {
@@ -740,9 +745,11 @@ export class SessionsService {
     }
 
     // Create session
+    const sessionSlug = `${generateSlug(name)}-${Math.random().toString(36).substring(2, 7)}`;
     const session = await this.prisma.session.create({
       data: {
         name,
+        slug: sessionSlug,
         hostId,
         numberOfCourts: finalNumberOfCourts,
         sessionDuration,

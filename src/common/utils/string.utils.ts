@@ -43,3 +43,11 @@ export const normalizeForSearch = (str: string): string => {
   if (!str) return '';
   return removeVietnameseTones(str).toLowerCase();
 };
+
+export const generateSlug = (str: string): string => {
+
+  let slug = normalizeForSearch(str);
+  slug = slug.replace(/[^a-z0-9]/g, '-');
+  slug = slug.replace(/-+/g, '-').replace(/^-|-$/g, '');
+  return slug;
+};

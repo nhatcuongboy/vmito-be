@@ -8,7 +8,6 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -21,33 +20,33 @@ model User {
 
   // Player related information
   gender           Gender?
-  level            Int?      // 1-7 (Beginner to Pro)
+  level            Int? // 1-7 (Beginner to Pro)
   levelDescription String?
   phone            String?
-  searchTerms      String?   // Normalized search string
+  searchTerms      String? // Normalized search string
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
-  playerRecords       Player[]
-  hostedSessions      Session[]              @relation("HostedSessions")
-  accounts            Account[]
-  sessions            AuthSession[]
-  hostedTournaments   Tournament[]           @relation("HostedTournaments")
-  tournamentPlayers   TournamentPlayer[]     @relation("TournamentPlayers")
-  refreshTokens       RefreshToken[]
-  paymentSettings     HostPaymentSettings[]
-  hostPayments        PaymentRecord[]        @relation("HostPayments")
-  registeredPayments  PaymentRecord[]        @relation("RegisteredPayments")
-  ratingsGiven        Rating[]               @relation("RatingsGiven")
-  ratingsReceived     Rating[]               @relation("RatingsReceived")
-  notifications       Notification[]
+  playerRecords      Player[]
+  hostedSessions     Session[]             @relation("HostedSessions")
+  accounts           Account[]
+  sessions           AuthSession[]
+  hostedTournaments  Tournament[]          @relation("HostedTournaments")
+  tournamentPlayers  TournamentPlayer[]    @relation("TournamentPlayers")
+  refreshTokens      RefreshToken[]
+  paymentSettings    HostPaymentSettings[]
+  hostPayments       PaymentRecord[]       @relation("HostPayments")
+  registeredPayments PaymentRecord[]       @relation("RegisteredPayments")
+  ratingsGiven       Rating[]              @relation("RatingsGiven")
+  ratingsReceived    Rating[]              @relation("RatingsReceived")
+  notifications      Notification[]
 
   // Club relations
-  hostedClubs Club[] @relation("HostClubs")
-  clubMemberships ClubMember[] @relation("UserClubs")
-  clubJoinRequests ClubJoinRequest[] @relation("UserClubJoinRequests")
+  hostedClubs       Club[]             @relation("HostClubs")
+  clubMemberships   ClubMember[]       @relation("UserClubs")
+  clubJoinRequests  ClubJoinRequest[]  @relation("UserClubJoinRequests")
   clubAnnouncements ClubAnnouncement[] @relation("UserClubAnnouncements")
 
   @@map("users")
@@ -55,10 +54,10 @@ model User {
 
 // Notification System
 enum NotificationType {
-  SYSTEM        // Admin broadcast notifications
-  SESSION       // Session-related notifications
-  REGISTRATION  // Registration status updates
-  PAYMENT       // Payment-related notifications
+  SYSTEM // Admin broadcast notifications
+  SESSION // Session-related notifications
+  REGISTRATION // Registration status updates
+  PAYMENT // Payment-related notifications
 }
 
 model Notification {
@@ -67,7 +66,7 @@ model Notification {
   type      NotificationType
   title     String
   message   String
-  data      Json?            // Additional data (sessionId, playerId, etc.)
+  data      Json? // Additional data (sessionId, playerId, etc.)
   isRead    Boolean          @default(false)
   createdAt DateTime         @default(now())
 
@@ -132,15 +131,16 @@ model VerificationToken {
 
 model Session {
   id                 String        @id @default(cuid())
+  slug               String?       @unique
   name               String
   description        String?
   hostName           String?
   hostPhone          String?
-  location           String?       // Keeping for backward compatibility
+  location           String? // Keeping for backward compatibility
   venueId            String?
   hostId             String
   numberOfCourts     Int           @default(2)
-  searchTerms        String?       // Normalized search string
+  searchTerms        String? // Normalized search string
   sessionDuration    Int           @default(120)
   maxPlayersPerCourt Int           @default(8)
   requirePlayerInfo  Boolean       @default(true)
@@ -155,8 +155,8 @@ model Session {
   // Player level requirements (empty array = all levels allowed)
   requiredLevels Int[] @default([]) // Array of level IDs (1-7)
 
-  courtColor       String  @default("#179a3b")
-  coverPhoto       String? // Cloudinary URL for session cover photo
+  courtColor         String  @default("#179a3b")
+  coverPhoto         String? // Cloudinary URL for session cover photo
   coverPhotoPublicId String? // Cloudinary public ID for cover photo
   shuttlecock        String?
 
@@ -179,34 +179,34 @@ model Session {
 }
 
 model Venue {
-  id             String      @id @default(cuid())
-  placeId        String      @unique // Google Place ID
-  name           String
-  searchTerms    String?     // Normalized search string
-  address        String
-  lat            Float?
-  lng            Float?
-  district       String?
-  city           String?
-  isVerified     Boolean     @default(false)
-  openingHours   String?
-  numberOfCourts Int?
-  status         VenueStatus @default(ACTIVE)
-  phone          String?
-  website        String?
+  id               String       @id @default(cuid())
+  placeId          String       @unique // Google Place ID
+  name             String
+  searchTerms      String? // Normalized search string
+  address          String
+  lat              Float?
+  lng              Float?
+  district         String?
+  city             String?
+  isVerified       Boolean      @default(false)
+  openingHours     String?
+  numberOfCourts   Int?
+  status           VenueStatus  @default(ACTIVE)
+  phone            String?
+  website          String?
   hourlyRateFixed  Int?
   hourlyRateWalkIn Int?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
-  sessions       Session[]
-  clubs          Club[]
-  tournaments    Tournament[]
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  sessions         Session[]
+  clubs            Club[]
+  tournaments      Tournament[]
 
   // Images
   coverPhoto         String?
   coverPhotoPublicId String?
-  images             String[]    @default([])
-  imagePublicIds     String[]    @default([])
+  images             String[] @default([])
+  imagePublicIds     String[] @default([])
 
   @@index([status])
   @@index([city])
@@ -221,33 +221,33 @@ enum VenueStatus {
 }
 
 model Player {
-  id                 String       @id @default(cuid())
+  id                 String             @id @default(cuid())
   sessionId          String
   userId             String? // Linked user account (optional for guests)
   createdByUserId    String? // Track who created this player during registration
   playerNumber       Int
   name               String?
   gender             Gender?
-  level              Int?         // 1-7 (Beginner to Pro)
+  level              Int? // 1-7 (Beginner to Pro)
   levelDescription   String?
   desire             String?
   phone              String?
-  preFilledByHost    Boolean      @default(false)
-  confirmedByPlayer  Boolean      @default(false)
-  requireConfirmInfo Boolean      @default(false)
-  currentWaitTime    Int          @default(0)
-  totalWaitTime      Int          @default(0)
-  waitingSince       DateTime?    // Timestamp when player started waiting (for realtime calculation)
-  matchesPlayed      Int          @default(0)
-  status             PlayerStatus @default(WAITING)
+  preFilledByHost    Boolean            @default(false)
+  confirmedByPlayer  Boolean            @default(false)
+  requireConfirmInfo Boolean            @default(false)
+  currentWaitTime    Int                @default(0)
+  totalWaitTime      Int                @default(0)
+  waitingSince       DateTime? // Timestamp when player started waiting (for realtime calculation)
+  matchesPlayed      Int                @default(0)
+  status             PlayerStatus       @default(WAITING)
   currentCourtId     String?
   courtPosition      Int? // Position on court (0-3), null when not on court
   registrationStatus RegistrationStatus @default(APPROVED)
 
   // Club fields
-  isClubMember           Boolean  @default(false)
-  clubId                 String?  // Which club's fee to apply
-  clubFeeApplied         Boolean  @default(false)
+  isClubMember   Boolean @default(false)
+  clubId         String? // Which club's fee to apply
+  clubFeeApplied Boolean @default(false)
 
   // Player-specific join fields
   joinCode   String    @unique // Unique join code for this player slot
@@ -262,7 +262,7 @@ model Player {
   currentCourt Court?        @relation(fields: [currentCourtId], references: [id])
   session      Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   user         User?         @relation(fields: [userId], references: [id])
-  club Club? @relation(fields: [clubId], references: [id])
+  club         Club?         @relation(fields: [clubId], references: [id])
 
   // Payment relation
   paymentRecord PaymentRecord?
@@ -385,18 +385,18 @@ enum MatchStatus {
 // Tournament Management Models
 
 model Tournament {
-  id        String           @id @default(cuid())
-  slug      String           @unique
-  name      String
-  startDate DateTime
-  endDate   DateTime
-  hostId      String
-  venueId     String?
-  status      TournamentStatus @default(PREPARING)
-  isPublished Boolean          @default(false)
+  id           String           @id @default(cuid())
+  slug         String           @unique
+  name         String
+  startDate    DateTime
+  endDate      DateTime
+  hostId       String
+  venueId      String?
+  status       TournamentStatus @default(PREPARING)
+  isPublished  Boolean          @default(false)
   scheduleType ScheduleType?
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
 
   // Relations
   host           User                      @relation("HostedTournaments", fields: [hostId], references: [id])
@@ -424,22 +424,22 @@ enum ScheduleType {
 }
 
 model Category {
-  id                     String          @id @default(cuid())
+  id                     String         @id @default(cuid())
   tournamentId           String
   name                   String
   type                   CategoryType
-  format                 CategoryFormat  @default(ROUND_ROBIN_TO_SE)
-  hasGroupStage          Boolean         @default(false)
+  format                 CategoryFormat @default(ROUND_ROBIN_TO_SE)
+  hasGroupStage          Boolean        @default(false)
   averageMatchDuration   Int?
   groupCount             Int?
   winnersPerGroup        Int?
   playersPerGroup        Int?
-  matchFormat            MatchFormat     @default(BEST_OF_3)
+  matchFormat            MatchFormat    @default(BEST_OF_3)
   eliminationMatchFormat MatchFormat?
-  thirdPlaceMatch        Boolean         @default(false)
+  thirdPlaceMatch        Boolean        @default(false)
   formatConfig           Json?
-  createdAt              DateTime        @default(now())
-  updatedAt              DateTime        @updatedAt
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
 
   // Relations
   tournament    Tournament             @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
@@ -752,10 +752,10 @@ model PaymentRecord {
   updatedAt          DateTime       @updatedAt
 
   // Relations
-  session        Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  player         Player  @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  host           User    @relation("HostPayments", fields: [hostId], references: [id])
-  registeredBy   User?   @relation("RegisteredPayments", fields: [registeredByUserId], references: [id])
+  session      Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  player       Player  @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  host         User    @relation("HostPayments", fields: [hostId], references: [id])
+  registeredBy User?   @relation("RegisteredPayments", fields: [registeredByUserId], references: [id])
 
   @@index([sessionId])
   @@index([hostId])
@@ -790,18 +790,18 @@ enum RatingType {
 model Rating {
   id          String     @id @default(cuid())
   sessionId   String
-  raterUserId String     // User giving the rating
-  ratedUserId String     // User receiving the rating
+  raterUserId String // User giving the rating
+  ratedUserId String // User receiving the rating
   type        RatingType // Direction of rating
-  rating      Int        // 1-5 stars
-  comment     String?    // Optional review (max 500 chars)
+  rating      Int // 1-5 stars
+  comment     String? // Optional review (max 500 chars)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
   // Relations
-  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  rater     User    @relation("RatingsGiven", fields: [raterUserId], references: [id], onDelete: Cascade)
-  rated     User    @relation("RatingsReceived", fields: [ratedUserId], references: [id], onDelete: Cascade)
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  rater   User    @relation("RatingsGiven", fields: [raterUserId], references: [id], onDelete: Cascade)
+  rated   User    @relation("RatingsReceived", fields: [ratedUserId], references: [id], onDelete: Cascade)
 
   // Unique constraint: one rating per (session, rater, rated, type)
   @@unique([sessionId, raterUserId, ratedUserId, type])
@@ -816,41 +816,41 @@ model Rating {
 // ===========================================
 
 model Club {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   hostId      String
-  name        String   // "VIP", "Thường xuyên", etc.
+  name        String // "VIP", "Thường xuyên", etc.
   description String?
-  color       String?  // Color for visual distinction
-  searchTerms String?  // Normalized search string
-  
-  // Club visibility and access settings
-  isPublic    Boolean  @default(false)
-  joinPolicy  ClubJoinPolicy @default(APPROVAL_REQUIRED)
-  maxMembers  Int?
-  image       String?  // Cloudinary URL for club image
-  imagePublicId String? // Cloudinary public ID
-  location    String?  // Primary location/venue
-  defaultVenueId String? // Link to default venue
-  
-  // Statistics (cached for performance)
-  sessionCount Int @default(0)
-  totalPlayersServed Int @default(0)
-  
-  status      ClubStatus @default(APPROVED)
-  rejectionReason String?
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  color       String? // Color for visual distinction
+  searchTerms String? // Normalized search string
 
-  host         User                          @relation("HostClubs", fields: [hostId], references: [id], onDelete: Cascade)
-  defaultVenue Venue?                        @relation(fields: [defaultVenueId], references: [id], onDelete: SetNull)
-  members      ClubMember[]
-  feeConfigs   ClubFeeConfig[]
-  players      Player[]
-  joinRequests ClubJoinRequest[]
+  // Club visibility and access settings
+  isPublic       Boolean        @default(false)
+  joinPolicy     ClubJoinPolicy @default(APPROVAL_REQUIRED)
+  maxMembers     Int?
+  image          String? // Cloudinary URL for club image
+  imagePublicId  String? // Cloudinary public ID
+  location       String? // Primary location/venue
+  defaultVenueId String? // Link to default venue
+
+  // Statistics (cached for performance)
+  sessionCount       Int @default(0)
+  totalPlayersServed Int @default(0)
+
+  status          ClubStatus @default(APPROVED)
+  rejectionReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  host          User               @relation("HostClubs", fields: [hostId], references: [id], onDelete: Cascade)
+  defaultVenue  Venue?             @relation(fields: [defaultVenueId], references: [id], onDelete: SetNull)
+  members       ClubMember[]
+  feeConfigs    ClubFeeConfig[]
+  players       Player[]
+  joinRequests  ClubJoinRequest[]
   announcements ClubAnnouncement[]
-  clubSessions ClubSession[]
-  schedules    ClubSchedule[]
+  clubSessions  ClubSession[]
+  schedules     ClubSchedule[]
 
   @@unique([hostId, name])
   @@index([hostId])
@@ -859,23 +859,23 @@ model Club {
 }
 
 model ClubMember {
-  id        String   @id @default(cuid())
-  clubId    String
-  userId    String
-  
+  id     String @id @default(cuid())
+  clubId String
+  userId String
+
   // Member role and status
-  role      MemberRole   @default(MEMBER)
-  status    MemberStatus @default(ACTIVE)
-  
+  role   MemberRole   @default(MEMBER)
+  status MemberStatus @default(ACTIVE)
+
   // Activity tracking
-  attendanceCount Int @default(0)
-  lastAttendedAt DateTime?
-  
+  attendanceCount Int       @default(0)
+  lastAttendedAt  DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  club  Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  user  User @relation("UserClubs", fields: [userId], references: [id], onDelete: Cascade)
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user User @relation("UserClubs", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([clubId, userId])
   @@index([userId])
@@ -888,12 +888,12 @@ model ClubMember {
 model ClubFeeConfig {
   id                  String   @id @default(cuid())
   clubId              String
-  month               Int      // Month (1-12)
-  year                Int      // Year
-  maleFeeMonthly      Int?     // Total monthly fee for males (for tracking)
-  femaleFeeMonthly    Int?     // Total monthly fee for females (for tracking)
-  maleFeePerSession   Int?     // Per-session fee for males (used in PaymentRecord)
-  femaleFeePerSession Int?     // Per-session fee for females (used in PaymentRecord)
+  month               Int // Month (1-12)
+  year                Int // Year
+  maleFeeMonthly      Int? // Total monthly fee for males (for tracking)
+  femaleFeeMonthly    Int? // Total monthly fee for females (for tracking)
+  maleFeePerSession   Int? // Per-session fee for males (used in PaymentRecord)
+  femaleFeePerSession Int? // Per-session fee for females (used in PaymentRecord)
   notes               String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -910,9 +910,9 @@ model ClubFeeConfig {
 // ===========================================
 
 enum ClubJoinPolicy {
-  OPEN              // Anyone can join immediately
+  OPEN // Anyone can join immediately
   APPROVAL_REQUIRED // Requires admin approval
-  INVITATION_ONLY   // Only invited users can join
+  INVITATION_ONLY // Only invited users can join
 }
 
 enum MemberRole {
@@ -944,17 +944,17 @@ enum ClubStatus {
 // ===========================================
 
 model ClubJoinRequest {
-  id        String   @id @default(cuid())
+  id        String            @id @default(cuid())
   clubId    String
   userId    String
-  message   String?  // Optional message from requester
+  message   String? // Optional message from requester
   status    JoinRequestStatus @default(PENDING)
-  response  String?  // Optional response from admin
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  response  String? // Optional response from admin
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
 
-  club      Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  user      User @relation("UserClubJoinRequests", fields: [userId], references: [id], onDelete: Cascade)
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user User @relation("UserClubJoinRequests", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([clubId, userId])
   @@index([clubId])
@@ -997,7 +997,7 @@ model ClubSession {
   attendanceCount Int      @default(0) // Number of club members who attended
   createdAt       DateTime @default(now())
 
-  club    Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  club    Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
   session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@unique([clubId, sessionId])
@@ -1013,9 +1013,9 @@ model ClubSession {
 model ClubSchedule {
   id        String  @id @default(cuid())
   clubId    String
-  dayOfWeek Int     // 0=CN, 1=T2, 2=T3, 3=T4, 4=T5, 5=T6, 6=T7
-  startTime String  // "19:00"
-  endTime   String  // "21:00"
+  dayOfWeek Int // 0=CN, 1=T2, 2=T3, 3=T4, 4=T5, 5=T6, 6=T7
+  startTime String // "19:00"
+  endTime   String // "21:00"
   notes     String?
 
   createdAt DateTime @default(now())
@@ -1026,4 +1026,3 @@ model ClubSchedule {
   @@index([clubId])
   @@map("club_schedules")
 }
-
