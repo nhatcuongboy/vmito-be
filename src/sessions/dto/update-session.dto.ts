@@ -79,6 +79,16 @@ export class UpdateSessionDto {
   @IsOptional()
   coverPhotoPublicId?: string;
 
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  images?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  imagePublicIds?: string[];
+
   @IsString()
   @IsOptional()
   shuttlecock?: string;

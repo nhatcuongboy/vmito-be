@@ -8,13 +8,22 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 import { ConfigService } from '@nestjs/config';
-import { CourtDirection, Prisma, SessionStatus } from '@prisma/client';
+import {
+  CourtDirection,
+  ImageCategory,
+  Prisma,
+  SessionStatus,
+} from '@prisma/client';
 import { VALID_LEVELS } from '../common/constants/level.constants';
 
 import { SessionsGateway } from './sessions.gateway';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { ClubsService } from '../clubs/clubs.service';
-import { removeVietnameseTones } from '../common/utils/string.utils';
+import { UserImagesService } from '../user-images/user-images.service';
+import {
+  generateSlug,
+  removeVietnameseTones,
+} from '../common/utils/string.utils';
 
 @Injectable()
 export class SessionsService {
@@ -23,7 +32,8 @@ export class SessionsService {
     private configService: ConfigService,
     private sessionsGateway: SessionsGateway,
     private cloudinaryService: CloudinaryService,
-    private clubsService: ClubsService
+    private clubsService: ClubsService,
+    private userImagesService: UserImagesService
   ) {}
 
   private readonly STATUS_PRIORITY: Record<string, number> = {
@@ -466,9 +476,14 @@ export class SessionsService {
     return degrees * (Math.PI / 180);
   }
 
-  async findOne(id: string) {
-    const session = await this.prisma.session.findUnique({
-      where: { id },
+  async findOne(identifier: string) {
+    const session = await this.prisma.session.findFirst({
+      where: {
+        OR: [
+          { id: identifier },
+          { slug: identifier }
+        ]
+      },
       include: {
         host: {
           select: {
@@ -740,9 +755,11 @@ export class SessionsService {
     }
 
     // Create session
+    const sessionSlug = `${generateSlug(name)}-${Math.random().toString(36).substring(2, 7)}`;
     const session = await this.prisma.session.create({
       data: {
         name,
+        slug: sessionSlug,
         hostId,
         numberOfCourts: finalNumberOfCourts,
         sessionDuration,
@@ -1984,6 +2001,16 @@ export class SessionsService {
     const uploadResult =
       await this.cloudinaryService.uploadSessionCoverPhoto(file);
 
+    // Save to user's image gallery
+    if (userId) {
+      await this.userImagesService.createFromUploadResult(
+        userId,
+        uploadResult,
+        ImageCategory.SESSION_COVER,
+        file.originalname
+      );
+    }
+
     // Update session with new cover photo
     const updatedSession = await this.prisma.session.update({
       where: { id: sessionId },
@@ -2032,6 +2059,98 @@ export class SessionsService {
       data: {
         coverPhoto: null,
         coverPhotoPublicId: null,
+      },
+      include: {
+        host: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        venue: true,
+        feeConfig: true,
+      },
+    });
+
+    return updatedSession;
+  }
+
+  async updateSessionImages(
+    sessionId: string,
+    images: string[],
+    imagePublicIds: string[],
+    userId?: string,
+    role?: string
+  ) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    if (userId && role !== 'ADMIN' && session.hostId !== userId) {
+      throw new ForbiddenException('Not authorized to modify this session');
+    }
+
+    if (images.length > 5) {
+      throw new BadRequestException('Maximum 5 images allowed per session');
+    }
+
+    if (images.length !== imagePublicIds.length) {
+      throw new BadRequestException(
+        'Images and imagePublicIds must have the same length'
+      );
+    }
+
+    const updatedSession = await this.prisma.session.update({
+      where: { id: sessionId },
+      data: {
+        images,
+        imagePublicIds,
+      },
+      include: {
+        host: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        venue: true,
+        feeConfig: true,
+      },
+    });
+
+    return updatedSession;
+  }
+
+  async updateSessionBanner(
+    sessionId: string,
+    coverPhoto: string,
+    coverPhotoPublicId: string,
+    userId?: string,
+    role?: string
+  ) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    if (userId && role !== 'ADMIN' && session.hostId !== userId) {
+      throw new ForbiddenException('Not authorized to modify this session');
+    }
+
+    const updatedSession = await this.prisma.session.update({
+      where: { id: sessionId },
+      data: {
+        coverPhoto,
+        coverPhotoPublicId,
       },
       include: {
         host: {
@@ -2283,6 +2402,7 @@ export class SessionsService {
     const session = await prismaClient.session.create({
       data: {
         name,
+        slug: `${generateSlug(name)}-${Math.random().toString(36).substring(2, 7)}`,
         hostId,
         numberOfCourts: finalNumberOfCourts,
         sessionDuration,
