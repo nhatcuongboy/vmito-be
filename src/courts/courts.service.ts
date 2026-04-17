@@ -936,10 +936,6 @@ export class CourtsService {
       );
     }
 
-    if (court.status === 'IN_USE') {
-      throw new BadRequestException('Court is already in use');
-    }
-
     if (topCount !== undefined && topCount < 4) {
       throw new BadRequestException('topCount must be at least 4');
     }
