@@ -9,7 +9,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
-import { VenueStatus } from '@prisma/client';
+import { ClosureStatus, VenueStatus } from '@prisma/client';
 
 export class SearchVenueDto {
   @ApiProperty({
@@ -65,6 +65,16 @@ export class SearchVenueDto {
   @IsEnum(VenueStatus)
   status?: VenueStatus;
 
+  @ApiProperty({
+    required: false,
+    enum: ClosureStatus,
+    default: ClosureStatus.OPERATING,
+    description: 'Filter by closure status. Defaults to OPERATING.',
+  })
+  @IsOptional()
+  @IsEnum(ClosureStatus)
+  closureStatus?: ClosureStatus;
+
   @ApiProperty({ required: false, description: 'Show only verified venues' })
   @IsOptional()
   @Type(() => Boolean)
@@ -73,12 +83,23 @@ export class SearchVenueDto {
 
   @ApiProperty({
     required: false,
-    enum: ['name', 'createdAt', 'distance', 'numberOfCourts', 'hourlyRateFixed'],
+    enum: [
+      'name',
+      'createdAt',
+      'distance',
+      'numberOfCourts',
+      'hourlyRateFixed',
+    ],
     default: 'name',
   })
   @IsOptional()
   @IsString()
-  sortBy?: 'name' | 'createdAt' | 'distance' | 'numberOfCourts' | 'hourlyRateFixed' = 'name';
+  sortBy?:
+    | 'name'
+    | 'createdAt'
+    | 'distance'
+    | 'numberOfCourts'
+    | 'hourlyRateFixed' = 'name';
 
   @ApiProperty({ required: false, enum: ['asc', 'desc'], default: 'asc' })
   @IsOptional()
