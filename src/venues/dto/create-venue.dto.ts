@@ -19,6 +19,11 @@ export class CreateVenueDto {
   @IsString()
   name: string;
 
+  @ApiProperty({ required: false, description: 'Venue description' })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
   @ApiProperty()
   @IsString()
   address: string;
@@ -150,6 +155,19 @@ export class CreateVenueDto {
   @IsOptional()
   @IsString()
   coverPhotoPublicId?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'URL of the court layout/diagram image',
+  })
+  @IsOptional()
+  @IsString()
+  courtLayoutImage?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  courtLayoutImagePublicId?: string;
 
   @ApiProperty({ required: false, type: [String] })
   @IsOptional()

@@ -187,6 +187,7 @@ model Venue {
   id               String       @id @default(cuid())
   placeId          String       @unique // Google Place ID
   name             String
+  description      String? // Venue description
   searchTerms      String? // Normalized search string
   address          String
   lat              Float?
@@ -221,6 +222,8 @@ model Venue {
   // Images
   coverPhoto         String?
   coverPhotoPublicId String?
+  courtLayoutImage         String?
+  courtLayoutImagePublicId String?
   images             String[] @default([])
   imagePublicIds     String[] @default([])
 
