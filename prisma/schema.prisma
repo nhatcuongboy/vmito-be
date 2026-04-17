@@ -207,6 +207,17 @@ model Venue {
   clubs            Club[]
   tournaments      Tournament[]
 
+  // Amenities
+  hasCarParking  Boolean?
+  hasCanteen     Boolean?
+  wifiName       String?
+  wifiPassword   String?
+
+  // Status & Policy
+  closureStatus  ClosureStatus @default(OPERATING)
+  bookingPolicy  String?
+  locatedWithin  String?
+
   // Images
   coverPhoto         String?
   coverPhotoPublicId String?
@@ -223,6 +234,12 @@ model Venue {
 enum VenueStatus {
   ACTIVE
   INACTIVE
+}
+
+enum ClosureStatus {
+  OPERATING
+  PERMANENTLY_CLOSED
+  TEMPORARILY_CLOSED
 }
 
 model Player {

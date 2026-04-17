@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, VenueStatus } from '@prisma/client';
+import { ClosureStatus, Prisma, VenueStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateVenueDto } from './dto/create-venue.dto';
 import { UpdateVenueDto } from './dto/update-venue.dto';
@@ -20,6 +20,7 @@ export class VenuesService {
       radius,
       status,
       isVerified,
+      closureStatus,
       sortBy = 'name',
       sortOrder = 'asc',
       page = 1,
@@ -61,6 +62,11 @@ export class VenuesService {
 
     // Status filter - default to ACTIVE
     andConditions.push({ status: status ?? VenueStatus.ACTIVE });
+
+    // Closure status filter - default to OPERATING
+    andConditions.push({
+      closureStatus: closureStatus ?? ClosureStatus.OPERATING,
+    });
 
     // Verified filter
     if (isVerified !== undefined) {
@@ -176,8 +182,10 @@ export class VenuesService {
       const district = venue.district
         ? this.normalizeAdminUnit(venue.district)
         : venue.district;
-      const city = venue.city ? this.normalizeAdminUnit(venue.city) : venue.city;
-      
+      const city = venue.city
+        ? this.normalizeAdminUnit(venue.city)
+        : venue.city;
+
       return {
         ...venue,
         district,

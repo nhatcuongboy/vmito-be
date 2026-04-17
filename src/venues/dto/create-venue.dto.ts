@@ -8,7 +8,7 @@ import {
   Min,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import { VenueStatus } from '@prisma/client';
+import { VenueStatus, ClosureStatus } from '@prisma/client';
 
 export class CreateVenueDto {
   @ApiProperty()
@@ -97,6 +97,49 @@ export class CreateVenueDto {
   @IsInt()
   @Min(0)
   hourlyRateWalkIn?: number;
+
+  @ApiProperty({ required: false, description: 'Has car parking available' })
+  @IsOptional()
+  @IsBoolean()
+  hasCarParking?: boolean;
+
+  @ApiProperty({ required: false, description: 'Has canteen available' })
+  @IsOptional()
+  @IsBoolean()
+  hasCanteen?: boolean;
+
+  @ApiProperty({ required: false, example: 'VenueWiFi' })
+  @IsOptional()
+  @IsString()
+  wifiName?: string;
+
+  @ApiProperty({ required: false, example: '12345678' })
+  @IsOptional()
+  @IsString()
+  wifiPassword?: string;
+
+  @ApiProperty({
+    required: false,
+    enum: ClosureStatus,
+    default: ClosureStatus.OPERATING,
+    description: 'Closure status of the venue',
+  })
+  @IsOptional()
+  @IsEnum(ClosureStatus)
+  closureStatus?: ClosureStatus;
+
+  @ApiProperty({ required: false, description: 'Booking policy information' })
+  @IsOptional()
+  @IsString()
+  bookingPolicy?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'Name of the larger facility this venue is located within',
+  })
+  @IsOptional()
+  @IsString()
+  locatedWithin?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
