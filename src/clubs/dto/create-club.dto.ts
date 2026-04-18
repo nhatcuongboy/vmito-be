@@ -41,6 +41,11 @@ export class CreateClubDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
+  hostName?: string; // Provisional host name for admin-created clubs
+
+  @IsOptional()
+  @IsString()
   @MaxLength(200)
   description?: string;
 

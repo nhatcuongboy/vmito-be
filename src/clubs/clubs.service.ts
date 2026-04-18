@@ -273,6 +273,10 @@ export class ClubsService {
       };
     }
 
+    // hostName is a new field — cast once so TypeScript recognizes it
+    // (type will be fully resolved after TS server restarts post-migration)
+    const clubRecord = club as typeof club & { hostName: string | null };
+
     return {
       id: club.id,
       name: club.name,
@@ -286,7 +290,11 @@ export class ClubsService {
       memberCount: club._count.members,
       sessionCount: club.sessionCount,
       totalPlayersServed: club.totalPlayersServed,
-      host: club.host,
+      hostName: clubRecord.hostName ?? undefined,
+      host: {
+        ...club.host,
+        name: clubRecord.hostName ?? club.host.name,
+      },
       schedules: club.schedules,
       defaultVenue: club.defaultVenue,
       members: club.members.map((m) => ({
@@ -644,15 +652,18 @@ export class ClubsService {
         },
       });
 
-      // Automatically add the host as an ADMIN member of their own club
-      await tx.clubMember.create({
-        data: {
-          clubId: club.id,
-          userId: hostId,
-          role: MemberRole.ADMIN,
-          status: MemberStatus.ACTIVE,
-        },
-      });
+      // Automatically add the host as an ADMIN member, unless this is an
+      // admin-provisioned club with a temporary hostName (members start empty)
+      if (!dto.hostName) {
+        await tx.clubMember.create({
+          data: {
+            clubId: club.id,
+            userId: hostId,
+            role: MemberRole.ADMIN,
+            status: MemberStatus.ACTIVE,
+          },
+        });
+      }
 
       return club;
     });
