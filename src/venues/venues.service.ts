@@ -46,18 +46,53 @@ export class VenuesService {
       });
     }
 
-    // Location filters
+    // Location filters — support comma-separated values for multi-select
     if (city) {
-      andConditions.push({ city: { contains: city, mode: 'insensitive' } });
+      const cityList = city
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean);
+      if (cityList.length === 1) {
+        andConditions.push({
+          city: { contains: cityList[0], mode: 'insensitive' },
+        });
+      } else {
+        andConditions.push({
+          OR: cityList.map((c) => ({
+            city: { contains: c, mode: 'insensitive' },
+          })),
+        });
+      }
     }
     if (district) {
-      const normalizedDistrict = this.normalizeAdminUnit(district);
-      andConditions.push({
-        OR: [
-          { district: { equals: district, mode: 'insensitive' } },
-          { district: { equals: normalizedDistrict, mode: 'insensitive' } },
-        ],
-      });
+      const districtList = district
+        .split(',')
+        .map((d) => d.trim())
+        .filter(Boolean);
+      if (districtList.length === 1) {
+        const normalizedDistrict = this.normalizeAdminUnit(districtList[0]);
+        andConditions.push({
+          OR: [
+            { district: { equals: districtList[0], mode: 'insensitive' } },
+            {
+              district: {
+                equals: normalizedDistrict,
+                mode: 'insensitive',
+              },
+            },
+          ],
+        });
+      } else {
+        andConditions.push({
+          OR: districtList.flatMap((d) => {
+            const normalized = this.normalizeAdminUnit(d);
+            return [
+              { district: { equals: d, mode: 'insensitive' } },
+              { district: { equals: normalized, mode: 'insensitive' } },
+            ];
+          }),
+        });
+      }
     }
 
     // Status filter - default to ACTIVE

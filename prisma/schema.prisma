@@ -844,6 +844,7 @@ model Club {
   id          String  @id @default(cuid())
   hostId      String
   name        String // "VIP", "Thường xuyên", etc.
+  hostName    String? // Provisional host name set by admin (not linked to a real user yet)
   description String?
   color       String? // Color for visual distinction
   searchTerms String? // Normalized search string
