@@ -842,6 +842,7 @@ model Rating {
 
 model Club {
   id          String  @id @default(cuid())
+  slug        String? @unique
   hostId      String
   name        String // "VIP", "Thường xuyên", etc.
   hostName    String? // Provisional host name set by admin (not linked to a real user yet)
