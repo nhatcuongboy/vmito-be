@@ -21,11 +21,25 @@ import {
   ClubStatus,
   Role,
 } from '@prisma/client';
-import { removeVietnameseTones } from '../common/utils/string.utils';
+import {
+  removeVietnameseTones,
+  generateSlug,
+} from '../common/utils/string.utils';
 
 @Injectable()
 export class ClubsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private async uniqueClubSlug(name: string): Promise<string> {
+    const base = generateSlug(name);
+    const suffix = Math.random().toString(36).substring(2, 7);
+    const candidate = `${base}-${suffix}`;
+    const existing = await this.prisma.club.findUnique({
+      where: { slug: candidate },
+    });
+    if (existing) return this.uniqueClubSlug(name);
+    return candidate;
+  }
 
   // ===========================================
   // Club Discovery (for Players)
@@ -124,6 +138,7 @@ export class ClubsService {
     // Post-fetch: distance calculation
     const result = clubs.map((club) => ({
       id: club.id,
+      slug: club.slug ?? undefined,
       name: club.name,
       description: club.description,
       color: club.color,
@@ -196,11 +211,13 @@ export class ClubsService {
   }
 
   /**
-   * Get club details by ID
+   * Get club details by ID or slug
    */
-  async getClubDetails(id: string) {
-    const club = await this.prisma.club.findUnique({
-      where: { id },
+  async getClubDetails(idOrSlug: string) {
+    const club = await this.prisma.club.findFirst({
+      where: {
+        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
+      },
       include: {
         host: {
           select: {
@@ -279,6 +296,7 @@ export class ClubsService {
 
     return {
       id: club.id,
+      slug: club.slug ?? undefined,
       name: club.name,
       description: club.description,
       color: club.color,
@@ -624,10 +642,12 @@ export class ClubsService {
       role === Role.ADMIN ? ClubStatus.APPROVED : ClubStatus.PENDING;
 
     return this.prisma.$transaction(async (tx) => {
+      const slug = await this.uniqueClubSlug(dto.name);
       const club = await tx.club.create({
         data: {
           ...clubData,
           hostId,
+          slug,
           isPublic: dto.isPublic ?? true,
           status: clubStatus,
           ...(schedules?.length && {
