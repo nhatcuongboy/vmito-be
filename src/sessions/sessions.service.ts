@@ -231,27 +231,69 @@ export class SessionsService {
       });
     }
 
-    // Area filters - City and District (Search in both venue and location string)
+    // Area filters — support comma-separated values for multi-select
     if (filters?.city) {
-      andConditions.push({
-        OR: [
-          { venue: { city: { contains: filters.city, mode: 'insensitive' } } },
-          { location: { contains: filters.city, mode: 'insensitive' } },
-        ],
-      });
+      const cityList = filters.city
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean);
+      if (cityList.length === 1) {
+        andConditions.push({
+          OR: [
+            {
+              venue: {
+                city: { contains: cityList[0], mode: 'insensitive' },
+              },
+            },
+            { location: { contains: cityList[0], mode: 'insensitive' } },
+          ],
+        });
+      } else {
+        andConditions.push({
+          OR: cityList.map((c) => ({
+            OR: [
+              { venue: { city: { contains: c, mode: 'insensitive' } } },
+              { location: { contains: c, mode: 'insensitive' } },
+            ],
+          })),
+        });
+      }
     }
 
     if (filters?.district) {
-      andConditions.push({
-        OR: [
-          {
-            venue: {
-              district: { contains: filters.district, mode: 'insensitive' },
+      const districtList = filters.district
+        .split(',')
+        .map((d) => d.trim())
+        .filter(Boolean);
+      if (districtList.length === 1) {
+        andConditions.push({
+          OR: [
+            {
+              venue: {
+                district: {
+                  contains: districtList[0],
+                  mode: 'insensitive',
+                },
+              },
             },
-          },
-          { location: { contains: filters.district, mode: 'insensitive' } },
-        ],
-      });
+            {
+              location: {
+                contains: districtList[0],
+                mode: 'insensitive',
+              },
+            },
+          ],
+        });
+      } else {
+        andConditions.push({
+          OR: districtList.map((d) => ({
+            OR: [
+              { venue: { district: { contains: d, mode: 'insensitive' } } },
+              { location: { contains: d, mode: 'insensitive' } },
+            ],
+          })),
+        });
+      }
     }
 
     // Venue filter
