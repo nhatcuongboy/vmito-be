@@ -2,3 +2,4 @@
 - Use useRouter from "@/i18n/config".
 - On FE side, always call API from services in `@/lib/api`.
 - Always generate documents in /docs by English.
+- Always create migration files after changing database schema.
