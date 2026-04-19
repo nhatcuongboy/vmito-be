@@ -199,6 +199,14 @@ export class SessionsController {
     return this.sessionsService.end(id);
   }
 
+  @Post(':id/cancel')
+  cancel(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.sessionsService.cancel(id, user.userId, user.role);
+  }
+
   @Get(':id/status')
   getStatus(@Param('id') id: string) {
     return this.sessionsService.getStatus(id);

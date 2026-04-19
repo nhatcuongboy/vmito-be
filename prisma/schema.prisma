@@ -151,6 +151,16 @@ model Session {
   startTime          DateTime?
   endTime            DateTime?
 
+  // Scheduling fields: planned times vs actual times
+  scheduledStartTime DateTime? // Original planned start time
+  scheduledEndTime   DateTime? // Original planned end time
+  gracePeriodEnd     DateTime? // End of 30-min grace period after scheduledEndTime
+
+  // Notification tracking (prevents duplicate cron notifications)
+  startReminderSentAt DateTime? // When start reminder was sent to host
+  endWarningSentAt    DateTime? // When 15-min-before-end warning was sent
+  cancelledAt         DateTime? // When session was auto-cancelled
+
   // Guest access settings
   allowGuestJoin  Boolean @default(true) // Allow joining without account
   allowNewPlayers Boolean @default(true) // Allow new players to join via session QR
@@ -364,6 +374,7 @@ enum SessionStatus {
   PREPARING
   IN_PROGRESS
   FINISHED
+  CANCELLED
 }
 
 enum Gender {
