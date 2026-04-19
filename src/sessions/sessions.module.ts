@@ -1,8 +1,8 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { SessionsController } from './sessions.controller';
 import { SessionsService } from './sessions.service';
 import { PrismaModule } from '../prisma/prisma.module';
-import { SessionsGateway } from './sessions.gateway';
+import { SessionsGatewayModule } from './sessions-gateway.module';
 import { CloudinaryModule } from '../cloudinary/cloudinary.module';
 import { ClubsModule } from '../clubs/clubs.module';
 import { UserImagesModule } from '../user-images/user-images.module';
@@ -17,10 +17,11 @@ import { NotificationsModule } from '../notifications/notifications.module';
     ClubsModule,
     UserImagesModule,
     SessionExpensesModule,
-    forwardRef(() => NotificationsModule),
+    SessionsGatewayModule,
+    NotificationsModule,
   ],
   controllers: [SessionsController],
-  providers: [SessionsService, SessionsGateway, SessionSchedulerService],
-  exports: [SessionsService, SessionsGateway],
+  providers: [SessionsService, SessionSchedulerService],
+  exports: [SessionsService, SessionsGatewayModule],
 })
 export class SessionsModule {}
