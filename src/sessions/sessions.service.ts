@@ -202,9 +202,15 @@ export class SessionsService {
 
     const where: Prisma.SessionWhereInput = {
       status: 'PREPARING', // Only show sessions that haven't started
-      scheduledEndTime: {
-        gt: new Date(),
-      },
+      OR: [
+        // Sessions with scheduledEndTime — use it as the deadline
+        { scheduledEndTime: { gt: new Date() } },
+        // Sessions without scheduledEndTime — fall back to endTime
+        {
+          scheduledEndTime: null,
+          endTime: { gt: new Date() },
+        },
+      ],
     };
 
     // Initialize AND array if not present to avoid overwriting
