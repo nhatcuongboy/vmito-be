@@ -1,3 +1,4 @@
+/// <reference types="multer" />
 import {
   Injectable,
   NotFoundException,
@@ -45,7 +46,9 @@ export class SessionsService {
   private buildOrderBy(
     sortBy?: string,
     sortOrder?: 'asc' | 'desc'
-  ): Prisma.SessionOrderByWithRelationInput | Prisma.SessionOrderByWithRelationInput[] {
+  ):
+    | Prisma.SessionOrderByWithRelationInput
+    | Prisma.SessionOrderByWithRelationInput[] {
     const order = sortOrder || 'asc';
     switch (sortBy) {
       case 'date':
@@ -62,9 +65,9 @@ export class SessionsService {
     }
   }
 
-  private sortByStatus<T extends { status: string; startTime: Date | string | null }>(
-    data: T[]
-  ): T[] {
+  private sortByStatus<
+    T extends { status: string; startTime: Date | string | null },
+  >(data: T[]): T[] {
     return data.sort((a, b) => {
       const orderA = this.STATUS_PRIORITY[a.status] ?? 3;
       const orderB = this.STATUS_PRIORITY[b.status] ?? 3;
@@ -199,9 +202,15 @@ export class SessionsService {
 
     const where: Prisma.SessionWhereInput = {
       status: 'PREPARING', // Only show sessions that haven't started
-      endTime: {
-        gt: new Date(),
-      },
+      OR: [
+        // Sessions with scheduledEndTime — use it as the deadline
+        { scheduledEndTime: { gt: new Date() } },
+        // Sessions without scheduledEndTime — fall back to endTime
+        {
+          scheduledEndTime: null,
+          endTime: { gt: new Date() },
+        },
+      ],
     };
 
     // Initialize AND array if not present to avoid overwriting
@@ -385,12 +394,11 @@ export class SessionsService {
     const total = await this.prisma.session.count({ where });
 
     // Build orderBy - use sortBy param if provided, otherwise default to startTime asc
-    const orderBy =
-      filters?.sortByDistance
-        ? { startTime: 'asc' as const } // distance sort is handled post-fetch
-        : filters?.sortBy
-          ? this.buildOrderBy(filters.sortBy, filters.sortOrder)
-          : { startTime: 'asc' as const };
+    const orderBy = filters?.sortByDistance
+      ? { startTime: 'asc' as const } // distance sort is handled post-fetch
+      : filters?.sortBy
+        ? this.buildOrderBy(filters.sortBy, filters.sortOrder)
+        : { startTime: 'asc' as const };
 
     // Fetch sessions
     let sessions = await this.prisma.session.findMany({
@@ -450,7 +458,10 @@ export class SessionsService {
     }
 
     // Calculate distance and sort if geospatial params provided
-    let sessionsToReturn: any[] = sessions;
+    type SessionWithDistance = (typeof sessions)[number] & {
+      distance?: number | null;
+    };
+    let sessionsToReturn: SessionWithDistance[] = sessions;
     if (
       filters?.lat !== undefined &&
       filters?.lng !== undefined &&
@@ -521,10 +532,7 @@ export class SessionsService {
   async findOne(identifier: string) {
     const session = await this.prisma.session.findFirst({
       where: {
-        OR: [
-          { id: identifier },
-          { slug: identifier }
-        ]
+        OR: [{ id: identifier }, { slug: identifier }],
       },
       include: {
         host: {
@@ -796,6 +804,14 @@ export class SessionsService {
       }
     }
 
+    // Calculate scheduled times
+    const scheduledStart = startTime ? new Date(startTime) : new Date();
+    const scheduledEnd = endTime
+      ? new Date(endTime)
+      : new Date(scheduledStart.getTime() + sessionDuration * 60 * 1000);
+    // Grace period: 30 minutes after scheduled end
+    const gracePeriodEnd = new Date(scheduledEnd.getTime() + 30 * 60 * 1000);
+
     // Create session
     const sessionSlug = `${generateSlug(name)}-${Math.random().toString(36).substring(2, 7)}`;
     const session = await this.prisma.session.create({
@@ -811,10 +827,15 @@ export class SessionsService {
         allowNewPlayers,
         requiredLevels: requiredLevels || [],
 
-        startTime: startTime ? new Date(startTime) : new Date(),
-        endTime: endTime
-          ? new Date(endTime)
-          : new Date(Date.now() + sessionDuration * 60 * 1000),
+        // Scheduled times (planned)
+        scheduledStartTime: scheduledStart,
+        scheduledEndTime: scheduledEnd,
+        gracePeriodEnd,
+
+        // Keep startTime/endTime for backward compat (display purposes)
+        startTime: scheduledStart,
+        endTime: scheduledEnd,
+
         status: 'PREPARING',
         description,
         location: finalLocation,
@@ -1173,13 +1194,18 @@ export class SessionsService {
       throw new NotFoundException('Session not found');
     }
 
-    const allowedStatuses = ['PREPARING', 'IN_PROGRESS', 'FINISHED'] as const;
-    if (!allowedStatuses.includes(status as (typeof allowedStatuses)[number])) {
+    const allowedStatuses: SessionStatus[] = [
+      SessionStatus.PREPARING,
+      SessionStatus.IN_PROGRESS,
+      SessionStatus.FINISHED,
+      SessionStatus.CANCELLED,
+    ];
+    if (!allowedStatuses.includes(status as SessionStatus)) {
       throw new BadRequestException('Invalid session status');
     }
     const session = await this.prisma.session.update({
       where: { id },
-      data: { status: status as (typeof allowedStatuses)[number] },
+      data: { status: status as SessionStatus },
       include: {
         host: {
           select: {
@@ -1192,6 +1218,49 @@ export class SessionsService {
     });
 
     this.sessionsGateway.notifySessionUpdate(id);
+    return session;
+  }
+
+  /**
+   * Cancel a PREPARING session. Notifies all approved players.
+   */
+  async cancel(id: string, userId: string, role: string) {
+    const existingSession = await this.prisma.session.findUnique({
+      where: { id },
+      include: {
+        players: {
+          where: { registrationStatus: 'APPROVED' },
+          select: { id: true, userId: true, name: true },
+        },
+      },
+    });
+
+    if (!existingSession) {
+      throw new NotFoundException('Session not found');
+    }
+
+    // Authorization check
+    if (role !== 'ADMIN' && existingSession.hostId !== userId) {
+      throw new ForbiddenException('Not authorized to cancel this session');
+    }
+
+    if (existingSession.status !== 'PREPARING') {
+      throw new BadRequestException(
+        'Only sessions in PREPARING status can be cancelled'
+      );
+    }
+
+    const session = await this.prisma.session.update({
+      where: { id },
+      data: {
+        status: SessionStatus.CANCELLED,
+        cancelledAt: new Date(),
+      },
+    });
+
+    // Notify session room
+    this.sessionsGateway.notifySessionUpdate(id);
+
     return session;
   }
 
@@ -1262,11 +1331,23 @@ export class SessionsService {
       throw new BadRequestException('Cannot start a session with no players');
     }
 
+    const now = new Date();
+    // Recalculate end time and grace period based on actual start
+    const actualEndTime = new Date(
+      now.getTime() + existingSession.sessionDuration * 60 * 1000
+    );
+    const gracePeriodEnd = new Date(actualEndTime.getTime() + 30 * 60 * 1000);
+
     const session = await this.prisma.session.update({
       where: { id },
       data: {
         status: 'IN_PROGRESS',
-        startTime: new Date(),
+        startTime: now,
+        endTime: actualEndTime,
+        scheduledEndTime: actualEndTime,
+        gracePeriodEnd,
+        // Reset notification flags for fresh cycle
+        endWarningSentAt: null,
       },
     });
 
@@ -1296,6 +1377,9 @@ export class SessionsService {
     if (sessionData.status !== 'IN_PROGRESS') {
       throw new BadRequestException('Only in-progress sessions can be ended');
     }
+
+    // This method is used as the "End & Finalize" action.
+    // It works during both normal IN_PROGRESS and overtime (past scheduledEndTime).
 
     // Use transaction to ensure all operations succeed together
     const transactionResult = await this.prisma.$transaction(

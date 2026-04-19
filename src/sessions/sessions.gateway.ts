@@ -24,6 +24,11 @@ export enum SessionEventType {
   REGISTRATION_REQUEST = 'registration_request',
   REGISTRATION_STATUS_UPDATED = 'registration_status_updated',
   NOTIFICATION_RECEIVED = 'notification_received',
+  // Session lifecycle events
+  SESSION_START_REMINDER = 'session_start_reminder',
+  SESSION_END_WARNING = 'session_end_warning',
+  SESSION_OVERTIME = 'session_overtime',
+  SESSION_CANCELLED = 'session_cancelled',
 }
 
 @WebSocketGateway({
