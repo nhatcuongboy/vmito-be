@@ -41,6 +41,12 @@ export class VenuesController {
     });
   }
 
+  @Post('backfill-slugs')
+  @UseGuards(AdminGuard)
+  backfillSlugs() {
+    return this.venuesService.backfillSlugs();
+  }
+
   @Public()
   @Get(':id')
   findOne(@Param('id') id: string) {
