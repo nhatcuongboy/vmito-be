@@ -742,6 +742,7 @@ export class SessionsService {
       shuttlecock,
       coverPhoto,
       coverPhotoPublicId,
+      defaultMatchType,
     } = createSessionDto;
 
     // Validate requiredLevels
@@ -843,6 +844,7 @@ export class SessionsService {
         hostPhone,
         venueId,
         courtColor: courtColor || '#179a3b',
+        defaultMatchType: defaultMatchType || 'DOUBLES',
         shuttlecock,
         coverPhoto,
         coverPhotoPublicId,
@@ -1025,6 +1027,7 @@ export class SessionsService {
         hostName: updateSessionDto.hostName,
         hostPhone: updateSessionDto.hostPhone,
         courtColor: updateSessionDto.courtColor,
+        defaultMatchType: updateSessionDto.defaultMatchType,
         shuttlecock: updateSessionDto.shuttlecock,
         coverPhoto: updateSessionDto.coverPhoto,
         coverPhotoPublicId: updateSessionDto.coverPhotoPublicId,
@@ -2463,6 +2466,7 @@ export class SessionsService {
       shuttlecock,
       coverPhoto,
       coverPhotoPublicId,
+      defaultMatchType,
     } = createSessionDto;
 
     // Validate requiredLevels
@@ -2548,6 +2552,7 @@ export class SessionsService {
         hostPhone,
         venueId,
         courtColor: courtColor || '#179a3b',
+        defaultMatchType: defaultMatchType || 'DOUBLES',
         shuttlecock,
         coverPhoto,
         coverPhotoPublicId,

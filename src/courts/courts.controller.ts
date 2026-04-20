@@ -89,7 +89,8 @@ export class CourtsController {
       id,
       count,
       enableAi,
-      query.language
+      query.language,
+      query.matchType
     );
   }
 }

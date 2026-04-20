@@ -10,7 +10,7 @@ import { SelectPlayersDto, PlayerWithPosition } from './dto/select-players.dto';
 import { PreSelectDto } from './dto/pre-select.dto';
 import { UpdateCourtDto } from './dto/update-court.dto';
 import { EndMatchDto } from './dto/end-match.dto';
-import { Prisma, Player } from '@prisma/client';
+import { Prisma, Player, MatchType } from '@prisma/client';
 import {
   SessionsGateway,
   SessionEventType,
@@ -182,18 +182,24 @@ export class CourtsService {
       throw new BadRequestException('Court is already in use');
     }
 
-    // Validate exactly 4 player IDs
-    if (!Array.isArray(finalPlayerIds) || finalPlayerIds.length !== 4) {
-      throw new BadRequestException('Exactly 4 players must be selected');
+    // Validate 2 (singles) or 4 (doubles) player IDs
+    if (
+      !Array.isArray(finalPlayerIds) ||
+      (finalPlayerIds.length !== 2 && finalPlayerIds.length !== 4)
+    ) {
+      throw new BadRequestException(
+        'Either 2 players (singles) or 4 players (doubles) must be selected'
+      );
     }
 
     // If position info is provided, validate positions
     if (positionInfo) {
       const positions = positionInfo.map((p) => p.position);
-      const expectedPositions = [0, 1, 2, 3];
+      const expectedPositions =
+        finalPlayerIds.length === 2 ? [0, 1] : [0, 1, 2, 3];
       if (!expectedPositions.every((pos) => positions.includes(pos))) {
         throw new BadRequestException(
-          'Position info must include positions 0, 1, 2, and 3'
+          `Position info must include positions ${expectedPositions.join(', ')}`
         );
       }
     }
@@ -206,7 +212,7 @@ export class CourtsService {
       },
     });
 
-    if (validPlayers.length !== 4) {
+    if (validPlayers.length !== finalPlayerIds.length) {
       throw new NotFoundException('One or more selected players do not exist');
     }
 
@@ -397,9 +403,12 @@ export class CourtsService {
       throw new NotFoundException('Court not found');
     }
 
-    if (court.currentPlayers.length !== 4) {
+    if (
+      court.currentPlayers.length !== 2 &&
+      court.currentPlayers.length !== 4
+    ) {
       throw new BadRequestException(
-        'Court must have exactly 4 players to start a match'
+        'Court must have 2 players (singles) or 4 players (doubles) to start a match'
       );
     }
 
@@ -917,7 +926,8 @@ export class CourtsService {
     id: string,
     topCount?: number,
     useAi: boolean = false,
-    language?: Language
+    language?: Language,
+    matchType?: MatchType
   ) {
     const court = await this.prisma.court.findUnique({
       where: { id },
@@ -936,8 +946,13 @@ export class CourtsService {
       );
     }
 
-    if (topCount !== undefined && topCount < 4) {
-      throw new BadRequestException('topCount must be at least 4');
+    const effectiveMatchType: MatchType =
+      matchType || (court.session.defaultMatchType as MatchType) || 'DOUBLES';
+    const isSingles = effectiveMatchType === 'SINGLES';
+    const minPlayers = isSingles ? 2 : 4;
+
+    if (topCount !== undefined && topCount < minPlayers) {
+      throw new BadRequestException(`topCount must be at least ${minPlayers}`);
     }
 
     const waitingPlayers = await this.prisma.player.findMany({
@@ -951,14 +966,14 @@ export class CourtsService {
       take: topCount || undefined,
     });
 
-    if (waitingPlayers.length < 4) {
+    if (waitingPlayers.length < minPlayers) {
       throw new BadRequestException(
         'Not enough waiting players to start a match'
       );
     }
 
-    // Use AI-powered suggestions if requested
-    if (useAi) {
+    // Use AI-powered suggestions if requested (doubles only)
+    if (useAi && !isSingles) {
       console.log(
         '[AI Suggestion] useAi=true, attempting AI-powered suggestions...'
       );
@@ -978,7 +993,32 @@ export class CourtsService {
       }
     }
 
-    // Standard algorithm
+    // Singles: find 2 best-matched players
+    if (isSingles) {
+      const balancedSingles = this.findBalancedSingles(waitingPlayers);
+      if (!balancedSingles) {
+        throw new BadRequestException('Could not find balanced singles match');
+      }
+
+      const player1Score = this.getLevelScore(balancedSingles.player1.level);
+      const player2Score = this.getLevelScore(balancedSingles.player2.level);
+
+      return {
+        pair1: {
+          players: [balancedSingles.player1],
+          totalLevelScore: player1Score,
+        },
+        pair2: {
+          players: [balancedSingles.player2],
+          totalLevelScore: player2Score,
+        },
+        scoreDifference: Math.abs(player1Score - player2Score),
+        totalPlayersConsidered: waitingPlayers.length,
+        usedAi: false,
+      };
+    }
+
+    // Doubles: Standard algorithm
     const balancedPairs = this.findBalancedPairs(waitingPlayers);
 
     if (!balancedPairs) {
@@ -1161,5 +1201,33 @@ Return ONLY a raw JSON object in this exact format:
     }
 
     return bestPairs;
+  }
+
+  private findBalancedSingles(players: { level: number | null }[]): {
+    player1: { level: number | null };
+    player2: { level: number | null };
+  } | null {
+    if (players.length < 2) return null;
+
+    let bestMatch: {
+      player1: { level: number | null };
+      player2: { level: number | null };
+    } | null = null;
+    let smallestDifference = Infinity;
+
+    for (let i = 0; i < players.length - 1; i++) {
+      for (let j = i + 1; j < players.length; j++) {
+        const score1 = this.getLevelScore(players[i].level);
+        const score2 = this.getLevelScore(players[j].level);
+        const difference = Math.abs(score1 - score2);
+
+        if (difference < smallestDifference) {
+          smallestDifference = difference;
+          bestMatch = { player1: players[i], player2: players[j] };
+        }
+      }
+    }
+
+    return bestMatch;
   }
 }
