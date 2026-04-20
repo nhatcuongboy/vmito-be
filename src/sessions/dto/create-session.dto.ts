@@ -8,7 +8,7 @@ import {
   IsDateString,
   Min,
 } from 'class-validator';
-import { CourtDirection, FeeType } from '@prisma/client';
+import { CourtDirection, FeeType, MatchType } from '@prisma/client';
 
 export class CourtConfigDto {
   @IsNumber()
@@ -152,6 +152,10 @@ export class CreateSessionDto {
   @IsString()
   @IsOptional()
   shuttlecock?: string;
+
+  @IsEnum(MatchType)
+  @IsOptional()
+  defaultMatchType?: MatchType;
 
   @IsDateString()
   @IsOptional()

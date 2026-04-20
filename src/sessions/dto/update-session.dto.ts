@@ -5,8 +5,10 @@ import {
   IsOptional,
   IsArray,
   IsDateString,
+  IsEnum,
   Min,
 } from 'class-validator';
+import { MatchType } from '@prisma/client';
 
 import { VenueDto, FeeConfigDto, CourtConfigDto } from './create-session.dto';
 
@@ -92,6 +94,10 @@ export class UpdateSessionDto {
   @IsString()
   @IsOptional()
   shuttlecock?: string;
+
+  @IsEnum(MatchType)
+  @IsOptional()
+  defaultMatchType?: MatchType;
 
   @IsDateString()
   @IsOptional()

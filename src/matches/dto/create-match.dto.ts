@@ -6,7 +6,7 @@ export class CreateMatchDto {
 
   @IsArray()
   @IsString({ each: true })
-  @ArrayMinSize(4)
+  @ArrayMinSize(2)
   @ArrayMaxSize(4)
   playerIds: string[];
 }

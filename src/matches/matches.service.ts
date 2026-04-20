@@ -186,10 +186,13 @@ export class MatchesService {
     const updatedMatch = await this.prisma.$transaction(async (tx) => {
       // Handle player updates if provided
       if (updateMatchDto.playerIds && updateMatchDto.playerIds.length > 0) {
-        // Validation: Verify 4 players
-        if (updateMatchDto.playerIds.length !== 4) {
+        // Validation: Verify 2 or 4 players
+        if (
+          updateMatchDto.playerIds.length !== 2 &&
+          updateMatchDto.playerIds.length !== 4
+        ) {
           throw new BadRequestException(
-            'Exactly 4 players are required for a match'
+            'Either 2 players (singles) or 4 players (doubles) are required for a match'
           );
         }
 
@@ -219,7 +222,8 @@ export class MatchesService {
 
         // Check if positions changed for existing players
         let positionsChanged = false;
-        for (let i = 0; i < 4; i++) {
+        const playerCount = newPlayerIds.length;
+        for (let i = 0; i < playerCount; i++) {
           const currentPositionPlayer = currentMatchPlayers.find(
             (mp) => mp.position === i
           )?.playerId;
@@ -242,7 +246,7 @@ export class MatchesService {
             },
           });
 
-          if (newPlayersCount !== 4) {
+          if (newPlayersCount !== newPlayerIds.length) {
             throw new BadRequestException(
               'One or more selected players provided do not exist in this session'
             );
@@ -454,9 +458,13 @@ export class MatchesService {
       );
     }
 
-    if (!playerIds || !Array.isArray(playerIds) || playerIds.length !== 4) {
+    if (
+      !playerIds ||
+      !Array.isArray(playerIds) ||
+      (playerIds.length !== 2 && playerIds.length !== 4)
+    ) {
       throw new BadRequestException(
-        'Exactly 4 players are required to start a match'
+        'Either 2 players (singles) or 4 players (doubles) are required to start a match'
       );
     }
 
@@ -481,7 +489,7 @@ export class MatchesService {
       },
     });
 
-    if (players.length !== 4) {
+    if (players.length !== playerIds.length) {
       throw new BadRequestException(
         'One or more selected players are not available'
       );

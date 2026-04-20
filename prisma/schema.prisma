@@ -169,6 +169,7 @@ model Session {
   requiredLevels Int[] @default([]) // Array of level IDs (1-7)
 
   courtColor         String  @default("#179a3b")
+  defaultMatchType   MatchType @default(DOUBLES) // Default match type for courts in this session
   coverPhoto         String? // Cloudinary URL for session cover photo
   coverPhotoPublicId String? // Cloudinary public ID for cover photo
   images             String[] @default([]) // Additional session images (max 5)
@@ -402,6 +403,11 @@ enum CourtStatus {
 enum CourtDirection {
   HORIZONTAL
   VERTICAL
+}
+
+enum MatchType {
+  SINGLES
+  DOUBLES
 }
 
 // ... existing enums ...

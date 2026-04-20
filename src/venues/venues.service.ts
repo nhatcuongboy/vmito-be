@@ -63,13 +63,18 @@ export class VenuesService {
 
     // Keyword search (name OR address)
     if (keyword) {
+      const normalizedKeyword = removeVietnameseTones(keyword).toLowerCase();
+      const tokens = normalizedKeyword.split(/\s+/).filter(Boolean);
+
       andConditions.push({
         OR: [
           {
-            searchTerms: {
-              contains: removeVietnameseTones(keyword).toLowerCase(),
-              mode: 'insensitive',
-            },
+            AND: tokens.map((token) => ({
+              searchTerms: {
+                contains: token,
+                mode: 'insensitive',
+              },
+            })),
           },
           { name: { contains: keyword, mode: 'insensitive' } },
           { address: { contains: keyword, mode: 'insensitive' } },
