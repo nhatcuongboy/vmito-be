@@ -4,11 +4,42 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateVenueDto } from './dto/create-venue.dto';
 import { UpdateVenueDto } from './dto/update-venue.dto';
 import { SearchVenueDto } from './dto/search-venue.dto';
-import { removeVietnameseTones } from '../common/utils/string.utils';
+import {
+  removeVietnameseTones,
+  generateSlug,
+} from '../common/utils/string.utils';
 
 @Injectable()
 export class VenuesService {
   constructor(private prisma: PrismaService) {}
+
+  /**
+   * Generate a unique venue slug from the venue name.
+   * Prepends "Sân cầu lông" since raw venue names don't include it.
+   * Format: "san-cau-long-" + generateSlug(name) + "-" + random5chars
+   * If a collision occurs, regenerate with a new random suffix.
+   */
+  private async generateUniqueSlug(name: string): Promise<string> {
+    const base = generateSlug(`Sân cầu lông ${name}`);
+    let slug = base;
+    let attempts = 0;
+    
+    while (attempts < 10) {
+      const existing = await this.prisma.venue.findUnique({
+        where: { slug },
+      });
+      
+      if (!existing) {
+        return slug;
+      }
+      
+      // Collision detected, append random suffix
+      slug = `${base}-${Math.random().toString(36).substring(2, 7)}`;
+      attempts++;
+    }
+    
+    return slug;
+  }
 
   async searchVenues(filters: SearchVenueDto) {
     const {
@@ -187,9 +218,12 @@ export class VenuesService {
     };
   }
 
-  async findOne(id: string) {
-    return this.prisma.venue.findUnique({
-      where: { id },
+  async findOne(idOrSlug: string) {
+    // Try by id first, then by slug
+    return this.prisma.venue.findFirst({
+      where: {
+        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
+      },
     });
   }
 
@@ -200,9 +234,13 @@ export class VenuesService {
     const city = createVenueDto.city
       ? this.normalizeAdminUnit(createVenueDto.city)
       : createVenueDto.city;
+
+    const slug = await this.generateUniqueSlug(createVenueDto.name);
+
     return this.prisma.venue.create({
       data: {
         ...createVenueDto,
+        slug,
         district,
         city,
         searchTerms: removeVietnameseTones(
@@ -213,7 +251,9 @@ export class VenuesService {
   }
 
   async createBulk(createBulkVenueDto: { venues: CreateVenueDto[] }) {
-    const venuesData = createBulkVenueDto.venues.map((venue) => {
+    // For bulk creation, generate slugs individually to ensure uniqueness
+    const results: Awaited<ReturnType<typeof this.prisma.venue.create>>[] = [];
+    for (const venue of createBulkVenueDto.venues) {
       const district = venue.district
         ? this.normalizeAdminUnit(venue.district)
         : venue.district;
@@ -221,24 +261,29 @@ export class VenuesService {
         ? this.normalizeAdminUnit(venue.city)
         : venue.city;
 
-      return {
-        ...venue,
-        district,
-        city,
-        searchTerms: removeVietnameseTones(
-          `${venue.name} ${venue.address} ${district || ''} ${city || ''}`
-        ).toLowerCase(),
-      };
-    });
+      const slug = await this.generateUniqueSlug(venue.name);
 
-    const result = await this.prisma.venue.createMany({
-      data: venuesData,
-      skipDuplicates: true, // This ignores venues with duplicate placeId
-    });
+      try {
+        const created = await this.prisma.venue.create({
+          data: {
+            ...venue,
+            slug,
+            district,
+            city,
+            searchTerms: removeVietnameseTones(
+              `${venue.name} ${venue.address} ${district || ''} ${city || ''}`
+            ).toLowerCase(),
+          },
+        });
+        results.push(created);
+      } catch (_err) {
+        // Skip duplicates (e.g. duplicate placeId)
+      }
+    }
 
     return {
       message: 'Bulk created successfully',
-      count: result.count,
+      count: results.length,
     };
   }
 
@@ -270,6 +315,32 @@ export class VenuesService {
     return this.prisma.venue.delete({
       where: { id },
     });
+  }
+
+  /**
+   * Backfill slugs for existing venues that don't have a slug.
+   * This is an admin-only one-time operation.
+   */
+  async backfillSlugs() {
+    const venues = await this.prisma.venue.findMany({
+      where: { slug: null },
+      select: { id: true, name: true },
+    });
+
+    let updated = 0;
+    for (const venue of venues) {
+      const slug = await this.generateUniqueSlug(venue.name);
+      await this.prisma.venue.update({
+        where: { id: venue.id },
+        data: { slug },
+      });
+      updated++;
+    }
+
+    return {
+      message: `Backfilled ${updated} venue slugs`,
+      count: updated,
+    };
   }
 
   /**

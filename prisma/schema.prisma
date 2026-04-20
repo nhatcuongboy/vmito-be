@@ -195,6 +195,7 @@ model Session {
 
 model Venue {
   id               String       @id @default(cuid())
+  slug             String?      @unique
   placeId          String       @unique // Google Place ID
   name             String
   description      String? // Venue description

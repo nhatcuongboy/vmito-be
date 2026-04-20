@@ -2,10 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import {
-  SessionsGateway,
-  SessionEventType,
-} from './sessions.gateway';
+import { SessionsGateway, SessionEventType } from './sessions.gateway';
 import { SessionsService } from './sessions.service';
 
 @Injectable()
@@ -16,7 +13,7 @@ export class SessionSchedulerService {
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
     private readonly sessionsGateway: SessionsGateway,
-    private readonly sessionsService: SessionsService,
+    private readonly sessionsService: SessionsService
   ) {}
 
   /**
@@ -52,12 +49,16 @@ export class SessionSchedulerService {
         },
         include: {
           host: { select: { id: true, name: true } },
+          players: {
+            where: { registrationStatus: 'APPROVED', userId: { not: null } },
+            select: { id: true, userId: true, name: true },
+          },
         },
       });
 
       for (const session of sessions) {
         this.logger.log(
-          `[StartReminder] Sending start reminder for session "${session.name}" (${session.id}) to host ${session.hostId}`,
+          `[StartReminder] Sending start reminder for session "${session.name}" (${session.id}) to host ${session.hostId} and ${session.players.length} player(s)`
         );
 
         // Mark reminder as sent
@@ -72,20 +73,41 @@ export class SessionSchedulerService {
           'SESSION',
           'Session is ready to start',
           `It's time for "${session.name}". Are you at the court? Tap to start the session.`,
-          { sessionId: session.id, action: 'start_reminder' },
+          {
+            sessionId: session.id,
+            sessionName: session.name,
+            action: 'start_reminder',
+          }
         );
+
+        // Create in-app notification for all approved players
+        for (const player of session.players) {
+          if (player.userId) {
+            await this.notificationsService.createForUser(
+              player.userId,
+              'SESSION',
+              'Session is starting soon',
+              `"${session.name}" is about to start. Head to the court!`,
+              {
+                sessionId: session.id,
+                sessionName: session.name,
+                action: 'player_start_reminder',
+              }
+            );
+          }
+        }
 
         // Emit socket event to host
         this.sessionsGateway.notifyUser(
           session.hostId,
           SessionEventType.SESSION_START_REMINDER,
-          { sessionId: session.id, sessionName: session.name },
+          { sessionId: session.id, sessionName: session.name }
         );
       }
 
       if (sessions.length > 0) {
         this.logger.log(
-          `[StartReminder] Sent ${sessions.length} start reminder(s)`,
+          `[StartReminder] Sent ${sessions.length} start reminder(s)`
         );
       }
     } catch (error) {
@@ -118,7 +140,7 @@ export class SessionSchedulerService {
 
       for (const session of sessions) {
         this.logger.log(
-          `[AutoCancel] Auto-cancelling session "${session.name}" (${session.id}) - 30 min past start time`,
+          `[AutoCancel] Auto-cancelling session "${session.name}" (${session.id}) - 30 min past start time`
         );
 
         // Update session status to CANCELLED
@@ -136,7 +158,11 @@ export class SessionSchedulerService {
           'SESSION',
           'Session auto-cancelled',
           `"${session.name}" has been automatically cancelled because it was not started within 30 minutes of the scheduled time.`,
-          { sessionId: session.id, action: 'auto_cancelled' },
+          {
+            sessionId: session.id,
+            sessionName: session.name,
+            action: 'auto_cancelled',
+          }
         );
 
         // Notify all joined players
@@ -147,7 +173,11 @@ export class SessionSchedulerService {
               'SESSION',
               'Session cancelled',
               `"${session.name}" has been cancelled by the system. The host did not start the session on time.`,
-              { sessionId: session.id, action: 'session_cancelled' },
+              {
+                sessionId: session.id,
+                sessionName: session.name,
+                action: 'session_cancelled',
+              }
             );
           }
         }
@@ -156,7 +186,7 @@ export class SessionSchedulerService {
         this.sessionsGateway.notifyEvent(
           session.id,
           SessionEventType.SESSION_CANCELLED,
-          { sessionId: session.id, sessionName: session.name },
+          { sessionId: session.id, sessionName: session.name }
         );
 
         // Also notify via session update for UI refresh
@@ -165,7 +195,7 @@ export class SessionSchedulerService {
 
       if (sessions.length > 0) {
         this.logger.log(
-          `[AutoCancel] Auto-cancelled ${sessions.length} session(s)`,
+          `[AutoCancel] Auto-cancelled ${sessions.length} session(s)`
         );
       }
     } catch (error) {
@@ -194,7 +224,7 @@ export class SessionSchedulerService {
 
       for (const session of sessions) {
         this.logger.log(
-          `[EndWarning] Sending end warning for session "${session.name}" (${session.id})`,
+          `[EndWarning] Sending end warning for session "${session.name}" (${session.id})`
         );
 
         // Mark warning as sent
@@ -208,22 +238,24 @@ export class SessionSchedulerService {
           session.hostId,
           'SESSION',
           'Session ending soon',
-          `"${session.name}" is ending in about 15 minutes. Would you like to extend it?`,
-          { sessionId: session.id, action: 'end_warning' },
+          `"${session.name}" is ending in about 15 minutes.`,
+          {
+            sessionId: session.id,
+            sessionName: session.name,
+            action: 'end_warning',
+          }
         );
 
         // Emit socket event to host
         this.sessionsGateway.notifyUser(
           session.hostId,
           SessionEventType.SESSION_END_WARNING,
-          { sessionId: session.id, sessionName: session.name },
+          { sessionId: session.id, sessionName: session.name }
         );
       }
 
       if (sessions.length > 0) {
-        this.logger.log(
-          `[EndWarning] Sent ${sessions.length} end warning(s)`,
-        );
+        this.logger.log(`[EndWarning] Sent ${sessions.length} end warning(s)`);
       }
     } catch (error) {
       this.logger.error('[EndWarning] Error sending end warnings', error);
@@ -249,7 +281,7 @@ export class SessionSchedulerService {
 
       for (const session of sessions) {
         this.logger.log(
-          `[AutoFinalize] Auto-finalizing session "${session.name}" (${session.id}) - grace period expired`,
+          `[AutoFinalize] Auto-finalizing session "${session.name}" (${session.id}) - grace period expired`
         );
 
         try {
@@ -262,26 +294,27 @@ export class SessionSchedulerService {
             'SESSION',
             'Session auto-finalized',
             `"${session.name}" has been automatically finalized because the grace period expired.`,
-            { sessionId: session.id, action: 'auto_finalized' },
+            {
+              sessionId: session.id,
+              sessionName: session.name,
+              action: 'auto_finalized',
+            }
           );
         } catch (error) {
           this.logger.error(
             `[AutoFinalize] Failed to finalize session ${session.id}`,
-            error,
+            error
           );
         }
       }
 
       if (sessions.length > 0) {
         this.logger.log(
-          `[AutoFinalize] Auto-finalized ${sessions.length} session(s)`,
+          `[AutoFinalize] Auto-finalized ${sessions.length} session(s)`
         );
       }
     } catch (error) {
-      this.logger.error(
-        '[AutoFinalize] Error auto-finalizing sessions',
-        error,
-      );
+      this.logger.error('[AutoFinalize] Error auto-finalizing sessions', error);
     }
   }
 }
