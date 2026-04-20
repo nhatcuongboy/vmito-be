@@ -21,16 +21,23 @@ export class VenuesService {
    */
   private async generateUniqueSlug(name: string): Promise<string> {
     const base = generateSlug(`Sân cầu lông ${name}`);
-    let slug = `${base}-${Math.random().toString(36).substring(2, 7)}`;
+    let slug = base;
     let attempts = 0;
-    do {
-      slug = `${base}-${Math.random().toString(36).substring(2, 7)}`;
+    
+    while (attempts < 10) {
       const existing = await this.prisma.venue.findUnique({
         where: { slug },
       });
-      if (!existing) break;
+      
+      if (!existing) {
+        return slug;
+      }
+      
+      // Collision detected, append random suffix
+      slug = `${base}-${Math.random().toString(36).substring(2, 7)}`;
       attempts++;
-    } while (attempts < 10);
+    }
+    
     return slug;
   }
 
