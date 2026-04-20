@@ -48,7 +48,6 @@ export class VenuesController {
   }
 
   @Post()
-  @UseGuards(AdminGuard)
   create(@Body() createVenueDto: CreateVenueDto) {
     return this.venuesService.create(createVenueDto);
   }
