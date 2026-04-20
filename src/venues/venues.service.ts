@@ -21,11 +21,10 @@ export class VenuesService {
    */
   private async generateUniqueSlug(name: string): Promise<string> {
     const base = generateSlug(`Sân cầu lông ${name}`);
-    let slug: string;
+    let slug = `${base}-${Math.random().toString(36).substring(2, 7)}`;
     let attempts = 0;
     do {
-      const suffix = Math.random().toString(36).substring(2, 7);
-      slug = `${base}-${suffix}`;
+      slug = `${base}-${Math.random().toString(36).substring(2, 7)}`;
       const existing = await this.prisma.venue.findUnique({
         where: { slug },
       });
@@ -246,7 +245,7 @@ export class VenuesService {
 
   async createBulk(createBulkVenueDto: { venues: CreateVenueDto[] }) {
     // For bulk creation, generate slugs individually to ensure uniqueness
-    const results = [];
+    const results: Awaited<ReturnType<typeof this.prisma.venue.create>>[] = [];
     for (const venue of createBulkVenueDto.venues) {
       const district = venue.district
         ? this.normalizeAdminUnit(venue.district)
@@ -270,7 +269,7 @@ export class VenuesService {
           },
         });
         results.push(created);
-      } catch {
+      } catch (_err) {
         // Skip duplicates (e.g. duplicate placeId)
       }
     }
