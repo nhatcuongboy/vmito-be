@@ -27,6 +27,8 @@ export interface IZaloProfile {
   zaloId: string;
   name: string;
   image?: string;
+  email?: string;
+  phone?: string;
 }
 
 interface UserWithoutPassword {
@@ -293,27 +295,38 @@ export class AuthService {
     });
 
     if (existingAccount?.user) {
+      // Update user info if new data is available
+      const updateData: any = {};
       if (!existingAccount.user.image && profile.image) {
+        updateData.image = profile.image;
+      }
+      if (!existingAccount.user.phone && profile.phone) {
+        updateData.phone = profile.phone;
+      }
+
+      if (Object.keys(updateData).length > 0) {
         return this.prisma.user.update({
           where: { id: existingAccount.user.id },
-          data: { image: profile.image },
+          data: updateData,
         });
       }
       return existingAccount.user;
     }
 
-    const fallbackEmail = `zalo_${profile.zaloId}@zalo.vmito.local`;
+    // Use Zalo email if provided, otherwise generate fallback email
+    const email = profile.email || `zalo_${profile.zaloId}@zalo.vmito.local`;
 
     let user = await this.prisma.user.findUnique({
-      where: { email: fallbackEmail },
+      where: { email },
     });
 
     if (!user) {
       user = await this.prisma.user.create({
         data: {
-          email: fallbackEmail,
+          email,
           name: profile.name,
           image: profile.image,
+          phone: profile.phone,
           role: 'PLAYER',
           emailVerified: new Date(),
         },

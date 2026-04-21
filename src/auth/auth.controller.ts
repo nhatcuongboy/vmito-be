@@ -42,6 +42,7 @@ interface IZaloCallbackUser {
   name: string;
   role: string;
   image?: string;
+  phone?: string;
   locale?: string;
   returnUrl?: string;
 }
@@ -193,6 +194,8 @@ export class AuthController {
       zaloId: zaloProfile.zaloId,
       name: zaloProfile.name,
       image: zaloProfile.image,
+      email: zaloProfile.email,
+      phone: zaloProfile.phone,
     });
 
     const callbackUser: IZaloCallbackUser = {
@@ -201,6 +204,7 @@ export class AuthController {
       name: user.name,
       role: user.role,
       ...(user.image ? { image: user.image } : {}),
+      ...(user.phone ? { phone: user.phone } : {}),
       locale: zaloProfile.locale,
       ...(zaloProfile.returnUrl ? { returnUrl: zaloProfile.returnUrl } : {}),
     };
@@ -215,7 +219,7 @@ export class AuthController {
     const locale = callbackUser.locale || 'en';
     const returnUrl = callbackUser.returnUrl;
 
-    let callbackUrl = `${frontendUrl}/${locale}/auth/callback?token=${tokenData.accessToken}&refreshToken=${tokenData.refreshToken}&userId=${callbackUser.id}&email=${encodeURIComponent(callbackUser.email)}&name=${encodeURIComponent(callbackUser.name || '')}&role=${callbackUser.role}${callbackUser.image ? `&image=${encodeURIComponent(callbackUser.image)}` : ''}`;
+    let callbackUrl = `${frontendUrl}/${locale}/auth/callback?token=${tokenData.accessToken}&refreshToken=${tokenData.refreshToken}&userId=${callbackUser.id}&email=${encodeURIComponent(callbackUser.email)}&name=${encodeURIComponent(callbackUser.name || '')}&role=${callbackUser.role}${callbackUser.image ? `&image=${encodeURIComponent(callbackUser.image)}` : ''}${callbackUser.phone ? `&phone=${encodeURIComponent(callbackUser.phone)}` : ''}`;
 
     if (returnUrl) {
       callbackUrl += `&returnUrl=${encodeURIComponent(returnUrl)}`;

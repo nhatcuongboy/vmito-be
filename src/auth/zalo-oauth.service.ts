@@ -21,6 +21,8 @@ interface IZaloTokenResponse {
 interface IZaloProfileResponse {
   id?: string;
   name?: string;
+  email?: string;
+  phone?: string;
   picture?: {
     data?: {
       url?: string;
@@ -36,6 +38,8 @@ interface IZaloCallbackResult {
   zaloId: string;
   name: string;
   image?: string;
+  email?: string;
+  phone?: string;
 }
 
 @Injectable()
@@ -53,6 +57,19 @@ export class ZaloOAuthService {
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
       .replace(/=+$/g, '');
+  }
+
+  private base64UrlDecode(input: string): string {
+    try {
+      // Restore padding if needed
+      const padding = (4 - (input.length % 4)) % 4;
+      const padded = input + '='.repeat(padding);
+      // Restore original Base64 characters
+      const base64 = padded.replace(/-/g, '+').replace(/_/g, '/');
+      return Buffer.from(base64, 'base64').toString('utf-8');
+    } catch {
+      throw new UnauthorizedException('Invalid state encoding');
+    }
   }
 
   private cleanupExpiredVerifiers(): void {
@@ -80,7 +97,9 @@ export class ZaloOAuthService {
 
     let parsed: Partial<IZaloStatePayload>;
     try {
-      parsed = JSON.parse(state) as Partial<IZaloStatePayload>;
+      // Decode from Base64 first, then parse JSON
+      const decodedState = this.base64UrlDecode(state);
+      parsed = JSON.parse(decodedState) as Partial<IZaloStatePayload>;
     } catch {
       throw new UnauthorizedException('Invalid OAuth state');
     }
@@ -121,10 +140,14 @@ export class ZaloOAuthService {
       ...(returnUrl ? { returnUrl } : {}),
     };
 
+    // Base64 URL-encode the state to avoid special characters being stripped by Zalo
+    const stateJson = JSON.stringify(statePayload);
+    const stateEncoded = this.base64UrlEncode(Buffer.from(stateJson, 'utf-8'));
+
     const params = new URLSearchParams({
       app_id: appId,
       redirect_uri: callbackURL,
-      state: JSON.stringify(statePayload),
+      state: stateEncoded,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
     });
@@ -184,7 +207,7 @@ export class ZaloOAuthService {
     }
 
     const profileParams = new URLSearchParams({
-      fields: 'id,name,picture',
+      fields: 'id,name,picture,email,phone',
       access_token: accessToken,
     });
 
@@ -207,6 +230,8 @@ export class ZaloOAuthService {
       zaloId: profile.id,
       name: profile.name || `Zalo User ${profile.id.slice(-6)}`,
       image: profile.picture?.data?.url,
+      email: profile.email,
+      phone: profile.phone,
     };
   }
 }
