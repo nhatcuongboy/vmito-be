@@ -147,12 +147,14 @@ export class VenuesService {
     const where: Prisma.VenueWhereInput =
       andConditions.length > 0 ? { AND: andConditions } : {};
 
+    const isRelevanceSort = sortBy === 'relevance' && !!keyword;
+
     const [venues, total] = await Promise.all([
       this.prisma.venue.findMany({
         where,
-        skip,
-        take: limit,
-        orderBy: this.buildOrderBy(sortBy, sortOrder),
+        skip: isRelevanceSort ? undefined : skip,
+        take: isRelevanceSort ? undefined : limit,
+        orderBy: isRelevanceSort ? undefined : this.buildOrderBy(sortBy, sortOrder),
       }),
       this.prisma.venue.count({ where }),
     ]);
@@ -185,15 +187,43 @@ export class VenuesService {
       });
     }
 
+    const finalTotal = radius !== undefined ? result.length : total;
+
+    if (isRelevanceSort) {
+      const lowerKeyword = keyword.toLowerCase();
+      result.sort((a, b) => {
+        const aName = a.name.toLowerCase();
+        const bName = b.name.toLowerCase();
+        
+        // Exact match
+        const aExact = aName === lowerKeyword ? 1 : 0;
+        const bExact = bName === lowerKeyword ? 1 : 0;
+        if (aExact !== bExact) return bExact - aExact;
+
+        // Starts with
+        const aStarts = aName.startsWith(lowerKeyword) ? 1 : 0;
+        const bStarts = bName.startsWith(lowerKeyword) ? 1 : 0;
+        if (aStarts !== bStarts) return bStarts - aStarts;
+
+        // Contains
+        const aContains = aName.includes(lowerKeyword) ? 1 : 0;
+        const bContains = bName.includes(lowerKeyword) ? 1 : 0;
+        if (aContains !== bContains) return bContains - aContains;
+
+        // Fallback to name A-Z
+        return aName.localeCompare(bName);
+      });
+      // Apply pagination in JS
+      result = result.slice(skip, skip + limit);
+    }
+
     return {
       data: result,
       pagination: {
         page,
         limit,
-        total: radius !== undefined ? result.length : total,
-        totalPages: Math.ceil(
-          (radius !== undefined ? result.length : total) / limit
-        ),
+        total: finalTotal,
+        totalPages: Math.ceil(finalTotal / limit),
       },
     };
   }

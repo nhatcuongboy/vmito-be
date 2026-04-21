@@ -872,8 +872,10 @@ model Club {
   isPublic       Boolean        @default(false)
   joinPolicy     ClubJoinPolicy @default(APPROVAL_REQUIRED)
   maxMembers     Int?
-  image          String? // Cloudinary URL for club image
-  imagePublicId  String? // Cloudinary public ID
+  image          String? // Cloudinary URL for club image (primary/cover)
+  imagePublicId  String? // Cloudinary public ID (primary/cover)
+  images             String[] @default([]) // Multiple images functionality
+  imagePublicIds     String[] @default([]) // Multiple image public IDs
   location       String? // Primary location/venue
   defaultVenueId String? // Link to default venue
 

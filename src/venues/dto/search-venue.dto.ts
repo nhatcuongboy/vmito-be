@@ -89,6 +89,7 @@ export class SearchVenueDto {
       'distance',
       'numberOfCourts',
       'hourlyRateFixed',
+      'relevance',
     ],
     default: 'name',
   })
@@ -99,7 +100,8 @@ export class SearchVenueDto {
     | 'createdAt'
     | 'distance'
     | 'numberOfCourts'
-    | 'hourlyRateFixed' = 'name';
+    | 'hourlyRateFixed'
+    | 'relevance' = 'name';
 
   @ApiProperty({ required: false, enum: ['asc', 'desc'], default: 'asc' })
   @IsOptional()
