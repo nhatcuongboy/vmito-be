@@ -23,6 +23,14 @@ export interface GoogleProfile {
   image?: string;
 }
 
+export interface IZaloProfile {
+  zaloId: string;
+  name: string;
+  image?: string;
+  email?: string;
+  phone?: string;
+}
+
 interface UserWithoutPassword {
   id: string;
   email: string;
@@ -264,6 +272,82 @@ export class AuthService {
         image: profile.image,
         role: 'PLAYER',
         emailVerified: new Date(), // Google emails are verified
+      },
+    });
+
+    return user;
+  }
+
+  /**
+   * Find or create a user from Zalo OAuth profile
+   */
+  async findOrCreateZaloUser(profile: IZaloProfile) {
+    const existingAccount = await this.prisma.account.findUnique({
+      where: {
+        provider_providerAccountId: {
+          provider: 'zalo',
+          providerAccountId: profile.zaloId,
+        },
+      },
+      include: {
+        user: true,
+      },
+    });
+
+    if (existingAccount?.user) {
+      // Update user info if new data is available
+      const updateData: any = {};
+      if (!existingAccount.user.image && profile.image) {
+        updateData.image = profile.image;
+      }
+      if (!existingAccount.user.phone && profile.phone) {
+        updateData.phone = profile.phone;
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        return this.prisma.user.update({
+          where: { id: existingAccount.user.id },
+          data: updateData,
+        });
+      }
+      return existingAccount.user;
+    }
+
+    // Use Zalo email if provided, otherwise generate fallback email
+    const email = profile.email || `zalo_${profile.zaloId}@zalo.vmito.local`;
+
+    let user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      user = await this.prisma.user.create({
+        data: {
+          email,
+          name: profile.name,
+          image: profile.image,
+          phone: profile.phone,
+          role: 'PLAYER',
+          emailVerified: new Date(),
+        },
+      });
+    }
+
+    await this.prisma.account.upsert({
+      where: {
+        provider_providerAccountId: {
+          provider: 'zalo',
+          providerAccountId: profile.zaloId,
+        },
+      },
+      create: {
+        userId: user.id,
+        type: 'oauth',
+        provider: 'zalo',
+        providerAccountId: profile.zaloId,
+      },
+      update: {
+        userId: user.id,
       },
     });
 

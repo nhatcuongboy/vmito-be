@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -25,6 +26,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AdminGuard } from './guards/admin.guard';
+import { ZaloOAuthService } from './zalo-oauth.service';
 
 interface GoogleUser {
   id: string;
@@ -34,12 +36,24 @@ interface GoogleUser {
   image?: string;
 }
 
+interface IZaloCallbackUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  image?: string;
+  phone?: string;
+  locale?: string;
+  returnUrl?: string;
+}
+
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
-    private readonly configService: ConfigService
+    private readonly configService: ConfigService,
+    private readonly zaloOAuthService: ZaloOAuthService
   ) {}
 
   @Public()
@@ -131,6 +145,82 @@ export class AuthController {
     let callbackUrl = `${frontendUrl}/${locale}/auth/callback?token=${tokenData.accessToken}&refreshToken=${tokenData.refreshToken}&userId=${user.id}&email=${encodeURIComponent(user.email)}&name=${encodeURIComponent(user.name || '')}&role=${user.role}${user.image ? `&image=${encodeURIComponent(user.image)}` : ''}`;
 
     // Add returnUrl if present
+    if (returnUrl) {
+      callbackUrl += `&returnUrl=${encodeURIComponent(returnUrl)}`;
+    }
+
+    res.redirect(callbackUrl);
+  }
+
+  /**
+   * Initiate Zalo OAuth v4 flow
+   */
+  @Public()
+  @Get('zalo')
+  zaloLogin(
+    @Req() req: { query: { locale?: string; returnUrl?: string } },
+    @Res() res: Response
+  ) {
+    const locale = req.query.locale || 'en';
+    const returnUrl = req.query.returnUrl;
+    const authorizationUrl = this.zaloOAuthService.getAuthorizationUrl(
+      locale,
+      returnUrl
+    );
+
+    res.redirect(authorizationUrl);
+  }
+
+  /**
+   * Handle Zalo OAuth callback
+   */
+  @Public()
+  @Get('zalo/callback')
+  async zaloCallback(
+    @Req() req: { query: { code?: string; state?: string } },
+    @Res() res: Response
+  ) {
+    const code = req.query.code;
+    if (!code) {
+      throw new BadRequestException('Missing Zalo authorization code');
+    }
+
+    const zaloProfile = await this.zaloOAuthService.exchangeCodeAndGetProfile(
+      code,
+      req.query.state
+    );
+
+    const user = await this.authService.findOrCreateZaloUser({
+      zaloId: zaloProfile.zaloId,
+      name: zaloProfile.name,
+      image: zaloProfile.image,
+      email: zaloProfile.email,
+      phone: zaloProfile.phone,
+    });
+
+    const callbackUser: IZaloCallbackUser = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      ...(user.image ? { image: user.image } : {}),
+      ...(user.phone ? { phone: user.phone } : {}),
+      locale: zaloProfile.locale,
+      ...(zaloProfile.returnUrl ? { returnUrl: zaloProfile.returnUrl } : {}),
+    };
+
+    const tokenData = await this.authService.generateTokenForUser({
+      id: callbackUser.id,
+      email: callbackUser.email,
+      role: callbackUser.role,
+    });
+
+    const frontendUrl = this.configService.get<string>('frontendUrl');
+    const locale = callbackUser.locale || 'en';
+    const returnUrl = callbackUser.returnUrl;
+
+    let callbackUrl = `${frontendUrl}/${locale}/auth/callback?token=${tokenData.accessToken}&refreshToken=${tokenData.refreshToken}&userId=${callbackUser.id}&email=${encodeURIComponent(callbackUser.email)}&name=${encodeURIComponent(callbackUser.name || '')}&role=${callbackUser.role}${callbackUser.image ? `&image=${encodeURIComponent(callbackUser.image)}` : ''}${callbackUser.phone ? `&phone=${encodeURIComponent(callbackUser.phone)}` : ''}`;
+
     if (returnUrl) {
       callbackUrl += `&returnUrl=${encodeURIComponent(returnUrl)}`;
     }

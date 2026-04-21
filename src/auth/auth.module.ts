@@ -9,6 +9,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { RolesGuard } from './guards/roles.guard';
 import { PrismaModule } from '../prisma/prisma.module';
+import { ZaloOAuthService } from './zalo-oauth.service';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     JwtStrategy,
     LocalStrategy,
     GoogleStrategy,
+    ZaloOAuthService,
     RolesGuard,
   ],
   exports: [AuthService, RolesGuard],
