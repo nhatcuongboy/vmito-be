@@ -125,7 +125,7 @@ export class ClubsController {
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
   @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async getClub(@Param('id') clubId: string, @CurrentUser() user: JwtUser) {
-    return this.clubsService.getClub(clubId, user.userId);
+    return this.clubsService.getClub(clubId, user.userId, user.role);
   }
 
   @Put(':id')
@@ -136,14 +136,14 @@ export class ClubsController {
     @CurrentUser() user: JwtUser,
     @Body() dto: UpdateClubDto
   ) {
-    return this.clubsService.updateClub(clubId, user.userId, dto);
+    return this.clubsService.updateClub(clubId, user.userId, user.role, dto);
   }
 
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
   @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async deleteClub(@Param('id') clubId: string, @CurrentUser() user: JwtUser) {
-    return this.clubsService.deleteClub(clubId, user.userId);
+    return this.clubsService.deleteClub(clubId, user.userId, user.role);
   }
 
   // ===========================================

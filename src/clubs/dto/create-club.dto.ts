@@ -87,6 +87,16 @@ export class CreateClubDto {
 
   @IsOptional()
   @IsArray()
+  @IsString({ each: true })
+  images?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  imagePublicIds?: string[];
+
+  @IsOptional()
+  @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ClubScheduleDto)
   schedules?: ClubScheduleDto[];

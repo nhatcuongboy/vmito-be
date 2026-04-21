@@ -579,9 +579,27 @@ export class ClubsService {
   /**
    * Get a single club by ID for management
    */
-  async getClub(clubId: string, hostId: string) {
+  async getClub(clubId: string, userId: string, userRole?: Role) {
     const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
+      where: {
+        id: clubId,
+        ...(userRole === Role.ADMIN
+          ? {}
+          : {
+              OR: [
+                { hostId: userId },
+                {
+                  members: {
+                    some: {
+                      userId: userId,
+                      role: MemberRole.ADMIN,
+                      status: MemberStatus.ACTIVE,
+                    },
+                  },
+                },
+              ],
+            }),
+      },
       include: {
         _count: {
           select: { members: true },
@@ -692,9 +710,27 @@ export class ClubsService {
   /**
    * Update a club
    */
-  async updateClub(clubId: string, hostId: string, dto: UpdateClubDto) {
+  async updateClub(clubId: string, userId: string, userRole: Role | undefined, dto: UpdateClubDto) {
     const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
+      where: {
+        id: clubId,
+        ...(userRole === Role.ADMIN
+          ? {}
+          : {
+              OR: [
+                { hostId: userId },
+                {
+                  members: {
+                    some: {
+                      userId: userId,
+                      role: MemberRole.ADMIN,
+                      status: MemberStatus.ACTIVE,
+                    },
+                  },
+                },
+              ],
+            }),
+      },
     });
 
     if (!club) {
@@ -705,7 +741,7 @@ export class ClubsService {
     if (dto.name && dto.name !== club.name) {
       const existing = await this.prisma.club.findUnique({
         where: {
-          hostId_name: { hostId, name: dto.name },
+          hostId_name: { hostId: club.hostId, name: dto.name },
         },
       });
 
@@ -791,9 +827,27 @@ export class ClubsService {
   /**
    * Delete a club
    */
-  async deleteClub(clubId: string, hostId: string) {
+  async deleteClub(clubId: string, userId: string, userRole?: Role) {
     const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
+      where: {
+        id: clubId,
+        ...(userRole === Role.ADMIN
+          ? {}
+          : {
+              OR: [
+                { hostId: userId },
+                {
+                  members: {
+                    some: {
+                      userId: userId,
+                      role: MemberRole.ADMIN,
+                      status: MemberStatus.ACTIVE,
+                    },
+                  },
+                },
+              ],
+            }),
+      },
       include: {
         _count: {
           select: { members: true, players: true },
