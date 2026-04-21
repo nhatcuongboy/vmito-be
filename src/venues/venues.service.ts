@@ -23,21 +23,21 @@ export class VenuesService {
     const base = generateSlug(`Sân cầu lông ${name}`);
     let slug = base;
     let attempts = 0;
-    
+
     while (attempts < 10) {
       const existing = await this.prisma.venue.findUnique({
         where: { slug },
       });
-      
+
       if (!existing) {
         return slug;
       }
-      
+
       // Collision detected, append random suffix
       slug = `${base}-${Math.random().toString(36).substring(2, 7)}`;
       attempts++;
     }
-    
+
     return slug;
   }
 
@@ -78,6 +78,7 @@ export class VenuesService {
           },
           { name: { contains: keyword, mode: 'insensitive' } },
           { address: { contains: keyword, mode: 'insensitive' } },
+          { newAddress: { contains: keyword, mode: 'insensitive' } },
         ],
       });
     }
@@ -154,7 +155,9 @@ export class VenuesService {
         where,
         skip: isRelevanceSort ? undefined : skip,
         take: isRelevanceSort ? undefined : limit,
-        orderBy: isRelevanceSort ? undefined : this.buildOrderBy(sortBy, sortOrder),
+        orderBy: isRelevanceSort
+          ? undefined
+          : this.buildOrderBy(sortBy, sortOrder),
       }),
       this.prisma.venue.count({ where }),
     ]);
@@ -194,7 +197,7 @@ export class VenuesService {
       result.sort((a, b) => {
         const aName = a.name.toLowerCase();
         const bName = b.name.toLowerCase();
-        
+
         // Exact match
         const aExact = aName === lowerKeyword ? 1 : 0;
         const bExact = bName === lowerKeyword ? 1 : 0;
@@ -279,7 +282,7 @@ export class VenuesService {
         district,
         city,
         searchTerms: removeVietnameseTones(
-          `${createVenueDto.name} ${createVenueDto.address} ${district || ''} ${city || ''}`
+          `${createVenueDto.name} ${createVenueDto.address} ${district || ''} ${city || ''} ${createVenueDto.newAddress || ''} ${createVenueDto.newDistrict || ''} ${createVenueDto.newCity || ''}`
         ).toLowerCase(),
       },
     });
@@ -306,7 +309,7 @@ export class VenuesService {
             district,
             city,
             searchTerms: removeVietnameseTones(
-              `${venue.name} ${venue.address} ${district || ''} ${city || ''}`
+              `${venue.name} ${venue.address} ${district || ''} ${city || ''} ${venue.newAddress || ''} ${venue.newDistrict || ''} ${venue.newCity || ''}`
             ).toLowerCase(),
           },
         });
@@ -338,7 +341,7 @@ export class VenuesService {
         ...(updateVenueDto.name || updateVenueDto.address
           ? {
               searchTerms: removeVietnameseTones(
-                `${updateVenueDto.name || ''} ${updateVenueDto.address || ''} ${district || ''} ${city || ''}`
+                `${updateVenueDto.name || ''} ${updateVenueDto.address || ''} ${district || ''} ${city || ''} ${updateVenueDto.newAddress || ''} ${updateVenueDto.newDistrict || ''} ${updateVenueDto.newCity || ''}`
               ).toLowerCase(),
             }
           : {}),

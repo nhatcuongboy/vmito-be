@@ -206,6 +206,9 @@ model Venue {
   lng              Float?
   district         String?
   city             String?
+  newAddress       String? // New admin unit address (post Nghị quyết 60)
+  newDistrict      String? // New ward/district name
+  newCity          String? // New city/province name if changed
   isVerified       Boolean      @default(false)
   openingHours     String?
   numberOfCourts   Int?
