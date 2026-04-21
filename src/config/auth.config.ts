@@ -21,6 +21,13 @@ export default () => ({
         process.env.GOOGLE_CALLBACK_URL ||
         'http://localhost:3001/api/auth/google/callback',
     },
+    zalo: {
+      appId: process.env.ZALO_APP_ID,
+      secretKey: process.env.ZALO_SECRET_KEY,
+      callbackURL:
+        process.env.ZALO_CALLBACK_URL ||
+        'http://localhost:3001/api/auth/zalo/callback',
+    },
   },
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
 });
