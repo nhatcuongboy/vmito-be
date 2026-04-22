@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 
@@ -44,6 +44,8 @@ interface IZaloCallbackResult {
 
 @Injectable()
 export class ZaloOAuthService {
+  private readonly logger = new Logger(ZaloOAuthService.name);
+
   private readonly verifierStore = new Map<
     string,
     { codeVerifier: string; expiresAt: number }
@@ -88,6 +90,14 @@ export class ZaloOAuthService {
   private generateCodeChallenge(codeVerifier: string): string {
     const hash = crypto.createHash('sha256').update(codeVerifier).digest();
     return this.base64UrlEncode(hash);
+  }
+
+  private truncateForLog(value: string): string {
+    const MAX_LOG_LENGTH = 500;
+    if (value.length <= MAX_LOG_LENGTH) {
+      return value;
+    }
+    return `${value.slice(0, MAX_LOG_LENGTH)}...`;
   }
 
   private parseState(state?: string): IZaloStatePayload {
@@ -194,6 +204,11 @@ export class ZaloOAuthService {
     );
 
     if (!tokenResponse.ok) {
+      const rawTokenError = await tokenResponse.text();
+      this.logger.warn('Zalo token exchange returned non-OK response', {
+        status: tokenResponse.status,
+        body: this.truncateForLog(rawTokenError),
+      });
       throw new UnauthorizedException(
         'Failed to exchange Zalo authorization code'
       );
@@ -203,6 +218,12 @@ export class ZaloOAuthService {
     const accessToken = tokenData.access_token;
 
     if (!accessToken) {
+      this.logger.warn('Zalo token response missing access token', {
+        error: tokenData.error,
+        errorName: tokenData.error_name,
+        errorDescription: tokenData.error_description,
+        message: tokenData.message,
+      });
       throw new UnauthorizedException('Missing Zalo access token');
     }
 
@@ -216,11 +237,23 @@ export class ZaloOAuthService {
     );
 
     if (!profileResponse.ok) {
+      const rawProfileError = await profileResponse.text();
+      this.logger.warn('Zalo profile endpoint returned non-OK response', {
+        status: profileResponse.status,
+        body: this.truncateForLog(rawProfileError),
+      });
       throw new UnauthorizedException('Failed to fetch Zalo profile');
     }
 
     const profile = (await profileResponse.json()) as IZaloProfileResponse;
     if (!profile.id) {
+      this.logger.warn('Zalo profile response missing id', {
+        error: profile.error,
+        message: profile.message,
+        hasName: Boolean(profile.name),
+        hasEmail: Boolean(profile.email),
+        hasPhone: Boolean(profile.phone),
+      });
       throw new UnauthorizedException('Invalid Zalo profile response');
     }
 
