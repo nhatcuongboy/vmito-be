@@ -1188,6 +1188,27 @@ export class SessionsService {
     return session;
   }
 
+  async updateBulkStatus(sessionIds: string[], status: string) {
+    const allowedStatuses: SessionStatus[] = [
+      SessionStatus.PREPARING,
+      SessionStatus.IN_PROGRESS,
+      SessionStatus.FINISHED,
+      SessionStatus.CANCELLED,
+    ];
+    if (!allowedStatuses.includes(status as SessionStatus)) {
+      throw new BadRequestException('Invalid session status');
+    }
+
+    const { count } = await this.prisma.session.updateMany({
+      where: { id: { in: sessionIds } },
+      data: { status: status as SessionStatus },
+    });
+
+    sessionIds.forEach((id) => this.sessionsGateway.notifySessionUpdate(id));
+
+    return { count };
+  }
+
   async updateStatus(id: string, status: string) {
     const existingSession = await this.prisma.session.findUnique({
       where: { id },
@@ -1265,6 +1286,34 @@ export class SessionsService {
     this.sessionsGateway.notifySessionUpdate(id);
 
     return session;
+  }
+
+  async bulkDelete(sessionIds: string[], userId?: string, role?: string) {
+    if (!sessionIds || sessionIds.length === 0) {
+      return { count: 0 };
+    }
+
+    // If not admin, verify ownership of all sessions
+    if (role !== 'ADMIN') {
+      const notOwned = await this.prisma.session.count({
+        where: {
+          id: { in: sessionIds },
+          hostId: { not: userId },
+        },
+      });
+      if (notOwned > 0) {
+        throw new ForbiddenException(
+          'Not authorized to delete one or more sessions'
+        );
+      }
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.player.deleteMany({ where: { sessionId: { in: sessionIds } } });
+      await tx.session.deleteMany({ where: { id: { in: sessionIds } } });
+    });
+
+    return { count: sessionIds.length };
   }
 
   async remove(id: string, userId?: string, role?: string) {

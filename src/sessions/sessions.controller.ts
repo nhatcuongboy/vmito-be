@@ -181,6 +181,18 @@ export class SessionsController {
     );
   }
 
+  @Delete('bulk')
+  async bulkDelete(
+    @Body() body: { sessionIds: string[] },
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    return this.sessionsService.bulkDelete(
+      body.sessionIds,
+      user.userId,
+      user.role
+    );
+  }
+
   @Delete(':id')
   remove(
     @Param('id') id: string,
@@ -202,7 +214,7 @@ export class SessionsController {
   @Post(':id/cancel')
   cancel(
     @Param('id') id: string,
-    @CurrentUser() user: { userId: string; role: string },
+    @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.sessionsService.cancel(id, user.userId, user.role);
   }
@@ -210,6 +222,17 @@ export class SessionsController {
   @Get(':id/status')
   getStatus(@Param('id') id: string) {
     return this.sessionsService.getStatus(id);
+  }
+
+  @Patch('bulk/status')
+  updateBulkStatus(
+    @Body()
+    updateBulkStatusDto: import('./dto/update-bulk-status.dto').UpdateBulkStatusDto
+  ) {
+    return this.sessionsService.updateBulkStatus(
+      updateBulkStatusDto.sessionIds,
+      updateBulkStatusDto.status
+    );
   }
 
   @Patch(':id/status')

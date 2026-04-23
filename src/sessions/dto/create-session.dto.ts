@@ -48,6 +48,18 @@ export class VenueDto {
   @IsString()
   @IsOptional()
   city?: string;
+
+  @IsString()
+  @IsOptional()
+  newAddress?: string;
+
+  @IsString()
+  @IsOptional()
+  newDistrict?: string;
+
+  @IsString()
+  @IsOptional()
+  newCity?: string;
 }
 
 export class FeeConfigDto {
