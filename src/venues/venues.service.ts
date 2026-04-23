@@ -8,10 +8,14 @@ import {
   removeVietnameseTones,
   generateSlug,
 } from '../common/utils/string.utils';
+import { AddressMappingService } from './address-mapping.service';
 
 @Injectable()
 export class VenuesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private addressMapping: AddressMappingService
+  ) {}
 
   /**
    * Generate a unique venue slug from the venue name.
@@ -273,6 +277,23 @@ export class VenuesService {
       ? this.normalizeAdminUnit(createVenueDto.city)
       : createVenueDto.city;
 
+    // Auto-resolve new address from CSV mapping if not explicitly provided
+    let autoNewAddress = createVenueDto.newAddress;
+    let autoNewDistrict = createVenueDto.newDistrict;
+    let autoNewCity = createVenueDto.newCity;
+    if (!createVenueDto.newAddress) {
+      const resolved = this.addressMapping.resolve(
+        createVenueDto.address || '',
+        district || createVenueDto.district || '',
+        city || createVenueDto.city || ''
+      );
+      if (resolved?.newAddress) {
+        autoNewAddress = resolved.newAddress;
+        autoNewDistrict = resolved.newDistrict;
+      }
+      if (resolved?.newCity) autoNewCity = resolved.newCity;
+    }
+
     const slug = await this.generateUniqueSlug(createVenueDto.name);
 
     return this.prisma.venue.create({
@@ -281,8 +302,11 @@ export class VenuesService {
         slug,
         district,
         city,
+        newAddress: autoNewAddress,
+        newDistrict: autoNewDistrict,
+        newCity: autoNewCity,
         searchTerms: removeVietnameseTones(
-          `${createVenueDto.name} ${createVenueDto.address} ${district || ''} ${city || ''} ${createVenueDto.newAddress || ''} ${createVenueDto.newDistrict || ''} ${createVenueDto.newCity || ''}`
+          `${createVenueDto.name} ${createVenueDto.address} ${district || ''} ${city || ''} ${autoNewAddress || ''} ${autoNewDistrict || ''} ${autoNewCity || ''}`
         ).toLowerCase(),
       },
     });
@@ -301,6 +325,23 @@ export class VenuesService {
 
       const slug = await this.generateUniqueSlug(venue.name);
 
+      // Auto-resolve new address from CSV mapping if not explicitly provided
+      let autoNewAddress = venue.newAddress;
+      let autoNewDistrict = venue.newDistrict;
+      let autoNewCity = venue.newCity;
+      if (!venue.newAddress) {
+        const resolved = this.addressMapping.resolve(
+          venue.address || '',
+          district || venue.district || '',
+          city || venue.city || ''
+        );
+        if (resolved?.newAddress) {
+          autoNewAddress = resolved.newAddress;
+          autoNewDistrict = resolved.newDistrict;
+        }
+        if (resolved?.newCity) autoNewCity = resolved.newCity;
+      }
+
       try {
         const created = await this.prisma.venue.create({
           data: {
@@ -308,8 +349,11 @@ export class VenuesService {
             slug,
             district,
             city,
+            newAddress: autoNewAddress,
+            newDistrict: autoNewDistrict,
+            newCity: autoNewCity,
             searchTerms: removeVietnameseTones(
-              `${venue.name} ${venue.address} ${district || ''} ${city || ''} ${venue.newAddress || ''} ${venue.newDistrict || ''} ${venue.newCity || ''}`
+              `${venue.name} ${venue.address} ${district || ''} ${city || ''} ${autoNewAddress || ''} ${autoNewDistrict || ''} ${autoNewCity || ''}`
             ).toLowerCase(),
           },
         });
@@ -332,16 +376,45 @@ export class VenuesService {
     const city = updateVenueDto.city
       ? this.normalizeAdminUnit(updateVenueDto.city)
       : updateVenueDto.city;
+
+    // Auto-resolve new address when address-related fields change but newAddress was not explicitly set
+    let resolvedNewAddress: string | undefined;
+    let resolvedNewDistrict: string | undefined;
+    let resolvedNewCity: string | undefined;
+    const addressFieldsChanged =
+      updateVenueDto.address || updateVenueDto.district || updateVenueDto.city;
+    if (updateVenueDto.newAddress === undefined && addressFieldsChanged) {
+      const resolved = this.addressMapping.resolve(
+        updateVenueDto.address || '',
+        district || updateVenueDto.district || '',
+        city || updateVenueDto.city || ''
+      );
+      if (resolved?.newAddress) {
+        resolvedNewAddress = resolved.newAddress;
+        resolvedNewDistrict = resolved.newDistrict;
+      }
+      if (resolved?.newCity) resolvedNewCity = resolved.newCity;
+    }
+
+    const effectiveNewAddress = updateVenueDto.newAddress ?? resolvedNewAddress;
+    const effectiveNewDistrict =
+      updateVenueDto.newDistrict ?? resolvedNewDistrict;
+    const effectiveNewCity = updateVenueDto.newCity ?? resolvedNewCity;
+
     return this.prisma.venue.update({
       where: { id },
       data: {
         ...updateVenueDto,
         ...(district !== undefined ? { district } : {}),
         ...(city !== undefined ? { city } : {}),
+        ...(resolvedNewAddress
+          ? { newAddress: resolvedNewAddress, newDistrict: resolvedNewDistrict }
+          : {}),
+        ...(resolvedNewCity ? { newCity: resolvedNewCity } : {}),
         ...(updateVenueDto.name || updateVenueDto.address
           ? {
               searchTerms: removeVietnameseTones(
-                `${updateVenueDto.name || ''} ${updateVenueDto.address || ''} ${district || ''} ${city || ''} ${updateVenueDto.newAddress || ''} ${updateVenueDto.newDistrict || ''} ${updateVenueDto.newCity || ''}`
+                `${updateVenueDto.name || ''} ${updateVenueDto.address || ''} ${district || ''} ${city || ''} ${effectiveNewAddress || ''} ${effectiveNewDistrict || ''} ${effectiveNewCity || ''}`
               ).toLowerCase(),
             }
           : {}),
@@ -359,6 +432,77 @@ export class VenuesService {
    * Backfill slugs for existing venues that don't have a slug.
    * This is an admin-only one-time operation.
    */
+  async migrateAddresses() {
+    const venues = await this.prisma.venue.findMany({
+      where: { newAddress: null },
+      select: {
+        id: true,
+        address: true,
+        district: true,
+        city: true,
+        name: true,
+        searchTerms: true,
+      },
+    });
+
+    let matched = 0;
+    let cityOnly = 0;
+    let unmatched = 0;
+
+    for (const venue of venues) {
+      const resolved = this.addressMapping.resolve(
+        venue.address || '',
+        venue.district || '',
+        venue.city || ''
+      );
+
+      if (!resolved) {
+        unmatched++;
+        continue;
+      }
+
+      const updateData: Record<string, string | undefined> = {};
+
+      if (resolved.newAddress) {
+        updateData.newAddress = resolved.newAddress;
+        updateData.newDistrict = resolved.newDistrict;
+        updateData.searchTerms = [
+          venue.name,
+          venue.address,
+          venue.district,
+          venue.city,
+          resolved.newAddress,
+          resolved.newDistrict,
+          resolved.newCity,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        matched++;
+      }
+
+      if (resolved.newCity) {
+        updateData.newCity = resolved.newCity;
+        if (!resolved.newAddress) cityOnly++;
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        await this.prisma.venue.update({
+          where: { id: venue.id },
+          data: updateData,
+        });
+      }
+    }
+
+    return {
+      message: 'Address migration complete',
+      total: venues.length,
+      matched,
+      cityOnly,
+      unmatched,
+    };
+  }
+
   async backfillSlugs() {
     const venues = await this.prisma.venue.findMany({
       where: { slug: null },

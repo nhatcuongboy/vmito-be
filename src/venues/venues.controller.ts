@@ -47,6 +47,12 @@ export class VenuesController {
     return this.venuesService.backfillSlugs();
   }
 
+  @Post('migrate-addresses')
+  @UseGuards(AdminGuard)
+  migrateAddresses() {
+    return this.venuesService.migrateAddresses();
+  }
+
   @Public()
   @Get(':id')
   findOne(@Param('id') id: string) {
