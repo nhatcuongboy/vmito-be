@@ -1598,6 +1598,7 @@ export class PlayersService {
       sortBy?: string;
       sortOrder?: 'asc' | 'desc';
       status?: string;
+      excludeStatuses?: SessionStatus[];
     }
   ) {
     if (!userId) {
@@ -1622,6 +1623,8 @@ export class PlayersService {
 
     if (filters?.status) {
       where.status = filters.status as SessionStatus;
+    } else if (filters?.excludeStatuses && filters.excludeStatuses.length > 0) {
+      where.status = { notIn: filters.excludeStatuses };
     }
 
     if (filters?.searchQuery) {

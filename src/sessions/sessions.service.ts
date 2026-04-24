@@ -89,6 +89,7 @@ export class SessionsService {
       sortOrder?: 'asc' | 'desc';
       status?: SessionStatus;
       excludeStatus?: SessionStatus;
+      excludeStatuses?: SessionStatus[];
     }
   ) {
     const page = filters?.page || 1;
@@ -120,6 +121,8 @@ export class SessionsService {
 
     if (filters?.status) {
       where.status = filters.status;
+    } else if (filters?.excludeStatuses && filters.excludeStatuses.length > 0) {
+      where.status = { notIn: filters.excludeStatuses };
     } else if (filters?.excludeStatus) {
       where.status = { not: filters.excludeStatus };
     }
@@ -815,6 +818,11 @@ export class SessionsService {
 
     // Create session
     const sessionSlug = `${generateSlug(name)}-${Math.random().toString(36).substring(2, 7)}`;
+    const sessionSearchTerms = removeVietnameseTones(
+      `${name} ${finalLocation || ''} ${hostName || ''} ${
+        venue ? `${venue.name} ${venue.address}` : ''
+      }`
+    ).toLowerCase();
     const session = await this.prisma.session.create({
       data: {
         name,
@@ -827,6 +835,7 @@ export class SessionsService {
         allowGuestJoin,
         allowNewPlayers,
         requiredLevels: requiredLevels || [],
+        searchTerms: sessionSearchTerms,
 
         // Scheduled times (planned)
         scheduledStartTime: scheduledStart,
@@ -1002,6 +1011,34 @@ export class SessionsService {
       }
     }
 
+    // Recompute searchTerms if any searchable field is being updated
+    const needsSearchTermsUpdate =
+      updateSessionDto.name !== undefined ||
+      updateSessionDto.location !== undefined ||
+      updateSessionDto.hostName !== undefined ||
+      updateSessionDto.venue !== undefined;
+    let updatedSearchTerms: string | undefined;
+    if (needsSearchTermsUpdate) {
+      const updatedName = updateSessionDto.name ?? existingSession.name;
+      const updatedLocation =
+        updateSessionDto.location ?? existingSession.location;
+      const updatedHostName =
+        updateSessionDto.hostName ?? existingSession.hostName;
+      let venueNameAddress = '';
+      if (updateSessionDto.venue) {
+        venueNameAddress = `${updateSessionDto.venue.name} ${updateSessionDto.venue.address}`;
+      } else if (existingSession.venueId) {
+        const v = await this.prisma.venue.findUnique({
+          where: { id: existingSession.venueId },
+          select: { name: true, address: true },
+        });
+        if (v) venueNameAddress = `${v.name} ${v.address}`;
+      }
+      updatedSearchTerms = removeVietnameseTones(
+        `${updatedName} ${updatedLocation || ''} ${updatedHostName || ''} ${venueNameAddress}`
+      ).toLowerCase();
+    }
+
     const session = await this.prisma.session.update({
       where: { id },
       data: {
@@ -1025,6 +1062,7 @@ export class SessionsService {
         description: updateSessionDto.description,
         location: updateSessionDto.location,
         hostName: updateSessionDto.hostName,
+        searchTerms: updatedSearchTerms,
         hostPhone: updateSessionDto.hostPhone,
         courtColor: updateSessionDto.courtColor,
         defaultMatchType: updateSessionDto.defaultMatchType,
@@ -2578,6 +2616,11 @@ export class SessionsService {
     }
 
     // Create session
+    const internalSearchTerms = removeVietnameseTones(
+      `${name} ${finalLocation || ''} ${hostName || ''} ${
+        venue ? `${venue.name} ${venue.address}` : ''
+      }`
+    ).toLowerCase();
     const session = await prismaClient.session.create({
       data: {
         name,
@@ -2590,6 +2633,7 @@ export class SessionsService {
         allowGuestJoin,
         allowNewPlayers,
         requiredLevels: requiredLevels || [],
+        searchTerms: internalSearchTerms,
         startTime: startTime ? new Date(startTime) : new Date(),
         endTime: endTime
           ? new Date(endTime)
