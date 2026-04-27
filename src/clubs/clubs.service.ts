@@ -690,9 +690,18 @@ export class ClubsService {
         },
       });
 
-      // Automatically add the host as an ADMIN member, unless this is an
-      // admin-provisioned club with a temporary hostName (members start empty)
-      if (!dto.hostName) {
+      // Add member: if hostUserId provided (admin assigned), add that user;
+      // else if no hostName (not admin-provisioned), add the creator
+      if (dto.hostUserId) {
+        await tx.clubMember.create({
+          data: {
+            clubId: club.id,
+            userId: dto.hostUserId,
+            role: MemberRole.ADMIN,
+            status: MemberStatus.ACTIVE,
+          },
+        });
+      } else if (!dto.hostName) {
         await tx.clubMember.create({
           data: {
             clubId: club.id,

@@ -46,6 +46,10 @@ export class CreateClubDto {
 
   @IsOptional()
   @IsString()
+  hostUserId?: string; // Admin can assign a specific user as the initial ADMIN member
+
+  @IsOptional()
+  @IsString()
   @MaxLength(200)
   description?: string;
 
