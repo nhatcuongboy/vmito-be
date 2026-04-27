@@ -1,4 +1,5 @@
-import { IsString, IsNotEmpty, IsEnum, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsEnum, IsOptional, IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { Language } from '../../common/constants/language.enum';
 
 export class ExtractSessionRequestDto {
@@ -37,4 +38,24 @@ export interface ExtractedSessionDto {
     femaleFee?: number;
     notes?: string;
   };
+}
+
+export class ChatMessageDto {
+  @IsEnum(['user', 'assistant'])
+  role: 'user' | 'assistant';
+
+  @IsString()
+  @IsNotEmpty()
+  content: string;
+}
+
+export class AiChatRequestDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ChatMessageDto)
+  messages: ChatMessageDto[];
+
+  @IsString()
+  @IsOptional()
+  pageContext?: string;
 }
