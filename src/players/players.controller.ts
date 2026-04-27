@@ -21,6 +21,7 @@ import { BatchUpdateStatusDto } from './dto/batch-update-status.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Public } from '../auth/decorators/public.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { SessionStatus } from '@prisma/client';
 
 @ApiTags('players')
 @ApiBearerAuth('JWT-auth')
@@ -116,11 +117,15 @@ export class PlayersController {
     @Query('searchQuery') searchQuery?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortOrder') sortOrder?: 'asc' | 'desc',
-    @Query('status') status?: string
+    @Query('status') status?: string,
+    @Query('excludeStatuses') excludeStatusesRaw?: string
   ) {
     if (!user || typeof user.userId !== 'string') {
       throw new Error('Invalid user object');
     }
+    const excludeStatuses = excludeStatusesRaw
+      ? (excludeStatusesRaw.split(',') as SessionStatus[])
+      : undefined;
     return this.playersService.getMySessions(user.userId, {
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
@@ -128,6 +133,7 @@ export class PlayersController {
       sortBy,
       sortOrder,
       status,
+      excludeStatuses,
     });
   }
 

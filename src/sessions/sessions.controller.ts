@@ -49,10 +49,14 @@ export class SessionsController {
     @Query('sortBy') sortBy?: string,
     @Query('sortOrder') sortOrder?: 'asc' | 'desc',
     @Query('status') status?: SessionStatus,
-    @Query('excludeStatus') excludeStatus?: SessionStatus
+    @Query('excludeStatus') excludeStatus?: SessionStatus,
+    @Query('excludeStatuses') excludeStatusesRaw?: string
   ) {
     // Security: non-admin users can only see their own hosted sessions
     const effectiveHostId = user.role === 'ADMIN' ? hostId : user.userId;
+    const excludeStatuses = excludeStatusesRaw
+      ? (excludeStatusesRaw.split(',') as SessionStatus[])
+      : undefined;
 
     return this.sessionsService.findAll(user, {
       page: page ? parseInt(page, 10) : undefined,
@@ -63,6 +67,7 @@ export class SessionsController {
       sortOrder,
       status,
       excludeStatus,
+      excludeStatuses,
     });
   }
 

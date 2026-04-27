@@ -1,8 +1,40 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
-import { ExtractedSessionDto } from './dto/extract-session.dto';
+import {
+  GoogleGenerativeAI,
+  GenerativeModel,
+  Content,
+} from '@google/generative-ai';
+import {
+  ExtractedSessionDto,
+  ChatMessageDto,
+} from './dto/extract-session.dto';
 import { Language, DEFAULT_LANGUAGE } from '../common/constants/language.enum';
+
+const VMITO_SYSTEM_PROMPT = `Bạn là AI Assistant của Vmito - ứng dụng quản lý và tổ chức các buổi tập thể thao (cầu lông, pickleball, tennis, bóng đá, v.v.).
+
+## Về Vmito
+Vmito giúp người dùng:
+- **Tạo kèo (session)**: Tổ chức buổi tập, mời bạn tham gia, đặt sân
+- **Tham gia kèo**: Tìm và đăng ký tham gia các buổi tập do người khác tổ chức
+- **Quản lý Club**: Tạo và quản lý nhóm/câu lạc bộ thể thao
+- **Thanh toán phí**: Theo dõi và thu phí tham gia từ các thành viên
+- **Quản lý người chơi**: Phân chia sân, nhóm, đội trong buổi tập
+- **Xem lịch sử**: Theo dõi các buổi tập đã qua và sắp tới
+
+## Vai trò người dùng
+- **Host**: Người tổ chức buổi tập, có thể tạo session, mời người chơi, thu phí
+- **Player**: Người tham gia buổi tập
+- **Admin**: Quản trị viên hệ thống
+
+## Hướng dẫn trả lời
+- Trả lời bằng tiếng Việt trừ khi người dùng hỏi bằng tiếng Anh
+- Ngắn gọn, rõ ràng và thực tế
+- Nếu có context về trang hiện tại, ưu tiên giải đáp liên quan đến trang đó
+- Khi không biết thông tin cụ thể của user (số liệu, dữ liệu thực), hãy hướng dẫn họ cách thực hiện trong app
+- Sử dụng emoji phù hợp để câu trả lời dễ đọc hơn
+
+Hãy giúp đỡ người dùng sử dụng Vmito một cách hiệu quả nhất!`;
 
 @Injectable()
 export class GeminiService {
@@ -128,5 +160,54 @@ IMPORTANT:
       console.error('Error extracting session from article:', error);
       throw new Error('Failed to extract session information from article');
     }
+  }
+
+  async chatWithAssistant(
+    messages: ChatMessageDto[],
+    pageContext?: string
+  ): Promise<ReadableStream<Uint8Array>> {
+    if (!this.model) {
+      throw new Error('Gemini API key is missing.');
+    }
+
+    // Build system prompt with optional page context
+    let systemPrompt = VMITO_SYSTEM_PROMPT;
+    if (pageContext) {
+      systemPrompt += `\n\n## Context hiện tại\nNgười dùng đang ở trang: ${pageContext}`;
+    }
+
+    // Convert messages to Gemini Content format (history = all but last)
+    const history: Content[] = messages.slice(0, -1).map((msg) => ({
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.content }],
+    }));
+
+    const lastMessage = messages[messages.length - 1];
+
+    const chat = this.model.startChat({
+      history,
+      systemInstruction: systemPrompt,
+    });
+
+    const result = await chat.sendMessageStream(lastMessage.content);
+
+    // Return a Web Streams API ReadableStream
+    const encoder = new TextEncoder();
+    return new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          for await (const chunk of result.stream) {
+            const text = chunk.text();
+            if (text) {
+              controller.enqueue(encoder.encode(text));
+            }
+          }
+        } catch (err) {
+          console.error('Gemini stream error:', err);
+        } finally {
+          controller.close();
+        }
+      },
+    });
   }
 }
