@@ -61,6 +61,7 @@ enum NotificationType {
   SESSION // Session-related notifications
   REGISTRATION // Registration status updates
   PAYMENT // Payment-related notifications
+  CLUB // Club-related notifications
 }
 
 model Notification {
