@@ -790,9 +790,9 @@ export class ClubsService {
         { clubId: club.id, clubSlug: club.slug, clubName: club.name },
       );
 
-      // Notify all admins about new pending club
+      // Notify all admins about new pending club (excluding creator)
       const admins = await this.prisma.user.findMany({
-        where: { role: Role.ADMIN },
+        where: { role: Role.ADMIN, NOT: { id: hostId } },
         select: { id: true },
       });
 
