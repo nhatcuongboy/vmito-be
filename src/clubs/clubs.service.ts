@@ -25,10 +25,14 @@ import {
   removeVietnameseTones,
   generateSlug,
 } from '../common/utils/string.utils';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class ClubsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   private async uniqueClubSlug(name: string): Promise<string> {
     const base = generateSlug(name);
@@ -276,6 +280,11 @@ export class ClubsService {
       throw new NotFoundException('Club not found');
     }
 
+    // Block access to pending clubs
+    if (club.status === ClubStatus.PENDING) {
+      throw new NotFoundException('Club not found');
+    }
+
     // Only show full details if club is public
     if (!club.isPublic) {
       return {
@@ -452,6 +461,7 @@ export class ClubsService {
    * Get clubs for a user
    */
   async getUserClubs(userId: string) {
+    // Get clubs where user is a member
     const memberships = await this.prisma.clubMember.findMany({
       where: {
         userId,
@@ -486,12 +496,46 @@ export class ClubsService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return memberships.map((m) => ({
+    // Get pending clubs where user is the host
+    const pendingClubs = await this.prisma.club.findMany({
+      where: {
+        hostId: userId,
+        status: ClubStatus.PENDING,
+      },
+      include: {
+        host: {
+          select: {
+            id: true,
+            name: true,
+            image: true,
+          },
+        },
+        schedules: {
+          orderBy: { dayOfWeek: 'asc' },
+        },
+        defaultVenue: {
+          select: { id: true, name: true, address: true },
+        },
+        _count: {
+          select: {
+            members: {
+              where: { status: MemberStatus.ACTIVE },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Map memberships to club data
+    const memberClubs = memberships.map((m) => ({
       id: m.club.id,
+      slug: m.club.slug ?? undefined,
       name: m.club.name,
       description: m.club.description,
       color: m.club.color,
       image: m.club.image,
+      status: m.club.status,
       role: m.role,
       memberCount: m.club._count.members,
       host: m.club.host,
@@ -499,6 +543,26 @@ export class ClubsService {
       defaultVenue: m.club.defaultVenue,
       joinedAt: m.createdAt,
     }));
+
+    // Map pending clubs to club data
+    const pendingClubsData = pendingClubs.map((club) => ({
+      id: club.id,
+      slug: club.slug ?? undefined,
+      name: club.name,
+      description: club.description,
+      color: club.color,
+      image: club.image,
+      status: club.status,
+      role: MemberRole.ADMIN, // User is the host/creator
+      memberCount: club._count.members,
+      host: club.host,
+      schedules: club.schedules,
+      defaultVenue: club.defaultVenue,
+      joinedAt: club.createdAt,
+    }));
+
+    // Merge and return both lists
+    return [...memberClubs, ...pendingClubsData];
   }
 
   /**
@@ -659,7 +723,7 @@ export class ClubsService {
     const clubStatus =
       role === Role.ADMIN ? ClubStatus.APPROVED : ClubStatus.PENDING;
 
-    return this.prisma.$transaction(async (tx) => {
+    const club = await this.prisma.$transaction(async (tx) => {
       const slug = await this.uniqueClubSlug(dto.name);
       const club = await tx.club.create({
         data: {
@@ -714,6 +778,45 @@ export class ClubsService {
 
       return club;
     });
+
+    // Send notifications after successful creation
+    if (clubStatus === ClubStatus.PENDING) {
+      // Notify creator that club is pending approval
+      await this.notificationsService.createForUser(
+        hostId,
+        'CLUB',
+        'Yêu cầu tạo nhóm đang được xem xét',
+        `Nhóm "${club.name}" của bạn đang chờ Admin phê duyệt.`,
+        { clubId: club.id, clubSlug: club.slug, clubName: club.name },
+      );
+
+      // Notify all admins about new pending club
+      const admins = await this.prisma.user.findMany({
+        where: { role: Role.ADMIN },
+        select: { id: true },
+      });
+
+      for (const admin of admins) {
+        await this.notificationsService.createForUser(
+          admin.id,
+          'CLUB',
+          'Nhóm mới đang chờ duyệt',
+          `Nhóm "${club.name}" đang chờ phê duyệt.`,
+          { clubId: club.id, clubSlug: club.slug, clubName: club.name },
+        );
+      }
+    } else {
+      // Notify creator that club was created successfully (ADMIN)
+      await this.notificationsService.createForUser(
+        hostId,
+        'CLUB',
+        'Nhóm đã được tạo thành công',
+        `Nhóm "${club.name}" đã được tạo và phê duyệt thành công.`,
+        { clubId: club.id, clubSlug: club.slug, clubName: club.name },
+      );
+    }
+
+    return club;
   }
 
   /**
@@ -1453,13 +1556,24 @@ export class ClubsService {
       throw new NotFoundException('Club not found');
     }
 
-    return this.prisma.club.update({
+    const updatedClub = await this.prisma.club.update({
       where: { id },
       data: {
         status: ClubStatus.APPROVED,
         rejectionReason: null,
       },
     });
+
+    // Send notification to club creator
+    await this.notificationsService.createForUser(
+      club.hostId,
+      'CLUB',
+      'Nhóm đã được phê duyệt',
+      `Nhóm "${club.name}" của bạn đã được phê duyệt.`,
+      { clubId: club.id, clubSlug: club.slug, clubName: club.name },
+    );
+
+    return updatedClub;
   }
 
   async rejectClub(id: string, reason: string) {
@@ -1471,12 +1585,28 @@ export class ClubsService {
       throw new NotFoundException('Club not found');
     }
 
-    return this.prisma.club.update({
+    const updatedClub = await this.prisma.club.update({
       where: { id },
       data: {
         status: ClubStatus.REJECTED,
         rejectionReason: reason,
       },
     });
+
+    // Send notification to club creator
+    await this.notificationsService.createForUser(
+      club.hostId,
+      'CLUB',
+      'Nhóm đã bị từ chối',
+      `Nhóm "${club.name}" của bạn đã bị từ chối. Lý do: ${reason}`,
+      {
+        clubId: club.id,
+        clubSlug: club.slug,
+        clubName: club.name,
+        rejectionReason: reason,
+      },
+    );
+
+    return updatedClub;
   }
 }
