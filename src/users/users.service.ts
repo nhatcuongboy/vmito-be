@@ -50,14 +50,11 @@ export class UsersService {
       ];
     }
 
-    if (options?.role) {
-      where.role = options.role as Role;
-    }
-
     const users = await this.prisma.user.findMany({
       where,
       select: this.userSelect,
       orderBy: { createdAt: 'desc' },
+      take: 20, // Limit results for privacy and performance
     });
 
     return users;
