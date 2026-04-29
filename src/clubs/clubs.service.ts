@@ -125,7 +125,7 @@ export class ClubsService {
             orderBy: { dayOfWeek: 'asc' },
           },
           defaultVenue: {
-            select: { id: true, name: true, address: true, lat: true, lng: true },
+            select: { id: true, name: true, address: true, lat: true, lng: true, district: true, city: true },
           },
           _count: {
             select: {
@@ -235,7 +235,7 @@ export class ClubsService {
           orderBy: { dayOfWeek: 'asc' },
         },
         defaultVenue: {
-          select: { id: true, name: true, address: true },
+          select: { id: true, name: true, address: true, district: true, city: true },
         },
         members: {
           where: { status: MemberStatus.ACTIVE },
@@ -303,6 +303,28 @@ export class ClubsService {
     // (type will be fully resolved after TS server restarts post-migration)
     const clubRecord = club as typeof club & { hostName: string | null };
 
+    // Fetch venues referenced by schedule notes to get district/city
+    const scheduleVenueNames = [
+      ...new Set(
+        club.schedules.map((s) => s.notes).filter(Boolean) as string[],
+      ),
+    ];
+    const scheduleVenues =
+      scheduleVenueNames.length > 0
+        ? await this.prisma.venue.findMany({
+            where: { name: { in: scheduleVenueNames } },
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              district: true,
+              city: true,
+              lat: true,
+              lng: true,
+            },
+          })
+        : [];
+
     return {
       id: club.id,
       slug: club.slug ?? undefined,
@@ -332,6 +354,7 @@ export class ClubsService {
       })),
       announcements: club.announcements,
       createdAt: club.createdAt,
+      scheduleVenues,
     };
   }
 
@@ -481,7 +504,7 @@ export class ClubsService {
               orderBy: { dayOfWeek: 'asc' },
             },
             defaultVenue: {
-              select: { id: true, name: true, address: true },
+              select: { id: true, name: true, address: true, district: true, city: true },
             },
             _count: {
               select: {
@@ -514,7 +537,7 @@ export class ClubsService {
           orderBy: { dayOfWeek: 'asc' },
         },
         defaultVenue: {
-          select: { id: true, name: true, address: true },
+          select: { id: true, name: true, address: true, district: true, city: true },
         },
         _count: {
           select: {
@@ -618,7 +641,7 @@ export class ClubsService {
           orderBy: { dayOfWeek: 'asc' },
         },
         defaultVenue: {
-          select: { id: true, name: true, address: true },
+          select: { id: true, name: true, address: true, district: true, city: true },
         },
         feeConfigs: {
           where: {
@@ -672,7 +695,7 @@ export class ClubsService {
           orderBy: { dayOfWeek: 'asc' },
         },
         defaultVenue: {
-          select: { id: true, name: true, address: true },
+          select: { id: true, name: true, address: true, district: true, city: true },
         },
         feeConfigs: {
           orderBy: [{ year: 'desc' }, { month: 'desc' }],
@@ -749,7 +772,7 @@ export class ClubsService {
         include: {
           schedules: true,
           defaultVenue: {
-            select: { id: true, name: true, address: true },
+            select: { id: true, name: true, address: true, district: true, city: true },
           },
         },
       });
@@ -906,7 +929,7 @@ export class ClubsService {
           include: {
             schedules: true,
             defaultVenue: {
-              select: { id: true, name: true, address: true },
+              select: { id: true, name: true, address: true, district: true, city: true },
             },
           },
         });
@@ -930,7 +953,7 @@ export class ClubsService {
       include: {
         schedules: true,
         defaultVenue: {
-          select: { id: true, name: true, address: true },
+          select: { id: true, name: true, address: true, district: true, city: true },
         },
       },
     });

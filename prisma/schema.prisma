@@ -882,6 +882,7 @@ model Club {
   imagePublicIds     String[] @default([]) // Multiple image public IDs
   location       String? // Primary location/venue
   defaultVenueId String? // Link to default venue
+  requiredLevels Int[] @default([]) // Array of level IDs (1-8)
 
   // Statistics (cached for performance)
   sessionCount       Int @default(0)
