@@ -1,15 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  GoogleGenerativeAI,
-  GenerativeModel,
-  Content,
-} from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import {
   ExtractedSessionDto,
   ChatMessageDto,
 } from './dto/extract-session.dto';
 import { Language, DEFAULT_LANGUAGE } from '../common/constants/language.enum';
+
+const MODEL = 'gemini-3-flash-preview';
 
 const VMITO_SYSTEM_PROMPT = `Bạn là AI Assistant của Vmito - ứng dụng quản lý và tổ chức các buổi tập thể thao (cầu lông, pickleball, tennis, bóng đá, v.v.).
 
@@ -38,8 +36,7 @@ Hãy giúp đỡ người dùng sử dụng Vmito một cách hiệu quả nhấ
 
 @Injectable()
 export class GeminiService {
-  private genAI: GoogleGenerativeAI;
-  private model: GenerativeModel;
+  private ai: GoogleGenAI | null = null;
 
   constructor(private configService: ConfigService) {
     const apiKey = this.configService.get<string>('GEMINI_API_KEY');
@@ -49,8 +46,7 @@ export class GeminiService {
       );
       return;
     }
-    this.genAI = new GoogleGenerativeAI(apiKey);
-    this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    this.ai = new GoogleGenAI({ apiKey });
   }
 
   private getLanguageInstruction(language: Language): string {
@@ -59,38 +55,29 @@ export class GeminiService {
       [Language.EN]: 'English',
       [Language.CN]: 'Chinese (中文)',
     };
-
     return `IMPORTANT: You MUST respond in ${languageNames[language]}. All field values in the JSON response should be in ${languageNames[language]}.`;
   }
 
   async generateText(prompt: string, language?: Language): Promise<string> {
-    if (!this.model) {
-      throw new Error('Gemini API key is missing.');
-    }
+    if (!this.ai) throw new Error('Gemini API key is missing.');
 
     let finalPrompt = prompt;
     if (language) {
-      const languageInstruction = this.getLanguageInstruction(language);
-      finalPrompt = `${languageInstruction}\n\n${prompt}`;
+      finalPrompt = `${this.getLanguageInstruction(language)}\n\n${prompt}`;
     }
 
-    try {
-      const result = await this.model.generateContent(finalPrompt);
-      const response = result.response;
-      return response.text();
-    } catch (error) {
-      console.error('Error generating content with Gemini:', error);
-      throw error;
-    }
+    const response = await this.ai.models.generateContent({
+      model: MODEL,
+      contents: finalPrompt,
+    });
+    return response.text ?? '';
   }
 
   async extractSessionFromArticle(
     articleContent: string,
     language: Language = DEFAULT_LANGUAGE
   ): Promise<ExtractedSessionDto> {
-    if (!this.model) {
-      throw new Error('Gemini API key is missing.');
-    }
+    if (!this.ai) throw new Error('Gemini API key is missing.');
 
     const currentYear = new Date().getFullYear();
     const languageInstruction = this.getLanguageInstruction(language);
@@ -116,7 +103,7 @@ Extract and return a JSON object with the following fields (use null for fields 
   "startTime": "ISO 8601 datetime string (use year ${currentYear} if year not specified)",
   "endTime": "ISO 8601 datetime string (use year ${currentYear} if year not specified)",
   "maxPlayersPerCourt": "Number of max players per court (default 8 if not specified)",
-  "requiredLevels": "Array of level numbers 1-8 where: 1=Beginner, 2=Advanced Beginner, 3=Low Intermediate, 4=Intermediate, 5=High Intermediate, 6=Advanced, 7=Semi Pro, 8=Pro. Map Vietnamese terms like TB (Trung Bình)=4, K (Khá)=5, Y (Yếu)=2-3, Mạnh=6-7. Return array like [3,4,5] for a range. Return null if all levels welcome.",
+  "requiredLevels": "Array of level numbers 1-8 where: 1=Yếu (Beginner), 2=Trung bình yếu (Advanced Beginner), 3=Trung bình- (Low Intermediate), 4=Trung bình (Intermediate), 5=Trung bình+ (High Intermediate), 6=Khá (Advanced), 7=Bán chuyên/Mạnh (Semi Pro), 8=Chuyên nghiệp (Pro). Map Vietnamese terms: Yếu=1-2, TB-=3, TB=4, TB+=5, Khá/K=6, Mạnh/BC=7. Return array like [3,4,5] for a range. Return null if all levels welcome.",
   "numberOfCourts": "Number of courts if mentioned",
   "courtNames": "Array of specific court names or numbers mentioned (e.g., ['Sân 5', 'Sân 6']). Return null if not specified.",
   "shuttlecock": "Type of shuttlecock used (e.g., 'Thành Công', 'Victor'). Return null if not specified.",
@@ -137,70 +124,60 @@ Extract and return a JSON object with the following fields (use null for fields 
 IMPORTANT:
 - Return ONLY valid JSON, no markdown formatting
 - For time, if only time is given (e.g., "18h-20h"), combine with the date mentioned or today's date
-- For Vietnamese level terms: Y/Yếu=2-3, TB/Trung Bình=4, K/Khá=5, Mạnh/Giỏi=6-7
+- For Vietnamese level terms: Y/Yếu=1-2, TB-=3, TB/Trung Bình=4, TB+/Khá-=5, Khá/K=6, Mạnh/Giỏi/BC=7-8
 - Phone numbers should be in format 0xxxxxxxxx
 - Extract fees carefully: 'k' means thousand (50k = 50000)
 - If a field cannot be determined, use null`;
 
-    try {
-      const result = await this.model.generateContent(prompt);
-      const response = result.response;
-      const text = response.text();
+    const response = await this.ai.models.generateContent({
+      model: MODEL,
+      contents: prompt,
+    });
 
-      // Clean the response - remove markdown code blocks if present
-      const cleanedText = text
-        .replace(/```json\s*/g, '')
-        .replace(/```\s*/g, '')
-        .trim();
+    const text = response.text ?? '';
+    const cleanedText = text
+      .replace(/```json\s*/g, '')
+      .replace(/```\s*/g, '')
+      .trim();
 
-      // Parse the JSON
-      const extracted = JSON.parse(cleanedText) as ExtractedSessionDto;
-      return extracted;
-    } catch (error) {
-      console.error('Error extracting session from article:', error);
-      throw new Error('Failed to extract session information from article');
-    }
+    return JSON.parse(cleanedText) as ExtractedSessionDto;
   }
 
   async chatWithAssistant(
     messages: ChatMessageDto[],
     pageContext?: string
   ): Promise<ReadableStream<Uint8Array>> {
-    if (!this.model) {
-      throw new Error('Gemini API key is missing.');
-    }
+    if (!this.ai) throw new Error('Gemini API key is missing.');
 
-    // Build system prompt with optional page context
     let systemPrompt = VMITO_SYSTEM_PROMPT;
     if (pageContext) {
       systemPrompt += `\n\n## Context hiện tại\nNgười dùng đang ở trang: ${pageContext}`;
     }
 
-    // Convert messages to Gemini Content format (history = all but last)
-    const history: Content[] = messages.slice(0, -1).map((msg) => ({
+    const history = messages.slice(0, -1).map((msg) => ({
       role: msg.role === 'user' ? 'user' : 'model',
       parts: [{ text: msg.content }],
     }));
 
     const lastMessage = messages[messages.length - 1];
 
-    const chat = this.model.startChat({
+    const chat = this.ai.chats.create({
+      model: MODEL,
+      config: { systemInstruction: systemPrompt },
       history,
-      systemInstruction: systemPrompt,
     });
 
-    const result = await chat.sendMessageStream(lastMessage.content);
+    const stream = await chat.sendMessageStream({
+      message: lastMessage.content,
+    });
 
-    // Return a Web Streams API ReadableStream
     const encoder = new TextEncoder();
     return new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
-          for await (const chunk of result.stream) {
-            const text = chunk.text();
-            if (text) {
-              controller.enqueue(encoder.encode(text));
-            }
+          for await (const chunk of stream) {
+            const text = chunk.text ?? '';
+            if (text) controller.enqueue(encoder.encode(text));
           }
         } catch (err) {
           console.error('Gemini stream error:', err);
