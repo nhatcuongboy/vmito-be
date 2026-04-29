@@ -6,6 +6,7 @@ import {
   Res,
   HttpException,
   HttpStatus,
+  Request,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import type { Response } from 'express';
@@ -24,11 +25,17 @@ export class AiController {
   constructor(private readonly geminiService: GeminiService) {}
 
   @Post('extract-session')
-  async extractSession(@Body() dto: ExtractSessionRequestDto) {
+  async extractSession(@Body() dto: ExtractSessionRequestDto, @Request() req: any) {
     const extracted = await this.geminiService.extractSessionFromArticle(
       dto.articleContent,
       dto.language
     );
+
+    // Default hostName to current user's name if AI doesn't extract it
+    if (!extracted.hostName && req.user?.name) {
+      extracted.hostName = req.user.name;
+    }
+
     return {
       success: true,
       data: extracted,
