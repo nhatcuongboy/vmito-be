@@ -29,6 +29,7 @@ export interface ExtractedSessionDto {
   maxPlayersPerCourt?: number;
   requiredLevels?: number[];
   venue?: ExtractedVenue;
+  venueId?: string; // Matched venue ID from database
   numberOfCourts?: number;
   courtNames?: string[];
   shuttlecock?: string;
