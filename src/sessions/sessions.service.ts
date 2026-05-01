@@ -1405,6 +1405,62 @@ export class SessionsService {
     return { message: 'Session and related players deleted successfully' };
   }
 
+  /**
+   * Auto-start a session at its scheduled start time.
+   * Uses scheduledStartTime as the actual startTime (not now),
+   * so the session ends at the originally planned scheduledEndTime.
+   * Called by the scheduler — does not throw for 0 players.
+   */
+  async autoStart(id: string) {
+    const existingSession = await this.prisma.session.findUnique({
+      where: { id },
+    });
+
+    if (!existingSession) {
+      throw new NotFoundException('Session not found');
+    }
+
+    if (existingSession.status !== 'PREPARING') {
+      throw new BadRequestException(
+        'Session has already been started or finished'
+      );
+    }
+
+    const now = new Date();
+
+    // Use the original scheduled times so the session ends exactly as planned
+    const startTime = existingSession.scheduledStartTime ?? now;
+    const endTime =
+      existingSession.scheduledEndTime ??
+      new Date(
+        startTime.getTime() + existingSession.sessionDuration * 60 * 1000
+      );
+    const gracePeriodEnd = new Date(endTime.getTime() + 30 * 60 * 1000);
+
+    const session = await this.prisma.session.update({
+      where: { id },
+      data: {
+        status: 'IN_PROGRESS',
+        startTime,
+        endTime,
+        scheduledEndTime: endTime,
+        gracePeriodEnd,
+        autoStartedAt: now,
+        // Reset end-warning flag for the new cycle
+        endWarningSentAt: null,
+      },
+    });
+
+    this.sessionsGateway.notifySessionUpdate(id);
+    return session;
+  }
+
+  /**
+   * Manual early start — called when the host taps "Start" before scheduledStartTime.
+   * Uses `now` as the actual startTime, so endTime shifts forward by sessionDuration.
+   * If called at or after scheduledStartTime, the session may already be IN_PROGRESS
+   * due to auto-start, in which case this throws "already started".
+   */
   async start(id: string) {
     const existingSession = await this.prisma.session.findUnique({
       where: { id },
@@ -3174,14 +3230,14 @@ export class SessionsService {
 
     // 5. Check if fallback is needed (all scores below 0.3 threshold)
     const hasGoodMatches = scored.some((s) => s.relevanceScore >= 0.3);
-    
+
     if (!hasGoodMatches && scored.length === 0) {
       // Use fallback recommendations
       const fallbackResults = await this.getFallbackRecommendations(
         currentSession,
         { page, limit }
       );
-      
+
       return {
         data: fallbackResults,
         pagination: {
@@ -3332,4 +3388,3 @@ export class SessionsService {
     return sorted.slice(skip, skip + limit);
   }
 }
-

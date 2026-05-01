@@ -29,6 +29,7 @@ export enum SessionEventType {
   SESSION_END_WARNING = 'session_end_warning',
   SESSION_OVERTIME = 'session_overtime',
   SESSION_CANCELLED = 'session_cancelled',
+  SESSION_STARTED = 'session_started',
 }
 
 @WebSocketGateway({

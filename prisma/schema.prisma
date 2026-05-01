@@ -161,6 +161,7 @@ model Session {
   startReminderSentAt DateTime? // When start reminder was sent to host
   endWarningSentAt    DateTime? // When 15-min-before-end warning was sent
   cancelledAt         DateTime? // When session was auto-cancelled
+  autoStartedAt       DateTime? // When session was auto-started by the system
 
   // Guest access settings
   allowGuestJoin  Boolean @default(true) // Allow joining without account
