@@ -50,7 +50,9 @@ export class SessionsController {
     @Query('sortOrder') sortOrder?: 'asc' | 'desc',
     @Query('status') status?: SessionStatus,
     @Query('excludeStatus') excludeStatus?: SessionStatus,
-    @Query('excludeStatuses') excludeStatusesRaw?: string
+    @Query('excludeStatuses') excludeStatusesRaw?: string,
+    @Query('endTimeBefore') endTimeBefore?: string,
+    @Query('endTimeAfter') endTimeAfter?: string
   ) {
     // Security: non-admin users can only see their own hosted sessions
     const effectiveHostId = user.role === 'ADMIN' ? hostId : user.userId;
@@ -68,6 +70,34 @@ export class SessionsController {
       status,
       excludeStatus,
       excludeStatuses,
+      endTimeBefore,
+      endTimeAfter,
+    });
+  }
+
+  @Public()
+  @Get('public')
+  getPublicSessions(
+    @Query('hostId') hostId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('status') status?: SessionStatus,
+    @Query('excludeStatus') excludeStatus?: SessionStatus,
+    @Query('excludeStatuses') excludeStatusesRaw?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc'
+  ) {
+    const excludeStatuses = excludeStatusesRaw
+      ? (excludeStatusesRaw.split(',') as SessionStatus[])
+      : undefined;
+    return this.sessionsService.getPublicSessions(hostId, {
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+      status,
+      excludeStatus,
+      excludeStatuses,
+      sortBy,
+      sortOrder,
     });
   }
 

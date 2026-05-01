@@ -90,6 +90,8 @@ export class SessionsService {
       status?: SessionStatus;
       excludeStatus?: SessionStatus;
       excludeStatuses?: SessionStatus[];
+      endTimeBefore?: string;
+      endTimeAfter?: string;
     }
   ) {
     const page = filters?.page || 1;
@@ -125,6 +127,12 @@ export class SessionsService {
       where.status = { notIn: filters.excludeStatuses };
     } else if (filters?.excludeStatus) {
       where.status = { not: filters.excludeStatus };
+    }
+
+    if (filters?.endTimeBefore) {
+      where.endTime = { lt: new Date(filters.endTimeBefore) };
+    } else if (filters?.endTimeAfter) {
+      where.endTime = { gte: new Date(filters.endTimeAfter) };
     }
 
     const total = await this.prisma.session.count({ where });
@@ -177,6 +185,21 @@ export class SessionsService {
       limit,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  async getPublicSessions(
+    hostId: string,
+    filters?: {
+      page?: number;
+      limit?: number;
+      status?: SessionStatus;
+      excludeStatus?: SessionStatus;
+      excludeStatuses?: SessionStatus[];
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+    }
+  ) {
+    return this.findAll(undefined, { ...filters, hostId });
   }
 
   async findAvailable(filters?: {
