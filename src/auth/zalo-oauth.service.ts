@@ -228,12 +228,16 @@ export class ZaloOAuthService {
     }
 
     const profileParams = new URLSearchParams({
-      fields: 'id,name,picture,email,phone',
-      access_token: accessToken,
+      fields: 'id,name,picture',
     });
 
     const profileResponse = await fetch(
-      `https://graph.zalo.me/v2.0/me?${profileParams.toString()}`
+      `https://graph.zalo.me/v2.0/me?${profileParams.toString()}`,
+      {
+        headers: {
+          access_token: accessToken,
+        },
+      }
     );
 
     if (!profileResponse.ok) {
