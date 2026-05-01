@@ -22,6 +22,7 @@ export class SessionSchedulerService {
    * 2. Auto-start (at scheduled start time if host has not started yet)
    * 3. End warning (15 min before scheduled end time)
    * 4. Auto-finalize (after grace period expires with no activity)
+   * 5. Auto-cancel (sessions still PREPARING after scheduledEndTime)
    */
   @Cron(CronExpression.EVERY_MINUTE)
   async handleSessionLifecycle() {
@@ -32,6 +33,7 @@ export class SessionSchedulerService {
       this.autoStartSessions(now),
       this.sendEndWarnings(now),
       this.autoFinalizeSessions(now),
+      this.autoCancelSessions(now),
     ]);
   }
 
@@ -149,9 +151,9 @@ export class SessionSchedulerService {
           }
         );
 
-        // Notify all approved players
+        // Notify all approved players (skip host to avoid duplicate notification)
         for (const player of session.players) {
-          if (player.userId) {
+          if (player.userId && player.userId !== session.hostId) {
             await this.notificationsService.createForUser(
               player.userId,
               'SESSION',
@@ -296,6 +298,93 @@ export class SessionSchedulerService {
       }
     } catch (error) {
       this.logger.error('[AutoFinalize] Error auto-finalizing sessions', error);
+    }
+  }
+
+  /**
+   * Auto-cancel sessions that are still PREPARING after their scheduledEndTime.
+   * This handles sessions that were never started (and could not be auto-started
+   * because scheduledEndTime had already passed when the scheduler ran).
+   * Notifies host and all approved players.
+   */
+  private async autoCancelSessions(now: Date) {
+    try {
+      const sessions = await this.prisma.session.findMany({
+        where: {
+          status: 'PREPARING',
+          scheduledEndTime: { lte: now },
+        },
+        include: {
+          host: { select: { id: true, name: true } },
+          players: {
+            where: { registrationStatus: 'APPROVED', userId: { not: null } },
+            select: { id: true, userId: true, name: true },
+          },
+        },
+      });
+
+      for (const session of sessions) {
+        this.logger.log(
+          `[AutoCancel] Cancelling session "${session.name}" (${session.id}) - passed end time without starting`
+        );
+
+        try {
+          await this.prisma.session.update({
+            where: { id: session.id },
+            data: { status: 'CANCELLED', cancelledAt: now },
+          });
+
+          // Notify host
+          await this.notificationsService.createForUser(
+            session.hostId,
+            'SESSION',
+            'Session auto-cancelled',
+            `"${session.name}" has been automatically cancelled because it was not started within the scheduled time.`,
+            {
+              sessionId: session.id,
+              sessionName: session.name,
+              action: 'auto_cancelled',
+            }
+          );
+
+          // Notify all approved players (skip host to avoid duplicate)
+          for (const player of session.players) {
+            if (player.userId && player.userId !== session.hostId) {
+              await this.notificationsService.createForUser(
+                player.userId,
+                'SESSION',
+                'Session cancelled',
+                `"${session.name}" has been cancelled.`,
+                {
+                  sessionId: session.id,
+                  sessionName: session.name,
+                  action: 'session_cancelled',
+                }
+              );
+            }
+          }
+
+          // Notify session room
+          this.sessionsGateway.notifyEvent(
+            session.id,
+            SessionEventType.SESSION_CANCELLED,
+            { sessionId: session.id, sessionName: session.name }
+          );
+        } catch (error) {
+          this.logger.error(
+            `[AutoCancel] Failed to cancel session ${session.id}`,
+            error
+          );
+        }
+      }
+
+      if (sessions.length > 0) {
+        this.logger.log(
+          `[AutoCancel] Auto-cancelled ${sessions.length} session(s)`
+        );
+      }
+    } catch (error) {
+      this.logger.error('[AutoCancel] Error auto-cancelling sessions', error);
     }
   }
 }

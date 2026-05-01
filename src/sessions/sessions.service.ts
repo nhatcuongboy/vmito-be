@@ -18,6 +18,7 @@ import {
 import { VALID_LEVELS } from '../common/constants/level.constants';
 
 import { SessionsGateway } from './sessions.gateway';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { ClubsService } from '../clubs/clubs.service';
 import { UserImagesService } from '../user-images/user-images.service';
@@ -33,6 +34,7 @@ export class SessionsService {
     private prisma: PrismaService,
     private configService: ConfigService,
     private sessionsGateway: SessionsGateway,
+    private notificationsService: NotificationsService,
     private cloudinaryService: CloudinaryService,
     private clubsService: ClubsService,
     private userImagesService: UserImagesService
@@ -769,6 +771,8 @@ export class SessionsService {
       shuttlecock,
       coverPhoto,
       coverPhotoPublicId,
+      images,
+      imagePublicIds,
       defaultMatchType,
     } = createSessionDto;
 
@@ -881,6 +885,8 @@ export class SessionsService {
         shuttlecock,
         coverPhoto,
         coverPhotoPublicId,
+        images: images || [],
+        imagePublicIds: imagePublicIds || [],
       },
       include: {
         host: {
@@ -1093,6 +1099,8 @@ export class SessionsService {
         shuttlecock: updateSessionDto.shuttlecock,
         coverPhoto: updateSessionDto.coverPhoto,
         coverPhotoPublicId: updateSessionDto.coverPhotoPublicId,
+        images: updateSessionDto.images,
+        imagePublicIds: updateSessionDto.imagePublicIds,
         venue: updateSessionDto.venue
           ? {
               connectOrCreate: {
@@ -1343,6 +1351,23 @@ export class SessionsService {
         cancelledAt: new Date(),
       },
     });
+
+    // Notify each approved player that the session was cancelled
+    for (const player of existingSession.players) {
+      if (player.userId) {
+        await this.notificationsService.createForUser(
+          player.userId,
+          'SESSION',
+          'Session cancelled',
+          `"${existingSession.name}" has been cancelled.`,
+          {
+            sessionId: id,
+            sessionName: existingSession.name,
+            action: 'session_cancelled',
+          }
+        );
+      }
+    }
 
     // Notify session room
     this.sessionsGateway.notifySessionUpdate(id);
@@ -2633,6 +2658,8 @@ export class SessionsService {
       shuttlecock,
       coverPhoto,
       coverPhotoPublicId,
+      images,
+      imagePublicIds,
       defaultMatchType,
     } = createSessionDto;
 
@@ -2729,6 +2756,8 @@ export class SessionsService {
         shuttlecock,
         coverPhoto,
         coverPhotoPublicId,
+        images: images || [],
+        imagePublicIds: imagePublicIds || [],
       },
       include: {
         host: {
