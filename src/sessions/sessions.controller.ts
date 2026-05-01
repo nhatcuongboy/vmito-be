@@ -16,13 +16,22 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { SessionsService } from './sessions.service';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { UpdateWaitTimesDto } from './dto/update-wait-times.dto';
 import { BulkSessionCreationDto } from './dto/bulk-session.dto';
+import { GetRecommendationsQueryDto } from './dto/get-recommendations-query.dto';
+import { RecommendationResponseDto } from './dto/recommendation-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
@@ -170,6 +179,69 @@ export class SessionsController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.sessionsService.findOne(id);
+  }
+
+  @Public()
+  @Get(':id/recommendations')
+  @ApiOperation({
+    summary: 'Get session recommendations',
+    description:
+      'Get AI-powered session recommendations based on the current session. Returns similar sessions ranked by relevance score considering location, skill level, time, host, and available slots.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Session ID',
+    example: 'clh1234567890abcdefghij',
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Page number',
+    example: 1,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Items per page',
+    example: 12,
+  })
+  @ApiQuery({
+    name: 'userId',
+    required: false,
+    description: 'User ID for personalized recommendations',
+    example: 'clh1234567890abcdefghij',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Recommendations retrieved successfully',
+    type: RecommendationResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Session not found',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid pagination parameters',
+  })
+  async getRecommendations(
+    @Param('id') id: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('userId') userId?: string
+  ) {
+    // Validate pagination parameters
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 12;
+
+    if (pageNum < 1 || limitNum < 1 || limitNum > 100) {
+      throw new BadRequestException('Invalid pagination parameters');
+    }
+
+    return this.sessionsService.getSessionRecommendations(id, userId, {
+      page: pageNum,
+      limit: limitNum,
+    });
   }
 
   @Post()
