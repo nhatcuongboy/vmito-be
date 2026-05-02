@@ -264,7 +264,7 @@ Extract and return a JSON object with the following fields (use null for fields 
   "startTime": "ISO 8601 datetime string (use year ${currentYear} if year not specified)",
   "endTime": "ISO 8601 datetime string (use year ${currentYear} if year not specified)",
   "maxPlayersPerCourt": "Number of max players per court (default 8 if not specified)",
-  "requiredLevels": "Array of level numbers 1-8 where: 1=Yếu (Beginner), 2=Trung bình yếu (Advanced Beginner), 3=Trung bình- (Low Intermediate), 4=Trung bình (Intermediate), 5=Trung bình+ (High Intermediate), 6=Khá (Advanced), 7=Bán chuyên/Mạnh (Semi Pro), 8=Chuyên nghiệp (Pro). Map Vietnamese terms: Yếu=1-2, TB-=3, TB=4, TB+=5, Khá/K=6, Mạnh/BC=7. Return array like [3,4,5] for a range. Return null if all levels welcome.",
+  "requiredLevels": "Array of short name strings representing skill levels. Use these exact values: 'Y' (Yếu/Beginner), 'TB-' (Trung bình yếu/Advanced Beginner), 'TB' (Trung bình/Intermediate), 'TB+' (Trung bình+/High Intermediate), 'K-' (Khá-/Low Advanced), 'K' (Khá/Advanced), 'BC' (Bán chuyên/Semi Pro), 'Pro' (Chuyên nghiệp/Professional). Map Vietnamese terms: Yếu→'Y', TB-→'TB-', TB/Trung Bình→'TB', TB+/Khá-→'TB+', K-→'K-', Khá/K→'K', Mạnh/Giỏi/BC→'BC', Chuyên→'Pro'. Return array like ['TB-','TB','TB+'] for a range. Return null if all levels welcome.",
   "numberOfCourts": "Number of courts if mentioned",
   "courtNames": "Array of specific court names or numbers mentioned (e.g., ['Sân 5', 'Sân 6']). Return null if not specified.",
   "shuttlecock": "Type of shuttlecock used (e.g., 'Thành Công', 'Victor'). Return null if not specified.",
@@ -285,7 +285,7 @@ Extract and return a JSON object with the following fields (use null for fields 
 IMPORTANT:
 - Return ONLY valid JSON, no markdown formatting
 - For time, if only time is given (e.g., "18h-20h"), combine with the date mentioned or today's date
-- For Vietnamese level terms: Y/Yếu=1-2, TB-=3, TB/Trung Bình=4, TB+/Khá-=5, Khá/K=6, Mạnh/Giỏi/BC=7-8
+- For Vietnamese level terms: Y/Yếu→'Y', TB-→'TB-', TB/Trung Bình→'TB', TB+/Khá-→'TB+', K-→'K-', Khá/K→'K', Mạnh/Giỏi/BC→'BC', Chuyên→'Pro'
 - Phone numbers should be in format 0xxxxxxxxx
 - Extract fees carefully: 'k' means thousand (50k = 50000)
 - If a field cannot be determined, use null`;

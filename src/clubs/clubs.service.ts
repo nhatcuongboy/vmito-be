@@ -31,7 +31,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 export class ClubsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly notificationsService: NotificationsService,
+    private readonly notificationsService: NotificationsService
   ) {}
 
   private async uniqueClubSlug(name: string): Promise<string> {
@@ -125,7 +125,15 @@ export class ClubsService {
             orderBy: { dayOfWeek: 'asc' },
           },
           defaultVenue: {
-            select: { id: true, name: true, address: true, lat: true, lng: true, district: true, city: true },
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              lat: true,
+              lng: true,
+              district: true,
+              city: true,
+            },
           },
           _count: {
             select: {
@@ -166,7 +174,7 @@ export class ClubsService {
               lat,
               lng,
               club.defaultVenue.lat,
-              club.defaultVenue.lng,
+              club.defaultVenue.lng
             )
           : null,
     }));
@@ -196,7 +204,7 @@ export class ClubsService {
     lat1: number,
     lng1: number,
     lat2: number,
-    lng2: number,
+    lng2: number
   ): number {
     const R = 6371;
     const dLat = this.toRad(lat2 - lat1);
@@ -236,7 +244,13 @@ export class ClubsService {
           orderBy: { dayOfWeek: 'asc' },
         },
         defaultVenue: {
-          select: { id: true, name: true, address: true, district: true, city: true },
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            district: true,
+            city: true,
+          },
         },
         members: {
           where: { status: MemberStatus.ACTIVE },
@@ -307,7 +321,7 @@ export class ClubsService {
     // Fetch venues referenced by schedule notes to get district/city
     const scheduleVenueNames = [
       ...new Set(
-        club.schedules.map((s) => s.notes).filter(Boolean) as string[],
+        club.schedules.map((s) => s.notes).filter(Boolean) as string[]
       ),
     ];
     const scheduleVenues =
@@ -506,7 +520,13 @@ export class ClubsService {
               orderBy: { dayOfWeek: 'asc' },
             },
             defaultVenue: {
-              select: { id: true, name: true, address: true, district: true, city: true },
+              select: {
+                id: true,
+                name: true,
+                address: true,
+                district: true,
+                city: true,
+              },
             },
             _count: {
               select: {
@@ -539,7 +559,13 @@ export class ClubsService {
           orderBy: { dayOfWeek: 'asc' },
         },
         defaultVenue: {
-          select: { id: true, name: true, address: true, district: true, city: true },
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            district: true,
+            city: true,
+          },
         },
         _count: {
           select: {
@@ -643,7 +669,13 @@ export class ClubsService {
           orderBy: { dayOfWeek: 'asc' },
         },
         defaultVenue: {
-          select: { id: true, name: true, address: true, district: true, city: true },
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            district: true,
+            city: true,
+          },
         },
         feeConfigs: {
           where: {
@@ -697,7 +729,13 @@ export class ClubsService {
           orderBy: { dayOfWeek: 'asc' },
         },
         defaultVenue: {
-          select: { id: true, name: true, address: true, district: true, city: true },
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            district: true,
+            city: true,
+          },
         },
         feeConfigs: {
           orderBy: [{ year: 'desc' }, { month: 'desc' }],
@@ -774,7 +812,13 @@ export class ClubsService {
         include: {
           schedules: true,
           defaultVenue: {
-            select: { id: true, name: true, address: true, district: true, city: true },
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              district: true,
+              city: true,
+            },
           },
         },
       });
@@ -810,9 +854,14 @@ export class ClubsService {
       await this.notificationsService.createForUser(
         hostId,
         'CLUB',
-        'Yêu cầu tạo nhóm đang được xem xét',
-        `Nhóm "${club.name}" của bạn đang chờ Admin phê duyệt.`,
-        { clubId: club.id, clubSlug: club.slug, clubName: club.name },
+        'club_creation_pending',
+        '',
+        {
+          clubId: club.id,
+          clubSlug: club.slug,
+          clubName: club.name,
+          action: 'club_creation_pending',
+        }
       );
 
       // Notify all admins about new pending club (excluding creator)
@@ -825,9 +874,14 @@ export class ClubsService {
         await this.notificationsService.createForUser(
           admin.id,
           'CLUB',
-          'Nhóm mới đang chờ duyệt',
-          `Nhóm "${club.name}" đang chờ phê duyệt.`,
-          { clubId: club.id, clubSlug: club.slug, clubName: club.name },
+          'admin_new_pending_club',
+          '',
+          {
+            clubId: club.id,
+            clubSlug: club.slug,
+            clubName: club.name,
+            action: 'admin_new_pending_club',
+          }
         );
       }
     } else {
@@ -835,9 +889,14 @@ export class ClubsService {
       await this.notificationsService.createForUser(
         hostId,
         'CLUB',
-        'Nhóm đã được tạo thành công',
-        `Nhóm "${club.name}" đã được tạo và phê duyệt thành công.`,
-        { clubId: club.id, clubSlug: club.slug, clubName: club.name },
+        'club_creation_approved',
+        '',
+        {
+          clubId: club.id,
+          clubSlug: club.slug,
+          clubName: club.name,
+          action: 'club_creation_approved',
+        }
       );
     }
 
@@ -847,7 +906,12 @@ export class ClubsService {
   /**
    * Update a club
    */
-  async updateClub(clubId: string, userId: string, userRole: Role | undefined, dto: UpdateClubDto) {
+  async updateClub(
+    clubId: string,
+    userId: string,
+    userRole: Role | undefined,
+    dto: UpdateClubDto
+  ) {
     const club = await this.prisma.club.findFirst({
       where: {
         id: clubId,
@@ -931,7 +995,13 @@ export class ClubsService {
           include: {
             schedules: true,
             defaultVenue: {
-              select: { id: true, name: true, address: true, district: true, city: true },
+              select: {
+                id: true,
+                name: true,
+                address: true,
+                district: true,
+                city: true,
+              },
             },
           },
         });
@@ -955,7 +1025,13 @@ export class ClubsService {
       include: {
         schedules: true,
         defaultVenue: {
-          select: { id: true, name: true, address: true, district: true, city: true },
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            district: true,
+            city: true,
+          },
         },
       },
     });
@@ -1593,9 +1669,14 @@ export class ClubsService {
     await this.notificationsService.createForUser(
       club.hostId,
       'CLUB',
-      'Nhóm đã được phê duyệt',
-      `Nhóm "${club.name}" của bạn đã được phê duyệt.`,
-      { clubId: club.id, clubSlug: club.slug, clubName: club.name },
+      'club_approved',
+      '',
+      {
+        clubId: club.id,
+        clubSlug: club.slug,
+        clubName: club.name,
+        action: 'club_approved',
+      }
     );
 
     return updatedClub;
@@ -1622,14 +1703,15 @@ export class ClubsService {
     await this.notificationsService.createForUser(
       club.hostId,
       'CLUB',
-      'Nhóm đã bị từ chối',
-      `Nhóm "${club.name}" của bạn đã bị từ chối. Lý do: ${reason}`,
+      'club_rejected',
+      '',
       {
         clubId: club.id,
         clubSlug: club.slug,
         clubName: club.name,
         rejectionReason: reason,
-      },
+        action: 'club_rejected',
+      }
     );
 
     return updatedClub;
