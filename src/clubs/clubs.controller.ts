@@ -310,10 +310,10 @@ export class ClubsController {
     return this.clubsService.searchUsersForClub(user.userId, query || '');
   }
 
-  @Get('user/:userId/list')
+  @Get('user/:userId/clubs-for-host')
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
   @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
-  async getUserClubs(
+  async getUserClubsForHost(
     @Param('userId') userId: string,
     @CurrentUser() user: JwtUser
   ) {
