@@ -447,6 +447,21 @@ export class PlayersService {
       )
     );
 
+    // Notify users who were added to the session
+    await Promise.all(
+      createdPlayers
+        .filter((p) => p.userId)
+        .map((p) =>
+          this.notificationsService.createForUser(
+            p.userId!,
+            'SESSION',
+            'Bạn đã được thêm vào kèo',
+            session.name || 'Badminton Session',
+            { sessionId, action: 'player_added' }
+          )
+        )
+    );
+
     return {
       createdPlayers,
       session: updatedSession,
