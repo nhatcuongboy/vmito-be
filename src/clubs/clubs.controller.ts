@@ -95,6 +95,15 @@ export class ClubsController {
   }
 
   /**
+   * Get clubs for a specific user (public profile view)
+   */
+  @Public()
+  @Get('user/:userId/list')
+  async getUserClubs(@Param('userId') userId: string) {
+    return this.clubsService.getUserClubs(userId);
+  }
+
+  /**
    * Get pending join requests for current user
    */
   @Get('my/requests')
