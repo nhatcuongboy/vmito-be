@@ -29,6 +29,7 @@ export enum SessionEventType {
   SESSION_END_WARNING = 'session_end_warning',
   SESSION_OVERTIME = 'session_overtime',
   SESSION_CANCELLED = 'session_cancelled',
+  SESSION_STARTED = 'session_started',
 }
 
 @WebSocketGateway({
@@ -50,7 +51,19 @@ export class SessionsGateway
   }
 
   handleDisconnect(client: Socket) {
-    this.logger.log(`Client disconnected: ${client.id}`);
+    const userId = client.data.userId;
+    this.logger.log(
+      `Client disconnected: ${client.id}${userId ? ` (user: ${userId})` : ''}`
+    );
+
+    // Clean up: leave all user rooms on disconnect
+    const currentRooms = Array.from(client.rooms);
+    for (const room of currentRooms) {
+      if (room.startsWith('user-')) {
+        client.leave(room);
+        this.logger.log(`Socket ${client.id} auto-left user room ${room} on disconnect`);
+      }
+    }
   }
 
   @SubscribeMessage('joinSession')
@@ -80,18 +93,24 @@ export class SessionsGateway
     @MessageBody() data: { userId: string },
     @ConnectedSocket() client: Socket
   ) {
-    if (!data?.userId) return;
+    if (!data?.userId) {
+      this.logger.warn(`Socket ${client.id} attempted to join user room without userId`);
+      return;
+    }
 
     const roomName = `user-${data.userId}`;
 
-    // Leave other user rooms to prevent leakage if switching accounts on same socket
+    // Leave ALL user rooms to prevent leakage
     const currentRooms = Array.from(client.rooms);
     for (const room of currentRooms) {
-      if (room.startsWith('user-') && room !== roomName) {
+      if (room.startsWith('user-')) {
         await client.leave(room);
-        this.logger.log(`Socket ${client.id} left old user room ${room}`);
+        this.logger.log(`Socket ${client.id} left user room ${room}`);
       }
     }
+
+    // Store userId in socket data for verification
+    client.data.userId = data.userId;
 
     await client.join(roomName);
     this.logger.log(
@@ -137,11 +156,38 @@ export class SessionsGateway
     eventType: SessionEventType,
     payload?: Record<string, unknown>
   ) {
-    if (!userId) return;
+    if (!userId) {
+      this.logger.warn(`[Realtime] Attempted to notify user with empty userId`);
+      return;
+    }
 
     const roomName = `user-${userId}`;
-    this.server.to(roomName).emit(eventType, payload);
+    
+    // Get all sockets in this room and verify they belong to the correct user
+    const socketsInRoom = this.server.in(roomName).fetchSockets();
+    socketsInRoom.then((sockets) => {
+      let validSocketCount = 0;
+      for (const socket of sockets) {
+        // Verify socket belongs to the correct user
+        if (socket.data.userId === userId) {
+          validSocketCount++;
+        } else {
+          // Socket in wrong room - force leave
+          this.logger.warn(
+            `[Security] Socket ${socket.id} (user: ${socket.data.userId}) found in wrong room ${roomName}. Removing.`
+          );
+          socket.leave(roomName);
+        }
+      }
+      
+      if (validSocketCount > 0) {
+        this.logger.log(
+          `[Realtime] Notified user ${userId} of ${eventType} (${validSocketCount} socket(s))`
+        );
+      }
+    });
 
-    this.logger.log(`[Realtime] Notified user ${userId} of ${eventType}`);
+    // Emit to room (after cleanup above, only valid sockets remain)
+    this.server.to(roomName).emit(eventType, payload);
   }
 }

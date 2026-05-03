@@ -56,11 +56,14 @@ export class VenuesService {
       status,
       isVerified,
       closureStatus,
-      sortBy = 'name',
+      sortBy: rawSortBy,
       sortOrder = 'asc',
       page = 1,
       limit = 12,
     } = filters;
+
+    // Auto-set sortBy to 'relevance' if keyword is provided and sortBy is not explicitly set
+    const sortBy = rawSortBy || (keyword ? 'relevance' : 'name');
 
     const skip = (page - 1) * limit;
     const andConditions: Prisma.VenueWhereInput[] = [];
@@ -198,26 +201,44 @@ export class VenuesService {
 
     if (isRelevanceSort) {
       const lowerKeyword = keyword.toLowerCase();
+      const normalizedKeyword = removeVietnameseTones(keyword).toLowerCase();
+      const keywordTokens = normalizedKeyword.split(/\s+/).filter(Boolean);
+
       result.sort((a, b) => {
         const aName = a.name.toLowerCase();
         const bName = b.name.toLowerCase();
+        const aNormalized = removeVietnameseTones(a.name).toLowerCase();
+        const bNormalized = removeVietnameseTones(b.name).toLowerCase();
+        const aAddress = (a.address || '').toLowerCase();
+        const bAddress = (b.address || '').toLowerCase();
 
-        // Exact match
-        const aExact = aName === lowerKeyword ? 1 : 0;
-        const bExact = bName === lowerKeyword ? 1 : 0;
-        if (aExact !== bExact) return bExact - aExact;
+        // Calculate relevance scores
+        const aScore = this.calculateRelevanceScore(
+          aName,
+          aNormalized,
+          aAddress,
+          lowerKeyword,
+          normalizedKeyword,
+          keywordTokens
+        );
+        const bScore = this.calculateRelevanceScore(
+          bName,
+          bNormalized,
+          bAddress,
+          lowerKeyword,
+          normalizedKeyword,
+          keywordTokens
+        );
 
-        // Starts with
-        const aStarts = aName.startsWith(lowerKeyword) ? 1 : 0;
-        const bStarts = bName.startsWith(lowerKeyword) ? 1 : 0;
-        if (aStarts !== bStarts) return bStarts - aStarts;
+        // Sort by score descending
+        if (aScore !== bScore) return bScore - aScore;
 
-        // Contains
-        const aContains = aName.includes(lowerKeyword) ? 1 : 0;
-        const bContains = bName.includes(lowerKeyword) ? 1 : 0;
-        if (aContains !== bContains) return bContains - aContains;
+        // If same score, prefer shorter names (more specific)
+        if (aName.length !== bName.length) {
+          return aName.length - bName.length;
+        }
 
-        // Fallback to name A-Z
+        // Fallback to alphabetical order
         return aName.localeCompare(bName);
       });
       // Apply pagination in JS
@@ -579,5 +600,68 @@ export class VenuesService {
 
   private toRad(degrees: number): number {
     return degrees * (Math.PI / 180);
+  }
+
+  /**
+   * Calculate relevance score for venue search results.
+   * Higher score = more relevant.
+   */
+  private calculateRelevanceScore(
+    name: string,
+    normalizedName: string,
+    address: string,
+    keyword: string,
+    normalizedKeyword: string,
+    keywordTokens: string[]
+  ): number {
+    let score = 0;
+
+    // 1. Exact match (highest priority) - 1000 points
+    if (name === keyword || normalizedName === normalizedKeyword) {
+      score += 1000;
+      return score; // Return immediately for exact matches
+    }
+
+    // 2. Starts with keyword - 500 points
+    if (name.startsWith(keyword) || normalizedName.startsWith(normalizedKeyword)) {
+      score += 500;
+    }
+
+    // 3. Contains keyword as whole phrase - 300 points
+    if (name.includes(keyword) || normalizedName.includes(normalizedKeyword)) {
+      score += 300;
+    }
+
+    // 4. Token matching - up to 200 points
+    const nameTokens = normalizedName.split(/\s+/).filter(Boolean);
+    let tokenMatchCount = 0;
+    let exactTokenMatches = 0;
+
+    for (const keywordToken of keywordTokens) {
+      for (const nameToken of nameTokens) {
+        if (nameToken === keywordToken) {
+          exactTokenMatches++;
+          tokenMatchCount++;
+        } else if (nameToken.includes(keywordToken) || keywordToken.includes(nameToken)) {
+          tokenMatchCount++;
+        }
+      }
+    }
+
+    // Exact token matches worth more
+    score += exactTokenMatches * 50;
+    score += (tokenMatchCount - exactTokenMatches) * 20;
+
+    // 5. Address matching - 100 points
+    if (address.includes(keyword) || removeVietnameseTones(address).toLowerCase().includes(normalizedKeyword)) {
+      score += 100;
+    }
+
+    // 6. Bonus for shorter names (more specific) - up to 50 points
+    // Penalize very long names
+    const lengthPenalty = Math.max(0, 50 - normalizedName.length);
+    score += lengthPenalty;
+
+    return score;
   }
 }

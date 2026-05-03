@@ -19,9 +19,10 @@ export class SessionSchedulerService {
   /**
    * Runs every minute to handle session lifecycle events:
    * 1. Start reminder (at scheduled start time)
-   * 2. Auto-cancel (30 min after scheduled start with no host action)
+   * 2. Auto-start (at scheduled start time if host has not started yet)
    * 3. End warning (15 min before scheduled end time)
    * 4. Auto-finalize (after grace period expires with no activity)
+   * 5. Auto-cancel (sessions still PREPARING after scheduledEndTime)
    */
   @Cron(CronExpression.EVERY_MINUTE)
   async handleSessionLifecycle() {
@@ -29,36 +30,36 @@ export class SessionSchedulerService {
 
     await Promise.allSettled([
       this.sendStartReminders(now),
-      this.autoCancelSessions(now),
+      this.autoStartSessions(now),
       this.sendEndWarnings(now),
       this.autoFinalizeSessions(now),
+      this.autoCancelSessions(now),
     ]);
   }
 
   /**
-   * Send start reminder to host when scheduled start time arrives.
+   * Send start reminder to host 15 minutes before scheduled start time.
+   * This gives the host advance notice before the session auto-starts.
    * Only sends once per session (tracked by startReminderSentAt).
    */
   private async sendStartReminders(now: Date) {
     try {
+      const fifteenMinutesFromNow = new Date(now.getTime() + 15 * 60 * 1000);
+
       const sessions = await this.prisma.session.findMany({
         where: {
           status: 'PREPARING',
-          scheduledStartTime: { lte: now },
+          scheduledStartTime: { lte: fifteenMinutesFromNow, gt: now },
           startReminderSentAt: null,
         },
         include: {
           host: { select: { id: true, name: true } },
-          players: {
-            where: { registrationStatus: 'APPROVED', userId: { not: null } },
-            select: { id: true, userId: true, name: true },
-          },
         },
       });
 
       for (const session of sessions) {
         this.logger.log(
-          `[StartReminder] Sending start reminder for session "${session.name}" (${session.id}) to host ${session.hostId} and ${session.players.length} player(s)`
+          `[StartReminder] Sending 15-min reminder for session "${session.name}" (${session.id}) to host ${session.hostId}`
         );
 
         // Mark reminder as sent
@@ -67,35 +68,18 @@ export class SessionSchedulerService {
           data: { startReminderSentAt: now },
         });
 
-        // Create in-app notification for host
+        // Create in-app notification for host only
         await this.notificationsService.createForUser(
           session.hostId,
           'SESSION',
-          'Session is ready to start',
-          `It's time for "${session.name}". Are you at the court? Tap to start the session.`,
+          'Session starting in 15 minutes',
+          `"${session.name}" will automatically start in about 15 minutes. You can also start it early if you're already at the court.`,
           {
             sessionId: session.id,
             sessionName: session.name,
             action: 'start_reminder',
           }
         );
-
-        // Create in-app notification for all approved players
-        for (const player of session.players) {
-          if (player.userId) {
-            await this.notificationsService.createForUser(
-              player.userId,
-              'SESSION',
-              'Session is starting soon',
-              `"${session.name}" is about to start. Head to the court!`,
-              {
-                sessionId: session.id,
-                sessionName: session.name,
-                action: 'player_start_reminder',
-              }
-            );
-          }
-        }
 
         // Emit socket event to host
         this.sessionsGateway.notifyUser(
@@ -116,23 +100,24 @@ export class SessionSchedulerService {
   }
 
   /**
-   * Auto-cancel sessions that are still PREPARING 30 minutes past scheduled start time.
-   * Notifies host and all approved players.
+   * Auto-start sessions that are still PREPARING once the scheduled start time arrives.
+   * Uses scheduledStartTime as the actual startTime so the session ends exactly as planned.
+   * Notifies host and all approved players that the session has been automatically started.
    */
-  private async autoCancelSessions(now: Date) {
+  private async autoStartSessions(now: Date) {
     try {
-      const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
-
       const sessions = await this.prisma.session.findMany({
         where: {
           status: 'PREPARING',
-          scheduledStartTime: { lte: thirtyMinutesAgo },
-          cancelledAt: null,
+          scheduledStartTime: { lte: now },
+          // Only auto-start sessions whose scheduled end time is still in the future
+          scheduledEndTime: { gt: now },
+          autoStartedAt: null,
         },
         include: {
           host: { select: { id: true, name: true } },
           players: {
-            where: { registrationStatus: 'APPROVED' },
+            where: { registrationStatus: 'APPROVED', userId: { not: null } },
             select: { id: true, userId: true, name: true },
           },
         },
@@ -140,43 +125,44 @@ export class SessionSchedulerService {
 
       for (const session of sessions) {
         this.logger.log(
-          `[AutoCancel] Auto-cancelling session "${session.name}" (${session.id}) - 30 min past start time`
+          `[AutoStart] Auto-starting session "${session.name}" (${session.id}) at scheduled time`
         );
 
-        // Update session status to CANCELLED
-        await this.prisma.session.update({
-          where: { id: session.id },
-          data: {
-            status: 'CANCELLED',
-            cancelledAt: now,
-          },
-        });
+        try {
+          await this.sessionsService.autoStart(session.id);
+        } catch (error) {
+          this.logger.error(
+            `[AutoStart] Failed to auto-start session ${session.id}`,
+            error
+          );
+          continue;
+        }
 
         // Notify host
         await this.notificationsService.createForUser(
           session.hostId,
           'SESSION',
-          'Session auto-cancelled',
-          `"${session.name}" has been automatically cancelled because it was not started within 30 minutes of the scheduled time.`,
+          'Session auto-started',
+          `"${session.name}" has been automatically started at the scheduled time.`,
           {
             sessionId: session.id,
             sessionName: session.name,
-            action: 'auto_cancelled',
+            action: 'auto_started',
           }
         );
 
-        // Notify all joined players
+        // Notify all approved players (skip host to avoid duplicate notification)
         for (const player of session.players) {
-          if (player.userId) {
+          if (player.userId && player.userId !== session.hostId) {
             await this.notificationsService.createForUser(
               player.userId,
               'SESSION',
-              'Session cancelled',
-              `"${session.name}" has been cancelled by the system. The host did not start the session on time.`,
+              'Session has started',
+              `"${session.name}" has started. Head to the court!`,
               {
                 sessionId: session.id,
                 sessionName: session.name,
-                action: 'session_cancelled',
+                action: 'session_auto_started',
               }
             );
           }
@@ -185,21 +171,18 @@ export class SessionSchedulerService {
         // Emit socket event to session room
         this.sessionsGateway.notifyEvent(
           session.id,
-          SessionEventType.SESSION_CANCELLED,
+          SessionEventType.SESSION_STARTED,
           { sessionId: session.id, sessionName: session.name }
         );
-
-        // Also notify via session update for UI refresh
-        this.sessionsGateway.notifySessionUpdate(session.id);
       }
 
       if (sessions.length > 0) {
         this.logger.log(
-          `[AutoCancel] Auto-cancelled ${sessions.length} session(s)`
+          `[AutoStart] Auto-started ${sessions.length} session(s)`
         );
       }
     } catch (error) {
-      this.logger.error('[AutoCancel] Error auto-cancelling sessions', error);
+      this.logger.error('[AutoStart] Error auto-starting sessions', error);
     }
   }
 
@@ -315,6 +298,93 @@ export class SessionSchedulerService {
       }
     } catch (error) {
       this.logger.error('[AutoFinalize] Error auto-finalizing sessions', error);
+    }
+  }
+
+  /**
+   * Auto-cancel sessions that are still PREPARING after their scheduledEndTime.
+   * This handles sessions that were never started (and could not be auto-started
+   * because scheduledEndTime had already passed when the scheduler ran).
+   * Notifies host and all approved players.
+   */
+  private async autoCancelSessions(now: Date) {
+    try {
+      const sessions = await this.prisma.session.findMany({
+        where: {
+          status: 'PREPARING',
+          scheduledEndTime: { lte: now },
+        },
+        include: {
+          host: { select: { id: true, name: true } },
+          players: {
+            where: { registrationStatus: 'APPROVED', userId: { not: null } },
+            select: { id: true, userId: true, name: true },
+          },
+        },
+      });
+
+      for (const session of sessions) {
+        this.logger.log(
+          `[AutoCancel] Cancelling session "${session.name}" (${session.id}) - passed end time without starting`
+        );
+
+        try {
+          await this.prisma.session.update({
+            where: { id: session.id },
+            data: { status: 'CANCELLED', cancelledAt: now },
+          });
+
+          // Notify host
+          await this.notificationsService.createForUser(
+            session.hostId,
+            'SESSION',
+            'Session auto-cancelled',
+            `"${session.name}" has been automatically cancelled because it was not started within the scheduled time.`,
+            {
+              sessionId: session.id,
+              sessionName: session.name,
+              action: 'auto_cancelled',
+            }
+          );
+
+          // Notify all approved players (skip host to avoid duplicate)
+          for (const player of session.players) {
+            if (player.userId && player.userId !== session.hostId) {
+              await this.notificationsService.createForUser(
+                player.userId,
+                'SESSION',
+                'Session cancelled',
+                `"${session.name}" has been cancelled.`,
+                {
+                  sessionId: session.id,
+                  sessionName: session.name,
+                  action: 'session_cancelled',
+                }
+              );
+            }
+          }
+
+          // Notify session room
+          this.sessionsGateway.notifyEvent(
+            session.id,
+            SessionEventType.SESSION_CANCELLED,
+            { sessionId: session.id, sessionName: session.name }
+          );
+        } catch (error) {
+          this.logger.error(
+            `[AutoCancel] Failed to cancel session ${session.id}`,
+            error
+          );
+        }
+      }
+
+      if (sessions.length > 0) {
+        this.logger.log(
+          `[AutoCancel] Auto-cancelled ${sessions.length} session(s)`
+        );
+      }
+    } catch (error) {
+      this.logger.error('[AutoCancel] Error auto-cancelling sessions', error);
     }
   }
 }

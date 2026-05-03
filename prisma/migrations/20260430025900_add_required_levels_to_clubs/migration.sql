@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "clubs" ADD COLUMN IF NOT EXISTS "requiredLevels" INTEGER[] DEFAULT ARRAY[]::INTEGER[];

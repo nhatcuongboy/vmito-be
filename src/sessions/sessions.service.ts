@@ -18,9 +18,11 @@ import {
 import { VALID_LEVELS } from '../common/constants/level.constants';
 
 import { SessionsGateway } from './sessions.gateway';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { ClubsService } from '../clubs/clubs.service';
 import { UserImagesService } from '../user-images/user-images.service';
+import { ScoringEngine } from './utils/scoring-engine';
 import {
   generateSlug,
   removeVietnameseTones,
@@ -32,6 +34,7 @@ export class SessionsService {
     private prisma: PrismaService,
     private configService: ConfigService,
     private sessionsGateway: SessionsGateway,
+    private notificationsService: NotificationsService,
     private cloudinaryService: CloudinaryService,
     private clubsService: ClubsService,
     private userImagesService: UserImagesService
@@ -90,6 +93,8 @@ export class SessionsService {
       status?: SessionStatus;
       excludeStatus?: SessionStatus;
       excludeStatuses?: SessionStatus[];
+      endTimeBefore?: string;
+      endTimeAfter?: string;
     }
   ) {
     const page = filters?.page || 1;
@@ -125,6 +130,12 @@ export class SessionsService {
       where.status = { notIn: filters.excludeStatuses };
     } else if (filters?.excludeStatus) {
       where.status = { not: filters.excludeStatus };
+    }
+
+    if (filters?.endTimeBefore) {
+      where.endTime = { lt: new Date(filters.endTimeBefore) };
+    } else if (filters?.endTimeAfter) {
+      where.endTime = { gte: new Date(filters.endTimeAfter) };
     }
 
     const total = await this.prisma.session.count({ where });
@@ -177,6 +188,21 @@ export class SessionsService {
       limit,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  async getPublicSessions(
+    hostId: string,
+    filters?: {
+      page?: number;
+      limit?: number;
+      status?: SessionStatus;
+      excludeStatus?: SessionStatus;
+      excludeStatuses?: SessionStatus[];
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+    }
+  ) {
+    return this.findAll(undefined, { ...filters, hostId });
   }
 
   async findAvailable(filters?: {
@@ -745,6 +771,8 @@ export class SessionsService {
       shuttlecock,
       coverPhoto,
       coverPhotoPublicId,
+      images,
+      imagePublicIds,
       defaultMatchType,
     } = createSessionDto;
 
@@ -857,6 +885,8 @@ export class SessionsService {
         shuttlecock,
         coverPhoto,
         coverPhotoPublicId,
+        images: images || [],
+        imagePublicIds: imagePublicIds || [],
       },
       include: {
         host: {
@@ -1069,6 +1099,8 @@ export class SessionsService {
         shuttlecock: updateSessionDto.shuttlecock,
         coverPhoto: updateSessionDto.coverPhoto,
         coverPhotoPublicId: updateSessionDto.coverPhotoPublicId,
+        images: updateSessionDto.images,
+        imagePublicIds: updateSessionDto.imagePublicIds,
         venue: updateSessionDto.venue
           ? {
               connectOrCreate: {
@@ -1320,6 +1352,23 @@ export class SessionsService {
       },
     });
 
+    // Notify each approved player that the session was cancelled
+    for (const player of existingSession.players) {
+      if (player.userId) {
+        await this.notificationsService.createForUser(
+          player.userId,
+          'SESSION',
+          'Session cancelled',
+          `"${existingSession.name}" has been cancelled.`,
+          {
+            sessionId: id,
+            sessionName: existingSession.name,
+            action: 'session_cancelled',
+          }
+        );
+      }
+    }
+
     // Notify session room
     this.sessionsGateway.notifySessionUpdate(id);
 
@@ -1381,6 +1430,62 @@ export class SessionsService {
     return { message: 'Session and related players deleted successfully' };
   }
 
+  /**
+   * Auto-start a session at its scheduled start time.
+   * Uses scheduledStartTime as the actual startTime (not now),
+   * so the session ends at the originally planned scheduledEndTime.
+   * Called by the scheduler — does not throw for 0 players.
+   */
+  async autoStart(id: string) {
+    const existingSession = await this.prisma.session.findUnique({
+      where: { id },
+    });
+
+    if (!existingSession) {
+      throw new NotFoundException('Session not found');
+    }
+
+    if (existingSession.status !== 'PREPARING') {
+      throw new BadRequestException(
+        'Session has already been started or finished'
+      );
+    }
+
+    const now = new Date();
+
+    // Use the original scheduled times so the session ends exactly as planned
+    const startTime = existingSession.scheduledStartTime ?? now;
+    const endTime =
+      existingSession.scheduledEndTime ??
+      new Date(
+        startTime.getTime() + existingSession.sessionDuration * 60 * 1000
+      );
+    const gracePeriodEnd = new Date(endTime.getTime() + 30 * 60 * 1000);
+
+    const session = await this.prisma.session.update({
+      where: { id },
+      data: {
+        status: 'IN_PROGRESS',
+        startTime,
+        endTime,
+        scheduledEndTime: endTime,
+        gracePeriodEnd,
+        autoStartedAt: now,
+        // Reset end-warning flag for the new cycle
+        endWarningSentAt: null,
+      },
+    });
+
+    this.sessionsGateway.notifySessionUpdate(id);
+    return session;
+  }
+
+  /**
+   * Manual early start — called when the host taps "Start" before scheduledStartTime.
+   * Uses `now` as the actual startTime, so endTime shifts forward by sessionDuration.
+   * If called at or after scheduledStartTime, the session may already be IN_PROGRESS
+   * due to auto-start, in which case this throws "already started".
+   */
   async start(id: string) {
     const existingSession = await this.prisma.session.findUnique({
       where: { id },
@@ -2553,6 +2658,8 @@ export class SessionsService {
       shuttlecock,
       coverPhoto,
       coverPhotoPublicId,
+      images,
+      imagePublicIds,
       defaultMatchType,
     } = createSessionDto;
 
@@ -2649,6 +2756,8 @@ export class SessionsService {
         shuttlecock,
         coverPhoto,
         coverPhotoPublicId,
+        images: images || [],
+        imagePublicIds: imagePublicIds || [],
       },
       include: {
         host: {
@@ -2991,5 +3100,320 @@ export class SessionsService {
       data: paginated,
       pagination: { page, limit, total },
     };
+  }
+
+  /**
+   * Get session-based recommendations for a specific session
+   * @param sessionId - Current session being viewed
+   * @param userId - Optional user ID for personalization
+   * @param options - Pagination options
+   * @returns Paginated recommendations with scores and match reasons
+   */
+  async getSessionRecommendations(
+    sessionId: string,
+    userId?: string,
+    options?: {
+      page?: number;
+      limit?: number;
+    }
+  ) {
+    const page = options?.page || 1;
+    const limit = options?.limit || 12;
+    const skip = (page - 1) * limit;
+
+    // 1. Fetch current session with relations
+    const currentSession = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      include: {
+        venue: true,
+        host: {
+          select: { id: true, name: true, email: true, image: true },
+        },
+        feeConfig: true,
+      },
+    });
+
+    if (!currentSession) {
+      throw new NotFoundException('Session not found');
+    }
+
+    // 2. Build where clause for candidate sessions
+    const now = new Date();
+    const where: Prisma.SessionWhereInput = {
+      status: 'PREPARING',
+      endTime: { gt: now },
+      allowNewPlayers: true,
+      // Exclude current session
+      NOT: {
+        id: sessionId,
+      },
+    };
+
+    // Exclude sessions where user already joined (if userId provided)
+    if (userId) {
+      where.NOT = {
+        OR: [
+          { id: sessionId },
+          { players: { some: { userId, registrationStatus: 'APPROVED' } } },
+        ],
+      };
+    }
+
+    // 3. Fetch candidate sessions (limit to 100 for performance)
+    const candidates = await this.prisma.session.findMany({
+      where,
+      include: {
+        host: {
+          select: { id: true, name: true, email: true, image: true },
+        },
+        venue: true,
+        feeConfig: true,
+        _count: {
+          select: {
+            players: { where: { registrationStatus: 'APPROVED' } },
+            courts: true,
+          },
+        },
+        courts: {
+          orderBy: { courtNumber: 'asc' },
+        },
+      },
+      take: 100, // Limit candidate evaluation
+    });
+
+    // 4. Score each candidate using ScoringEngine
+    const scored = candidates.map((candidate) => {
+      // Calculate distance if both sessions have venue coordinates
+      let distance: number | null = null;
+      if (
+        currentSession.venue?.lat &&
+        currentSession.venue?.lng &&
+        candidate.venue?.lat &&
+        candidate.venue?.lng
+      ) {
+        distance = ScoringEngine.calculateDistance(
+          currentSession.venue.lat,
+          currentSession.venue.lng,
+          candidate.venue.lat,
+          candidate.venue.lng
+        );
+      }
+
+      // Calculate approved player count
+      const approvedPlayerCount = candidate._count?.players || 0;
+
+      // Calculate relevance score
+      const scoreResult = ScoringEngine.calculateRelevanceScore(
+        currentSession,
+        candidate,
+        distance,
+        approvedPlayerCount
+      );
+
+      // Generate match reasons
+      const matchReasons = ScoringEngine.getMatchReasons(
+        currentSession,
+        candidate,
+        scoreResult,
+        distance
+      );
+
+      // Calculate available slots
+      const maxSlots = candidate.numberOfCourts * candidate.maxPlayersPerCourt;
+      const availableSlots = maxSlots - approvedPlayerCount;
+
+      return {
+        id: candidate.id,
+        slug: candidate.slug,
+        name: candidate.name,
+        startTime: candidate.startTime?.toISOString() || null,
+        endTime: candidate.endTime?.toISOString() || null,
+        coverPhoto: candidate.coverPhoto,
+        venue: candidate.venue
+          ? {
+              id: candidate.venue.id,
+              name: candidate.venue.name,
+              address: candidate.venue.address,
+              city: candidate.venue.city || '',
+              district: candidate.venue.district || '',
+              lat: candidate.venue.lat || 0,
+              lng: candidate.venue.lng || 0,
+            }
+          : null,
+        host: candidate.host,
+        feeConfig: candidate.feeConfig
+          ? {
+              feeType: candidate.feeConfig.feeType,
+              maleFee: candidate.feeConfig.maleFee,
+              femaleFee: candidate.feeConfig.femaleFee,
+            }
+          : null,
+        availableSlots,
+        maxSlots,
+        requiredLevels: candidate.requiredLevels,
+        relevanceScore: scoreResult.total,
+        matchReasons,
+        distance,
+      };
+    });
+
+    // 5. Check if fallback is needed (all scores below 0.3 threshold)
+    const hasGoodMatches = scored.some((s) => s.relevanceScore >= 0.3);
+
+    if (!hasGoodMatches && scored.length === 0) {
+      // Use fallback recommendations
+      const fallbackResults = await this.getFallbackRecommendations(
+        currentSession,
+        { page, limit }
+      );
+
+      return {
+        data: fallbackResults,
+        pagination: {
+          page,
+          limit,
+          total: fallbackResults.length,
+          totalPages: Math.ceil(fallbackResults.length / limit),
+        },
+        meta: {
+          currentSessionId: sessionId,
+          isFallback: true,
+        },
+      };
+    }
+
+    // 6. Sort by relevance score descending, then start time ascending
+    scored.sort((a, b) => {
+      if (a.relevanceScore !== b.relevanceScore) {
+        return b.relevanceScore - a.relevanceScore;
+      }
+      // Equal scores: sort by start time ascending
+      const timeA = a.startTime ? new Date(a.startTime).getTime() : 0;
+      const timeB = b.startTime ? new Date(b.startTime).getTime() : 0;
+      return timeA - timeB;
+    });
+
+    // 7. Apply pagination
+    const total = scored.length;
+    const paginated = scored.slice(skip, skip + limit);
+
+    return {
+      data: paginated,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+      meta: {
+        currentSessionId: sessionId,
+        isFallback: false,
+      },
+    };
+  }
+
+  /**
+   * Get fallback recommendations (popular sessions) when no good matches found
+   * @param currentSession - Current session being viewed
+   * @param options - Pagination options
+   * @returns Popular sessions in same city
+   */
+  private async getFallbackRecommendations(
+    currentSession: any,
+    options?: { page?: number; limit?: number }
+  ) {
+    const page = options?.page || 1;
+    const limit = options?.limit || 12;
+    const skip = (page - 1) * limit;
+
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    // Query popular sessions (highest player count in last 7 days)
+    const where: Prisma.SessionWhereInput = {
+      status: 'PREPARING',
+      endTime: { gt: now },
+      allowNewPlayers: true,
+      NOT: {
+        id: currentSession.id,
+      },
+      // Same city as current session
+      venue: currentSession.venue?.city
+        ? { city: currentSession.venue.city }
+        : undefined,
+    };
+
+    const popularSessions = await this.prisma.session.findMany({
+      where,
+      include: {
+        host: {
+          select: { id: true, name: true, email: true, image: true },
+        },
+        venue: true,
+        feeConfig: true,
+        _count: {
+          select: {
+            players: { where: { registrationStatus: 'APPROVED' } },
+            courts: true,
+          },
+        },
+        players: {
+          where: {
+            registrationStatus: 'APPROVED',
+            createdAt: { gte: sevenDaysAgo },
+          },
+          select: { id: true },
+        },
+      },
+      take: 50, // Get top 50 popular sessions
+    });
+
+    // Sort by player count in last 7 days (descending)
+    const sorted = popularSessions
+      .map((session) => {
+        const playerCountLast7Days = session.players.length;
+        const approvedPlayerCount = session._count?.players || 0;
+        const maxSlots = session.numberOfCourts * session.maxPlayersPerCourt;
+        const availableSlots = maxSlots - approvedPlayerCount;
+
+        return {
+          id: session.id,
+          slug: session.slug,
+          name: session.name,
+          startTime: session.startTime?.toISOString() || null,
+          endTime: session.endTime?.toISOString() || null,
+          coverPhoto: session.coverPhoto,
+          venue: session.venue
+            ? {
+                id: session.venue.id,
+                name: session.venue.name,
+                address: session.venue.address,
+                city: session.venue.city || '',
+                district: session.venue.district || '',
+                lat: session.venue.lat || 0,
+                lng: session.venue.lng || 0,
+              }
+            : null,
+          host: session.host,
+          feeConfig: session.feeConfig
+            ? {
+                feeType: session.feeConfig.feeType,
+                maleFee: session.feeConfig.maleFee,
+                femaleFee: session.feeConfig.femaleFee,
+              }
+            : null,
+          availableSlots,
+          maxSlots,
+          requiredLevels: session.requiredLevels,
+          relevanceScore: 0, // No relevance score for fallback
+          matchReasons: [], // No match reasons for fallback
+          distance: null,
+          playerCountLast7Days,
+        };
+      })
+      .sort((a, b) => b.playerCountLast7Days - a.playerCountLast7Days);
+
+    // Apply pagination
+    return sorted.slice(skip, skip + limit);
   }
 }

@@ -6,6 +6,8 @@ import {
   ChatMessageDto,
 } from './dto/extract-session.dto';
 import { Language, DEFAULT_LANGUAGE } from '../common/constants/language.enum';
+import { PrismaService } from '../prisma/prisma.service';
+import { Venue } from '@prisma/client';
 
 const MODEL = 'gemini-3-flash-preview';
 
@@ -38,7 +40,10 @@ Hãy giúp đỡ người dùng sử dụng Vmito một cách hiệu quả nhấ
 export class GeminiService {
   private ai: GoogleGenAI | null = null;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private prisma: PrismaService,
+  ) {
     const apiKey = this.configService.get<string>('GEMINI_API_KEY');
     if (!apiKey) {
       console.warn(
@@ -56,6 +61,162 @@ export class GeminiService {
       [Language.CN]: 'Chinese (中文)',
     };
     return `IMPORTANT: You MUST respond in ${languageNames[language]}. All field values in the JSON response should be in ${languageNames[language]}.`;
+  }
+
+  /**
+   * Find best matching venue in database based on AI extracted venue data
+   */
+  private async findMatchingVenue(extractedVenue: {
+    name?: string;
+    address?: string;
+    district?: string;
+    city?: string;
+  }): Promise<string | null> {
+    if (!extractedVenue.name && !extractedVenue.address) {
+      return null;
+    }
+
+    // Fetch all active venues
+    const venues = await this.prisma.venue.findMany({
+      where: {
+        status: 'ACTIVE',
+        closureStatus: 'OPERATING',
+      },
+      select: {
+        id: true,
+        name: true,
+        address: true,
+        district: true,
+        city: true,
+      },
+    });
+
+    if (venues.length === 0) {
+      return null;
+    }
+
+    type VenueMatch = {
+      id: string;
+      name: string;
+      address: string;
+      district: string | null;
+      city: string | null;
+    };
+
+    // Helper function to normalize text for better matching
+    const normalizeText = (text: string): string => {
+      return text
+        .toLowerCase()
+        .replace(/sân\s+cầu\s+lông\s+/gi, '') // Remove "sân cầu lông" prefix
+        .replace(/sân\s+/gi, '') // Remove "sân" prefix
+        .replace(/\s+/g, ' ') // Normalize spaces
+        .trim();
+    };
+
+    // Helper function to calculate match score
+    const calculateMatchScore = (venue: VenueMatch): number => {
+      let score = 0;
+      const normalizedVenueName = normalizeText(venue.name);
+      const normalizedVenueAddress = venue.address.toLowerCase();
+      const normalizedSearchName = normalizeText(extractedVenue.name || '');
+      const normalizedSearchAddress = (extractedVenue.address || '').toLowerCase();
+
+      // Exact match gets highest score
+      if (normalizedVenueName === normalizedSearchName) {
+        score += 100;
+      }
+      // Contains match
+      else if (normalizedVenueName.includes(normalizedSearchName)) {
+        score += 50;
+      } else if (normalizedSearchName.includes(normalizedVenueName)) {
+        score += 50;
+      }
+      // Word-by-word matching
+      else {
+        const searchWords = normalizedSearchName.split(' ').filter((w) => w.length > 2);
+        const venueWords = normalizedVenueName.split(' ').filter((w) => w.length > 2);
+
+        searchWords.forEach((searchWord) => {
+          venueWords.forEach((venueWord) => {
+            if (venueWord.includes(searchWord) || searchWord.includes(venueWord)) {
+              score += 10;
+            }
+          });
+        });
+      }
+
+      // Address matching
+      if (normalizedSearchAddress && normalizedVenueAddress) {
+        if (normalizedVenueAddress.includes(normalizedSearchAddress)) {
+          score += 30;
+        } else if (normalizedSearchAddress.includes(normalizedVenueAddress)) {
+          score += 30;
+        } else {
+          // Word-by-word address matching
+          const addressWords = normalizedSearchAddress.split(' ').filter((w) => w.length > 2);
+          addressWords.forEach((word) => {
+            if (normalizedVenueAddress.includes(word)) {
+              score += 5;
+            }
+          });
+        }
+      }
+
+      // District matching
+      if (extractedVenue.district && venue.district) {
+        const normalizedExtractedDistrict = normalizeText(extractedVenue.district);
+        const normalizedVenueDistrict = normalizeText(venue.district);
+        if (normalizedVenueDistrict === normalizedExtractedDistrict) {
+          score += 20;
+        } else if (
+          normalizedVenueDistrict.includes(normalizedExtractedDistrict) ||
+          normalizedExtractedDistrict.includes(normalizedVenueDistrict)
+        ) {
+          score += 10;
+        }
+      }
+
+      // City matching
+      if (extractedVenue.city && venue.city) {
+        const normalizedExtractedCity = normalizeText(extractedVenue.city);
+        const normalizedVenueCity = normalizeText(venue.city);
+        if (normalizedVenueCity === normalizedExtractedCity) {
+          score += 15;
+        } else if (
+          normalizedVenueCity.includes(normalizedExtractedCity) ||
+          normalizedExtractedCity.includes(normalizedVenueCity)
+        ) {
+          score += 8;
+        }
+      }
+
+      return score;
+    };
+
+    // Find best matching venue
+    let bestMatch: VenueMatch | null = null;
+    let bestScore = 0;
+
+    venues.forEach((v) => {
+      const score = calculateMatchScore(v);
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = v;
+      }
+    });
+
+    // Only return match if score is above threshold
+    if (bestMatch && bestScore >= 20) {
+      console.log(
+        `[AI] Matched venue: "${(bestMatch as VenueMatch).name}" (ID: ${(bestMatch as VenueMatch).id}) with score: ${bestScore} for extracted venue: "${extractedVenue.name}"`,
+      );
+      return (bestMatch as VenueMatch).id;
+    }
+
+    console.log(
+      `[AI] No matching venue found for: "${extractedVenue.name}" (best score was: ${bestScore})`,
+    );
+    return null;
   }
 
   async generateText(prompt: string, language?: Language): Promise<string> {
@@ -103,7 +264,7 @@ Extract and return a JSON object with the following fields (use null for fields 
   "startTime": "ISO 8601 datetime string (use year ${currentYear} if year not specified)",
   "endTime": "ISO 8601 datetime string (use year ${currentYear} if year not specified)",
   "maxPlayersPerCourt": "Number of max players per court (default 8 if not specified)",
-  "requiredLevels": "Array of level numbers 1-8 where: 1=Yếu (Beginner), 2=Trung bình yếu (Advanced Beginner), 3=Trung bình- (Low Intermediate), 4=Trung bình (Intermediate), 5=Trung bình+ (High Intermediate), 6=Khá (Advanced), 7=Bán chuyên/Mạnh (Semi Pro), 8=Chuyên nghiệp (Pro). Map Vietnamese terms: Yếu=1-2, TB-=3, TB=4, TB+=5, Khá/K=6, Mạnh/BC=7. Return array like [3,4,5] for a range. Return null if all levels welcome.",
+  "requiredLevels": "Array of short name strings representing skill levels. Use these exact values: 'Y' (Yếu/Beginner), 'TB-' (Trung bình yếu/Advanced Beginner), 'TB' (Trung bình/Intermediate), 'TB+' (Trung bình+/High Intermediate), 'K-' (Khá-/Low Advanced), 'K' (Khá/Advanced), 'BC' (Bán chuyên/Semi Pro), 'Pro' (Chuyên nghiệp/Professional). Map Vietnamese terms: Yếu→'Y', TB-→'TB-', TB/Trung Bình→'TB', TB+/Khá-→'TB+', K-→'K-', Khá/K→'K', Mạnh/Giỏi/BC→'BC', Chuyên→'Pro'. Return array like ['TB-','TB','TB+'] for a range. Return null if all levels welcome.",
   "numberOfCourts": "Number of courts if mentioned",
   "courtNames": "Array of specific court names or numbers mentioned (e.g., ['Sân 5', 'Sân 6']). Return null if not specified.",
   "shuttlecock": "Type of shuttlecock used (e.g., 'Thành Công', 'Victor'). Return null if not specified.",
@@ -124,7 +285,7 @@ Extract and return a JSON object with the following fields (use null for fields 
 IMPORTANT:
 - Return ONLY valid JSON, no markdown formatting
 - For time, if only time is given (e.g., "18h-20h"), combine with the date mentioned or today's date
-- For Vietnamese level terms: Y/Yếu=1-2, TB-=3, TB/Trung Bình=4, TB+/Khá-=5, Khá/K=6, Mạnh/Giỏi/BC=7-8
+- For Vietnamese level terms: Y/Yếu→'Y', TB-→'TB-', TB/Trung Bình→'TB', TB+/Khá-→'TB+', K-→'K-', Khá/K→'K', Mạnh/Giỏi/BC→'BC', Chuyên→'Pro'
 - Phone numbers should be in format 0xxxxxxxxx
 - Extract fees carefully: 'k' means thousand (50k = 50000)
 - If a field cannot be determined, use null`;
@@ -140,7 +301,17 @@ IMPORTANT:
       .replace(/```\s*/g, '')
       .trim();
 
-    return JSON.parse(cleanedText) as ExtractedSessionDto;
+    const extracted = JSON.parse(cleanedText) as ExtractedSessionDto;
+
+    // Try to match venue in database
+    if (extracted.venue) {
+      const venueId = await this.findMatchingVenue(extracted.venue);
+      if (venueId) {
+        extracted.venueId = venueId;
+      }
+    }
+
+    return extracted;
   }
 
   async chatWithAssistant(

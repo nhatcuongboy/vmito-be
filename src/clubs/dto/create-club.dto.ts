@@ -50,7 +50,7 @@ export class CreateClubDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(200)
+  @MaxLength(5000)
   description?: string;
 
   @IsOptional()
@@ -101,6 +101,12 @@ export class CreateClubDto {
 
   @IsOptional()
   @IsArray()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(8, { each: true })
+  requiredLevels?: number[];
+
+  @IsOptional()
   @ValidateNested({ each: true })
   @Type(() => ClubScheduleDto)
   schedules?: ClubScheduleDto[];
