@@ -24,6 +24,7 @@ import {
   SessionEventType,
 } from '../sessions/sessions.gateway';
 import { FeeService } from '../fee/fee.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class PlayersService {
@@ -31,7 +32,8 @@ export class PlayersService {
     private prisma: PrismaService,
     @Inject(forwardRef(() => SessionsGateway))
     private sessionsGateway: SessionsGateway,
-    private feeService: FeeService
+    private feeService: FeeService,
+    private notificationsService: NotificationsService
   ) {}
 
   async findOne(id: string) {
@@ -228,6 +230,7 @@ export class PlayersService {
       where: { id: sessionId },
       select: {
         id: true,
+        name: true,
         hostId: true,
         requiredLevels: true,
         players: {
@@ -303,6 +306,17 @@ export class PlayersService {
       SessionEventType.PLAYER_CREATED,
       { playerId: newPlayer.id }
     );
+
+    // Notify user if they were added to the session
+    if (newPlayer.userId) {
+      await this.notificationsService.createForUser(
+        newPlayer.userId,
+        'SESSION',
+        'Bạn đã được thêm vào kèo',
+        session.name || 'Badminton Session',
+        { sessionId, action: 'player_added' }
+      );
+    }
 
     // Create payment record if session has fee config
     await this.feeService.createPaymentRecordForPlayer(
@@ -704,6 +718,21 @@ export class PlayersService {
           count: createdPlayers.length,
         }
       );
+    }
+
+    // Notify users who were directly approved (host-added)
+    if (registrationStatus === 'APPROVED') {
+      for (const player of createdPlayers) {
+        if (player.userId) {
+          await this.notificationsService.createForUser(
+            player.userId,
+            'SESSION',
+            'Bạn đã được thêm vào kèo',
+            session.name || 'Badminton Session',
+            { sessionId, action: 'player_added' }
+          );
+        }
+      }
     }
 
     // Create payment records for registered players
@@ -1195,6 +1224,7 @@ export class PlayersService {
     // Check if session exists
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
+      select: { name: true },
     });
 
     if (!session) {
@@ -1224,6 +1254,17 @@ export class PlayersService {
     await this.prisma.player.delete({
       where: { id: playerId },
     });
+
+    // Notify user if they were removed from the session
+    if (existingPlayer.userId) {
+      await this.notificationsService.createForUser(
+        existingPlayer.userId,
+        'SESSION',
+        'Bạn đã bị xóa khỏi kèo',
+        session.name || 'Badminton Session',
+        { sessionId, action: 'player_removed' }
+      );
+    }
 
     return { message: 'Player deleted successfully' };
   }
