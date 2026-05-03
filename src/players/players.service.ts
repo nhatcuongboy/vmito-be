@@ -314,7 +314,7 @@ export class PlayersService {
         'SESSION',
         'Bạn đã được thêm vào kèo',
         session.name || 'Badminton Session',
-        { sessionId, action: 'player_added' }
+        { sessionId, sessionName: session.name, action: 'player_added' }
       );
     }
 
@@ -457,7 +457,7 @@ export class PlayersService {
             'SESSION',
             'Bạn đã được thêm vào kèo',
             session.name || 'Badminton Session',
-            { sessionId, action: 'player_added' }
+            { sessionId, sessionName: session.name, action: 'player_added' }
           )
         )
     );
@@ -744,7 +744,7 @@ export class PlayersService {
             'SESSION',
             'Bạn đã được thêm vào kèo',
             session.name || 'Badminton Session',
-            { sessionId, action: 'player_added' }
+            { sessionId, sessionName: session.name, action: 'player_added' }
           );
         }
       }
@@ -1277,7 +1277,7 @@ export class PlayersService {
         'SESSION',
         'Bạn đã bị xóa khỏi kèo',
         session.name || 'Badminton Session',
-        { sessionId, action: 'player_removed' }
+        { sessionId, sessionName: session.name, action: 'player_removed' }
       );
     }
 
