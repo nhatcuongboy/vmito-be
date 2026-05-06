@@ -16,6 +16,27 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 
+// i18n error messages
+const ERROR_MESSAGES: Record<string, Record<string, string>> = {
+  vi: {
+    userAlreadyExists: 'Người dùng đã tồn tại',
+    unexpectedError: 'Có lỗi xảy ra. Vui lòng thử lại.',
+  },
+  en: {
+    userAlreadyExists: 'User already exists',
+    unexpectedError: 'An error occurred. Please try again.',
+  },
+  cn: {
+    userAlreadyExists: '用户已存在',
+    unexpectedError: '发生错误。请重试。',
+  },
+};
+
+const getErrorMessage = (key: string, locale?: string): string => {
+  const lang = locale && ERROR_MESSAGES[locale] ? locale : 'en';
+  return ERROR_MESSAGES[lang][key] || ERROR_MESSAGES['en'][key];
+};
+
 export interface GoogleProfile {
   googleId: string;
   email: string;
@@ -76,8 +97,8 @@ export class AuthService {
     return result;
   }
 
-  async register(registerDto: RegisterDto) {
-    const { email, password, name } = registerDto;
+  async register(registerDto: RegisterDto, locale?: string) {
+    const { email, password, name, phone, gender } = registerDto;
 
     // Check if user exists
     const existingUser = await this.prisma.user.findUnique({
@@ -85,30 +106,46 @@ export class AuthService {
     });
 
     if (existingUser) {
-      throw new ConflictException('User already exists');
+      throw new ConflictException(
+        getErrorMessage('userAlreadyExists', locale),
+      );
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 12);
+    try {
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Create user
-    const user = await this.prisma.user.create({
-      data: {
-        email,
-        password: hashedPassword,
-        name,
-        role: 'PLAYER',
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        createdAt: true,
-      },
-    });
+      // Create user
+      const user = await this.prisma.user.create({
+        data: {
+          email,
+          password: hashedPassword,
+          name,
+          role: 'PLAYER',
+          phone: phone ?? null,
+          gender: gender ?? null,
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          phone: true,
+          gender: true,
+          createdAt: true,
+        },
+      });
 
-    return user;
+      return user;
+    } catch (error) {
+      // Handle any unexpected errors
+      if (error instanceof ConflictException) {
+        throw error;
+      }
+      throw new ConflictException(
+        getErrorMessage('unexpectedError', locale),
+      );
+    }
   }
 
   async login(loginDto: LoginDto) {

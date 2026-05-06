@@ -1903,6 +1903,7 @@ export class SessionsService {
             id: true,
             courtNumber: true,
             courtName: true,
+            direction: true,
           },
         },
       },

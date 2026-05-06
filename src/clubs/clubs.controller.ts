@@ -95,6 +95,15 @@ export class ClubsController {
   }
 
   /**
+   * Get clubs for a specific user (public profile view)
+   */
+  @Public()
+  @Get('user/:userId/list')
+  async getUserClubs(@Param('userId') userId: string) {
+    return this.clubsService.getUserClubs(userId);
+  }
+
+  /**
    * Get pending join requests for current user
    */
   @Get('my/requests')
@@ -301,10 +310,10 @@ export class ClubsController {
     return this.clubsService.searchUsersForClub(user.userId, query || '');
   }
 
-  @Get('user/:userId/list')
+  @Get('user/:userId/clubs-for-host')
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
   @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
-  async getUserClubs(
+  async getUserClubsForHost(
     @Param('userId') userId: string,
     @CurrentUser() user: JwtUser
   ) {

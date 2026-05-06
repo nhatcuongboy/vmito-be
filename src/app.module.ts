@@ -27,6 +27,7 @@ import { RatingsModule } from './ratings/ratings.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ClubsModule } from './clubs/clubs.module';
 import { UserImagesModule } from './user-images/user-images.module';
+import { PostsModule } from './posts/posts.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import configuration from './config';
 
@@ -61,6 +62,7 @@ import configuration from './config';
     NotificationsModule,
     ClubsModule,
     UserImagesModule,
+    PostsModule,
   ],
   controllers: [AppController],
   providers: [

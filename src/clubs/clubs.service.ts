@@ -578,6 +578,43 @@ export class ClubsService {
       orderBy: { createdAt: 'desc' },
     });
 
+    // Get approved clubs where user is the host
+    const hostedClubs = await this.prisma.club.findMany({
+      where: {
+        hostId: userId,
+        status: ClubStatus.APPROVED,
+      },
+      include: {
+        host: {
+          select: {
+            id: true,
+            name: true,
+            image: true,
+          },
+        },
+        schedules: {
+          orderBy: { dayOfWeek: 'asc' },
+        },
+        defaultVenue: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            district: true,
+            city: true,
+          },
+        },
+        _count: {
+          select: {
+            members: {
+              where: { status: MemberStatus.ACTIVE },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
     // Map memberships to club data
     const memberClubs = memberships.map((m) => ({
       id: m.club.id,
@@ -612,8 +649,25 @@ export class ClubsService {
       joinedAt: club.createdAt,
     }));
 
-    // Merge and return both lists
-    return [...memberClubs, ...pendingClubsData];
+    // Map hosted clubs to club data
+    const hostedClubsData = hostedClubs.map((club) => ({
+      id: club.id,
+      slug: club.slug ?? undefined,
+      name: club.name,
+      description: club.description,
+      color: club.color,
+      image: club.image,
+      status: club.status,
+      role: MemberRole.ADMIN, // User is the host/creator
+      memberCount: club._count.members,
+      host: club.host,
+      schedules: club.schedules,
+      defaultVenue: club.defaultVenue,
+      joinedAt: club.createdAt,
+    }));
+
+    // Merge and return all lists
+    return [...memberClubs, ...hostedClubsData, ...pendingClubsData];
   }
 
   /**

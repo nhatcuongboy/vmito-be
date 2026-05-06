@@ -8,6 +8,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { SessionsModule } from '../sessions/sessions.module';
 import { FeeModule } from '../fee/fee.module';
 import { ClubsModule } from '../clubs/clubs.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { ClubsModule } from '../clubs/clubs.module';
     forwardRef(() => SessionsModule),
     FeeModule,
     ClubsModule,
+    NotificationsModule,
   ],
   controllers: [PlayersController, SessionPlayersController],
   providers: [PlayersService],

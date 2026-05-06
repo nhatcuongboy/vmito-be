@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Post,
   Put,
+  Query,
   Req,
   Res,
   UseGuards,
@@ -58,8 +59,11 @@ export class AuthController {
 
   @Public()
   @Post('register')
-  async register(@Body() registerDto: RegisterDto) {
-    return this.authService.register(registerDto);
+  async register(
+    @Body() registerDto: RegisterDto,
+    @Query('locale') locale?: string
+  ) {
+    return this.authService.register(registerDto, locale);
   }
 
   @Public()

@@ -52,6 +52,12 @@ model User {
   // Image gallery
   uploadedImages UserImage[] @relation("UserImages")
 
+  // Post relations
+  posts        Post[]        @relation("UserPosts")
+  postLikes    PostLike[]    @relation("UserPostLikes")
+  postComments PostComment[] @relation("UserPostComments")
+  postShares   PostShare[]   @relation("UserPostShares")
+
   @@map("users")
 }
 
@@ -1113,4 +1119,91 @@ model UserImage {
   @@index([userId])
   @@index([userId, category])
   @@map("user_images")
+}
+
+// ===========================================
+// Newsfeed / Post System Models
+// ===========================================
+
+model Post {
+  id          String   @id @default(cuid())
+  content     String   @db.Text
+  videoUrl    String? // YouTube/Vimeo embed URL
+  location    Json? // {name, lat, lng, address}
+  authorId    String
+  author      User     @relation("UserPosts", fields: [authorId], references: [id], onDelete: Cascade)
+  
+  images      PostImage[]
+  likes       PostLike[]
+  comments    PostComment[]
+  shares      PostShare[]
+  
+  // For repost/share
+  originalPostId String?
+  originalPost   Post?   @relation("PostShares", fields: [originalPostId], references: [id])
+  reposts        Post[]  @relation("PostShares")
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([authorId])
+  @@index([createdAt])
+  @@map("posts")
+}
+
+model PostImage {
+  id          String @id @default(cuid())
+  postId      String
+  post        Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  url         String
+  publicId    String
+  order       Int    @default(0)
+  
+  @@index([postId])
+  @@map("post_images")
+}
+
+model PostLike {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("UserPostLikes", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  
+  @@unique([postId, userId])
+  @@index([postId])
+  @@index([userId])
+  @@map("post_likes")
+}
+
+model PostComment {
+  id            String   @id @default(cuid())
+  postId        String
+  post          Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User     @relation("UserPostComments", fields: [userId], references: [id], onDelete: Cascade)
+  content       String   @db.Text
+  imageUrl      String?
+  imagePublicId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@index([postId])
+  @@index([userId])
+  @@map("post_comments")
+}
+
+model PostShare {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("UserPostShares", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  
+  @@unique([postId, userId])
+  @@index([postId])
+  @@index([userId])
+  @@map("post_shares")
 }

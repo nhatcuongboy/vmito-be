@@ -445,7 +445,7 @@ export class CourtsService {
               data: {
                 matchId: match.id,
                 playerId: player.id,
-                position: i,
+                position: player.courtPosition ?? i,
               },
             });
 
