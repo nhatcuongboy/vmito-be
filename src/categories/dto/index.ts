@@ -9,7 +9,4 @@ export {
   CreateCategoryMatchDto,
   MatchParticipantDto,
 } from './create-category-match.dto';
-export {
-  EndCategoryMatchDto,
-  MatchSetDto,
-} from './end-category-match.dto';
+export { EndCategoryMatchDto, MatchSetDto } from './end-category-match.dto';

@@ -31,12 +31,12 @@ export class CategoryMatchesController {
   @Put('bulk-schedule')
   bulkSchedule(
     @Body() dto: BulkScheduleDto,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.bulkUpdateSchedule(
       dto.updates,
       user.userId,
-      user.role,
+      user.role
     );
   }
 
@@ -50,7 +50,7 @@ export class CategoryMatchesController {
   updateMatch(
     @Param('id') id: string,
     @Body() dto: Record<string, unknown>,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.updateMatch(
       id,
@@ -63,12 +63,15 @@ export class CategoryMatchesController {
         groupId?: string;
       },
       user.userId,
-      user.role,
+      user.role
     );
   }
 
   @Delete(':id')
-  deleteMatch(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+  deleteMatch(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
     return this.categoriesService.deleteMatch(id, user.userId, user.role);
   }
 
@@ -81,7 +84,7 @@ export class CategoryMatchesController {
   endMatch(
     @Param('id') id: string,
     @Body() dto: EndCategoryMatchDto,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.endMatch(id, dto, user.userId, user.role);
   }

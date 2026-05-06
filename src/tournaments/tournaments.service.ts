@@ -7,7 +7,17 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
-import { TournamentStatus, ScheduleType } from '@prisma/client';
+import { TournamentStatus, ScheduleType, Gender } from '@prisma/client';
+
+interface CreatePlayerDto {
+  name?: string;
+  email?: string;
+  phone?: string;
+  gender?: Gender | null;
+  level?: number;
+  levelDescription?: string;
+  userId?: string;
+}
 
 @Injectable()
 export class TournamentsService {
@@ -251,7 +261,8 @@ export class TournamentsService {
 
     // Validate date range only when dates are being changed
     if (updateData.startDate || updateData.endDate) {
-      const finalStartDate = updateData.startDate ?? existingTournament.startDate;
+      const finalStartDate =
+        updateData.startDate ?? existingTournament.startDate;
       const finalEndDate = updateData.endDate ?? existingTournament.endDate;
       if (finalStartDate >= finalEndDate) {
         throw new BadRequestException('End date must be after start date');
@@ -359,13 +370,20 @@ export class TournamentsService {
       where: { tournamentId },
       orderBy: { createdAt: 'desc' },
       include: {
-        user: { select: { id: true, name: true, image: true } }
-      }
+        user: { select: { id: true, name: true, image: true } },
+      },
     });
   }
 
-  async createPlayer(tournamentId: string, dto: any, userId: string, role?: string) {
-    const tournament = await this.prisma.tournament.findUnique({ where: { id: tournamentId } });
+  async createPlayer(
+    tournamentId: string,
+    dto: CreatePlayerDto,
+    userId: string,
+    role?: string
+  ) {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId },
+    });
     if (!tournament) throw new NotFoundException('Tournament not found');
     if (tournament.hostId !== userId && role !== 'ADMIN') {
       throw new ForbiddenException('You can only modify your own tournaments');
@@ -374,19 +392,21 @@ export class TournamentsService {
     return this.prisma.tournamentPlayer.create({
       data: {
         tournamentId,
-        name: dto.name,
+        name: dto.name ?? '',
         email: dto.email,
         phone: dto.phone,
         gender: dto.gender,
         level: dto.level,
         levelDescription: dto.levelDescription,
         userId: dto.userId,
-      }
+      },
     });
   }
 
   async getPlayer(id: string) {
-    const player = await this.prisma.tournamentPlayer.findUnique({ where: { id } });
+    const player = await this.prisma.tournamentPlayer.findUnique({
+      where: { id },
+    });
     if (!player) throw new NotFoundException('Player not found');
     return player;
   }
@@ -397,31 +417,40 @@ export class TournamentsService {
         participants: {
           some: {
             categoryRegistration: {
-              player: { id } // matches where this player is participating directly
-            }
-          }
-        }
+              player: { id }, // matches where this player is participating directly
+            },
+          },
+        },
       },
-      include: { category: true }
+      include: { category: true },
     });
   }
 
-  async updatePlayer(id: string, dto: any, userId: string, role?: string) {
+  async updatePlayer(
+    id: string,
+    dto: Record<string, unknown>,
+    userId: string,
+    role?: string
+  ) {
     const player = await this.getPlayer(id);
-    const tournament = await this.prisma.tournament.findUnique({ where: { id: player.tournamentId } });
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: player.tournamentId },
+    });
     if (tournament?.hostId !== userId && role !== 'ADMIN') {
       throw new ForbiddenException('You can only modify your own tournaments');
     }
 
     return this.prisma.tournamentPlayer.update({
       where: { id },
-      data: dto
+      data: dto,
     });
   }
 
   async deletePlayer(id: string, userId: string, role?: string) {
     const player = await this.getPlayer(id);
-    const tournament = await this.prisma.tournament.findUnique({ where: { id: player.tournamentId } });
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: player.tournamentId },
+    });
     if (tournament?.hostId !== userId && role !== 'ADMIN') {
       throw new ForbiddenException('You can only modify your own tournaments');
     }

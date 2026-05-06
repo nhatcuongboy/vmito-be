@@ -5,7 +5,9 @@ export class CreateCategoryRegistrationDto {
   @IsString()
   tournamentPlayerId?: string;
 
-  @ValidateIf((o) => !o.tournamentPlayerId)
-  @IsString({ message: 'Either tournamentPlayerId or tournamentPairId must be provided' })
+  @ValidateIf((o: CreateCategoryRegistrationDto) => !o.tournamentPlayerId)
+  @IsString({
+    message: 'Either tournamentPlayerId or tournamentPairId must be provided',
+  })
   tournamentPairId?: string;
 }

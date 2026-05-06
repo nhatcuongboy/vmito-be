@@ -211,7 +211,10 @@ export class PaymentsService {
       data: {
         status: PaymentStatus.APPROVED,
         hostNotes: dto.hostNotes,
-        approvedAt: payment.status === PaymentStatus.APPROVED ? payment.approvedAt : new Date(),
+        approvedAt:
+          payment.status === PaymentStatus.APPROVED
+            ? payment.approvedAt
+            : new Date(),
         rejectedAt: null, // Clear rejection date if approving
         ...(dto.amount !== undefined && { amount: dto.amount }),
         ...(dto.paymentMethod !== undefined && {

@@ -42,7 +42,7 @@ export class SessionsGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
   @WebSocketServer()
-  server: Server;
+  server!: Server;
 
   private logger: Logger = new Logger('SessionsGateway');
 
@@ -51,7 +51,7 @@ export class SessionsGateway
   }
 
   handleDisconnect(client: Socket) {
-    const userId = client.data.userId;
+    const userId = (client.data as { userId?: string }).userId;
     this.logger.log(
       `Client disconnected: ${client.id}${userId ? ` (user: ${userId})` : ''}`
     );
@@ -60,8 +60,10 @@ export class SessionsGateway
     const currentRooms = Array.from(client.rooms);
     for (const room of currentRooms) {
       if (room.startsWith('user-')) {
-        client.leave(room);
-        this.logger.log(`Socket ${client.id} auto-left user room ${room} on disconnect`);
+        void client.leave(room);
+        this.logger.log(
+          `Socket ${client.id} auto-left user room ${room} on disconnect`
+        );
       }
     }
   }
@@ -94,7 +96,9 @@ export class SessionsGateway
     @ConnectedSocket() client: Socket
   ) {
     if (!data?.userId) {
-      this.logger.warn(`Socket ${client.id} attempted to join user room without userId`);
+      this.logger.warn(
+        `Socket ${client.id} attempted to join user room without userId`
+      );
       return;
     }
 
@@ -110,7 +114,7 @@ export class SessionsGateway
     }
 
     // Store userId in socket data for verification
-    client.data.userId = data.userId;
+    (client.data as { userId?: string }).userId = data.userId;
 
     await client.join(roomName);
     this.logger.log(
@@ -162,24 +166,24 @@ export class SessionsGateway
     }
 
     const roomName = `user-${userId}`;
-    
+
     // Get all sockets in this room and verify they belong to the correct user
     const socketsInRoom = this.server.in(roomName).fetchSockets();
-    socketsInRoom.then((sockets) => {
+    void socketsInRoom.then((sockets) => {
       let validSocketCount = 0;
       for (const socket of sockets) {
         // Verify socket belongs to the correct user
-        if (socket.data.userId === userId) {
+        if ((socket.data as { userId?: string }).userId === userId) {
           validSocketCount++;
         } else {
           // Socket in wrong room - force leave
           this.logger.warn(
-            `[Security] Socket ${socket.id} (user: ${socket.data.userId}) found in wrong room ${roomName}. Removing.`
+            `[Security] Socket ${socket.id} (user: ${(socket.data as { userId?: string }).userId}) found in wrong room ${roomName}. Removing.`
           );
           socket.leave(roomName);
         }
       }
-      
+
       if (validSocketCount > 0) {
         this.logger.log(
           `[Realtime] Notified user ${userId} of ${eventType} (${validSocketCount} socket(s))`

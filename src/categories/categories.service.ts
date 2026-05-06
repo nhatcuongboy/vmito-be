@@ -34,7 +34,7 @@ export class CategoriesService {
   private async getCategoryWithOwnership(
     categoryId: string,
     userId: string,
-    role?: string,
+    role?: string
   ) {
     const category = await this.prisma.category.findUnique({
       where: { id: categoryId },
@@ -50,7 +50,7 @@ export class CategoriesService {
   private async getMatchWithOwnership(
     matchId: string,
     userId: string,
-    role?: string,
+    role?: string
   ) {
     const match = await this.prisma.categoryMatch.findUnique({
       where: { id: matchId },
@@ -74,7 +74,9 @@ export class CategoriesService {
     return this.prisma.category.findMany({
       where: { tournamentId },
       include: {
-        _count: { select: { registrations: true, matches: true, groups: true } },
+        _count: {
+          select: { registrations: true, matches: true, groups: true },
+        },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -84,7 +86,7 @@ export class CategoriesService {
     tournamentId: string,
     dto: CreateCategoryDto,
     userId: string,
-    role?: string,
+    role?: string
   ) {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: tournamentId },
@@ -105,7 +107,9 @@ export class CategoriesService {
         }),
       },
       include: {
-        _count: { select: { registrations: true, matches: true, groups: true } },
+        _count: {
+          select: { registrations: true, matches: true, groups: true },
+        },
       },
     });
   }
@@ -177,7 +181,9 @@ export class CategoriesService {
           },
           orderBy: { matchNumber: 'asc' },
         },
-        _count: { select: { registrations: true, matches: true, groups: true } },
+        _count: {
+          select: { registrations: true, matches: true, groups: true },
+        },
       },
     });
 
@@ -185,15 +191,23 @@ export class CategoriesService {
     return category;
   }
 
-  async update(id: string, dto: UpdateCategoryDto, userId: string, role?: string) {
+  async update(
+    id: string,
+    dto: UpdateCategoryDto,
+    userId: string,
+    role?: string
+  ) {
     await this.getCategoryWithOwnership(id, userId, role);
 
     const updateData: CategoryUpdateData = {};
 
-    if (dto.hasGroupStage !== undefined) updateData.hasGroupStage = dto.hasGroupStage;
+    if (dto.hasGroupStage !== undefined)
+      updateData.hasGroupStage = dto.hasGroupStage;
     if (dto.averageMatchDuration !== undefined) {
       if (dto.averageMatchDuration < 0)
-        throw new BadRequestException('Average match duration must be non-negative');
+        throw new BadRequestException(
+          'Average match duration must be non-negative'
+        );
       updateData.averageMatchDuration = dto.averageMatchDuration;
     }
     if (dto.groupCount !== undefined) {
@@ -223,7 +237,8 @@ export class CategoriesService {
       updateData.formatConfig = dto.formatConfig;
     }
     if (dto.eliminationMatchFormat !== undefined) {
-      updateData.eliminationMatchFormat = dto.eliminationMatchFormat as MatchFormat;
+      updateData.eliminationMatchFormat =
+        dto.eliminationMatchFormat as MatchFormat;
     }
     if (dto.thirdPlaceMatch !== undefined) {
       updateData.thirdPlaceMatch = dto.thirdPlaceMatch;
@@ -234,7 +249,9 @@ export class CategoriesService {
       data: updateData,
       include: {
         tournament: { select: { id: true, name: true } },
-        _count: { select: { registrations: true, matches: true, groups: true } },
+        _count: {
+          select: { registrations: true, matches: true, groups: true },
+        },
       },
     });
   }
@@ -248,7 +265,9 @@ export class CategoriesService {
   // ─── Phase 3: Registration CRUD ───────────────────────────
 
   async getRegistrations(categoryId: string) {
-    const category = await this.prisma.category.findUnique({ where: { id: categoryId } });
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+    });
     if (!category) throw new NotFoundException('Category not found');
 
     return this.prisma.categoryRegistration.findMany({
@@ -272,7 +291,7 @@ export class CategoriesService {
     categoryId: string,
     dto: CreateCategoryRegistrationDto,
     userId: string,
-    role?: string,
+    role?: string
   ) {
     await this.getCategoryWithOwnership(categoryId, userId, role);
 
@@ -286,7 +305,9 @@ export class CategoriesService {
       },
     });
     if (existing) {
-      throw new BadRequestException('This player/pair is already registered in this category');
+      throw new BadRequestException(
+        'This player/pair is already registered in this category'
+      );
     }
 
     return this.prisma.categoryRegistration.create({
@@ -313,7 +334,7 @@ export class CategoriesService {
     categoryId: string,
     registrationId: string,
     userId: string,
-    role?: string,
+    role?: string
   ) {
     await this.getCategoryWithOwnership(categoryId, userId, role);
 
@@ -329,14 +350,18 @@ export class CategoriesService {
       where: { categoryRegistrationId: registrationId },
     });
 
-    await this.prisma.categoryRegistration.delete({ where: { id: registrationId } });
+    await this.prisma.categoryRegistration.delete({
+      where: { id: registrationId },
+    });
     return { message: 'Registration removed successfully' };
   }
 
   // ─── Phase 4: Group CRUD ──────────────────────────────────
 
   async getGroups(categoryId: string) {
-    const category = await this.prisma.category.findUnique({ where: { id: categoryId } });
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+    });
     if (!category) throw new NotFoundException('Category not found');
 
     return this.prisma.categoryGroup.findMany({
@@ -366,22 +391,31 @@ export class CategoriesService {
   }
 
   async createGroups(categoryId: string, userId: string, role?: string) {
-    const category = await this.getCategoryWithOwnership(categoryId, userId, role);
+    const category = await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role
+    );
 
     const groupCount = category.groupCount;
     if (!groupCount || groupCount < 1) {
-      throw new BadRequestException('Category groupCount must be set before creating groups');
+      throw new BadRequestException(
+        'Category groupCount must be set before creating groups'
+      );
     }
 
     const existingGroups = await this.prisma.categoryGroup.count({
       where: { categoryId },
     });
     if (existingGroups > 0) {
-      throw new BadRequestException('Groups already exist for this category. Delete them first.');
+      throw new BadRequestException(
+        'Groups already exist for this category. Delete them first.'
+      );
     }
 
     const groupNames = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    const groups: { categoryId: string; groupNumber: number; name: string }[] = [];
+    const groups: { categoryId: string; groupNumber: number; name: string }[] =
+      [];
     for (let i = 0; i < groupCount; i++) {
       groups.push({
         categoryId,
@@ -400,11 +434,13 @@ export class CategoriesService {
     groupId: string,
     data: { name?: string },
     userId: string,
-    role?: string,
+    role?: string
   ) {
     await this.getCategoryWithOwnership(categoryId, userId, role);
 
-    const group = await this.prisma.categoryGroup.findUnique({ where: { id: groupId } });
+    const group = await this.prisma.categoryGroup.findUnique({
+      where: { id: groupId },
+    });
     if (!group || group.categoryId !== categoryId) {
       throw new NotFoundException('Group not found in this category');
     }
@@ -422,11 +458,13 @@ export class CategoriesService {
     categoryId: string,
     groupId: string,
     userId: string,
-    role?: string,
+    role?: string
   ) {
     await this.getCategoryWithOwnership(categoryId, userId, role);
 
-    const group = await this.prisma.categoryGroup.findUnique({ where: { id: groupId } });
+    const group = await this.prisma.categoryGroup.findUnique({
+      where: { id: groupId },
+    });
     if (!group || group.categoryId !== categoryId) {
       throw new NotFoundException('Group not found in this category');
     }
@@ -442,11 +480,13 @@ export class CategoriesService {
     groupId: string,
     categoryRegistrationId: string,
     userId: string,
-    role?: string,
+    role?: string
   ) {
     await this.getCategoryWithOwnership(categoryId, userId, role);
 
-    const group = await this.prisma.categoryGroup.findUnique({ where: { id: groupId } });
+    const group = await this.prisma.categoryGroup.findUnique({
+      where: { id: groupId },
+    });
     if (!group || group.categoryId !== categoryId) {
       throw new NotFoundException('Group not found in this category');
     }
@@ -463,7 +503,9 @@ export class CategoriesService {
       where: { groupId, categoryRegistrationId },
     });
     if (existing) {
-      throw new BadRequestException('Registration is already assigned to this group');
+      throw new BadRequestException(
+        'Registration is already assigned to this group'
+      );
     }
 
     return this.prisma.categoryGroupRegistration.create({
@@ -491,17 +533,21 @@ export class CategoriesService {
     groupId: string,
     categoryRegistrationIds: string[],
     userId: string,
-    role?: string,
+    role?: string
   ) {
     await this.getCategoryWithOwnership(categoryId, userId, role);
 
-    const group = await this.prisma.categoryGroup.findUnique({ where: { id: groupId } });
+    const group = await this.prisma.categoryGroup.findUnique({
+      where: { id: groupId },
+    });
     if (!group || group.categoryId !== categoryId) {
       throw new NotFoundException('Group not found in this category');
     }
 
     const results = await this.prisma.$transaction(async (tx) => {
-      const created: Awaited<ReturnType<typeof tx.categoryGroupRegistration.create>>[] = [];
+      const created: Awaited<
+        ReturnType<typeof tx.categoryGroupRegistration.create>
+      >[] = [];
       for (const regId of categoryRegistrationIds) {
         const rec = await tx.categoryGroupRegistration.create({
           data: { groupId, categoryRegistrationId: regId },
@@ -533,7 +579,7 @@ export class CategoriesService {
     categoryId: string,
     options: { shuffle?: boolean; strategy?: string },
     userId: string,
-    role?: string,
+    role?: string
   ) {
     await this.getCategoryWithOwnership(categoryId, userId, role);
 
@@ -592,7 +638,10 @@ export class CategoriesService {
     }
 
     // Create all assignments in a transaction
-    const allAssignments: { groupId: string; categoryRegistrationId: string }[] = [];
+    const allAssignments: {
+      groupId: string;
+      categoryRegistrationId: string;
+    }[] = [];
     for (const [gId, regIdList] of Object.entries(assignments)) {
       for (const categoryRegistrationId of regIdList) {
         allAssignments.push({ groupId: gId, categoryRegistrationId });
@@ -601,10 +650,15 @@ export class CategoriesService {
 
     // Use interactive transaction for creation
     const results = await this.prisma.$transaction(async (tx) => {
-      const created: Awaited<ReturnType<typeof tx.categoryGroupRegistration.create>>[] = [];
+      const created: Awaited<
+        ReturnType<typeof tx.categoryGroupRegistration.create>
+      >[] = [];
       for (const a of allAssignments) {
         const rec = await tx.categoryGroupRegistration.create({
-          data: { groupId: a.groupId, categoryRegistrationId: a.categoryRegistrationId },
+          data: {
+            groupId: a.groupId,
+            categoryRegistrationId: a.categoryRegistrationId,
+          },
           include: {
             categoryRegistration: {
               include: {
@@ -642,7 +696,7 @@ export class CategoriesService {
     groupId: string,
     registrationId: string,
     userId: string,
-    role?: string,
+    role?: string
   ) {
     await this.getCategoryWithOwnership(categoryId, userId, role);
 
@@ -653,7 +707,9 @@ export class CategoriesService {
       throw new NotFoundException('Registration not found in this group');
     }
 
-    await this.prisma.categoryGroupRegistration.delete({ where: { id: groupReg.id } });
+    await this.prisma.categoryGroupRegistration.delete({
+      where: { id: groupReg.id },
+    });
     return { message: 'Registration removed from group successfully' };
   }
 
@@ -663,11 +719,17 @@ export class CategoriesService {
     categoryId: string,
     groupId: string,
     userId: string,
-    role?: string,
+    role?: string
   ) {
-    const category = await this.getCategoryWithOwnership(categoryId, userId, role);
+    const category = await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role
+    );
 
-    const group = await this.prisma.categoryGroup.findUnique({ where: { id: groupId } });
+    const group = await this.prisma.categoryGroup.findUnique({
+      where: { id: groupId },
+    });
     if (!group || group.categoryId !== categoryId) {
       throw new NotFoundException('Group not found in this category');
     }
@@ -677,7 +739,9 @@ export class CategoriesService {
       where: { groupId },
     });
     if (existingMatches > 0) {
-      throw new BadRequestException('Matches already exist for this group. Delete them first.');
+      throw new BadRequestException(
+        'Matches already exist for this group. Delete them first.'
+      );
     }
 
     const groupRegs = await this.prisma.categoryGroupRegistration.findMany({
@@ -686,18 +750,25 @@ export class CategoriesService {
     });
 
     if (groupRegs.length < 2) {
-      throw new BadRequestException('At least 2 registrations are needed to generate matches');
+      throw new BadRequestException(
+        'At least 2 registrations are needed to generate matches'
+      );
     }
 
     const regIds = groupRegs.map((gr) => gr.categoryRegistrationId);
 
     // Generate round-robin matches: n*(n-1)/2
-    const matchPairs: { reg1: string; reg2: string; matchNumber: number }[] = [];
+    const matchPairs: { reg1: string; reg2: string; matchNumber: number }[] =
+      [];
     let matchNumber = 1;
 
     for (let i = 0; i < regIds.length; i++) {
       for (let j = i + 1; j < regIds.length; j++) {
-        matchPairs.push({ reg1: regIds[i], reg2: regIds[j], matchNumber: matchNumber++ });
+        matchPairs.push({
+          reg1: regIds[i],
+          reg2: regIds[j],
+          matchNumber: matchNumber++,
+        });
       }
     }
 
@@ -747,7 +818,9 @@ export class CategoriesService {
   }
 
   async getGroupMatches(categoryId: string, groupId: string) {
-    const group = await this.prisma.categoryGroup.findUnique({ where: { id: groupId } });
+    const group = await this.prisma.categoryGroup.findUnique({
+      where: { id: groupId },
+    });
     if (!group || group.categoryId !== categoryId) {
       throw new NotFoundException('Group not found in this category');
     }
@@ -781,7 +854,9 @@ export class CategoriesService {
   // ─── Existing: getMatches ─────────────────────────────────
 
   async getMatches(categoryId: string) {
-    const category = await this.prisma.category.findUnique({ where: { id: categoryId } });
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+    });
     if (!category) throw new NotFoundException('Category not found');
 
     return this.prisma.categoryMatch.findMany({
@@ -817,7 +892,7 @@ export class CategoriesService {
     categoryId: string,
     dto: CreateCategoryMatchDto,
     userId: string,
-    role?: string,
+    role?: string
   ) {
     await this.getCategoryWithOwnership(categoryId, userId, role);
 
@@ -902,7 +977,7 @@ export class CategoriesService {
       groupId?: string;
     },
     userId: string,
-    role?: string,
+    role?: string
   ) {
     await this.getMatchWithOwnership(id, userId, role);
 
@@ -911,9 +986,15 @@ export class CategoriesService {
       data: {
         ...(data.courtId !== undefined && { courtId: data.courtId }),
         ...(data.round !== undefined && { round: data.round }),
-        ...(data.matchNumber !== undefined && { matchNumber: data.matchNumber }),
-        ...(data.startTime !== undefined && { startTime: new Date(data.startTime) }),
-        ...(data.matchFormat !== undefined && { matchFormat: data.matchFormat as MatchFormat }),
+        ...(data.matchNumber !== undefined && {
+          matchNumber: data.matchNumber,
+        }),
+        ...(data.startTime !== undefined && {
+          startTime: new Date(data.startTime),
+        }),
+        ...(data.matchFormat !== undefined && {
+          matchFormat: data.matchFormat as MatchFormat,
+        }),
         ...(data.groupId !== undefined && { groupId: data.groupId }),
       },
       include: {
@@ -950,7 +1031,9 @@ export class CategoriesService {
     const match = await this.getMatchWithOwnership(id, userId, role);
 
     if (match.status !== 'SCHEDULED') {
-      throw new BadRequestException('Match can only be started from SCHEDULED status');
+      throw new BadRequestException(
+        'Match can only be started from SCHEDULED status'
+      );
     }
 
     return this.prisma.categoryMatch.update({
@@ -980,11 +1063,18 @@ export class CategoriesService {
     });
   }
 
-  async endMatch(id: string, dto: EndCategoryMatchDto, userId: string, role?: string) {
+  async endMatch(
+    id: string,
+    dto: EndCategoryMatchDto,
+    userId: string,
+    role?: string
+  ) {
     const match = await this.getMatchWithOwnership(id, userId, role);
 
     if (match.status !== 'IN_PROGRESS') {
-      throw new BadRequestException('Match can only be ended from IN_PROGRESS status');
+      throw new BadRequestException(
+        'Match can only be ended from IN_PROGRESS status'
+      );
     }
 
     // Auto-calculate total scores from sets if provided
@@ -993,8 +1083,14 @@ export class CategoriesService {
       player1Score = dto.sets.reduce((sum, s) => sum + s.player1Score, 0);
       player2Score = dto.sets.reduce((sum, s) => sum + s.player2Score, 0);
       if (dto.sets.some((s) => s.player3Score !== undefined)) {
-        player3Score = dto.sets.reduce((sum, s) => sum + (s.player3Score || 0), 0);
-        player4Score = dto.sets.reduce((sum, s) => sum + (s.player4Score || 0), 0);
+        player3Score = dto.sets.reduce(
+          (sum, s) => sum + (s.player3Score || 0),
+          0
+        );
+        player4Score = dto.sets.reduce(
+          (sum, s) => sum + (s.player4Score || 0),
+          0
+        );
       }
     }
 
@@ -1004,7 +1100,9 @@ export class CategoriesService {
         status: 'FINISHED',
         endTime: new Date(),
         score: dto.score,
-        sets: dto.sets ? JSON.parse(JSON.stringify(dto.sets)) : undefined,
+        sets: dto.sets
+          ? (JSON.parse(JSON.stringify(dto.sets)) as typeof dto.sets)
+          : undefined,
         winnerId: dto.winnerId,
         isDraw: dto.isDraw || false,
         player1Score,
@@ -1071,7 +1169,8 @@ export class CategoriesService {
     // Determine next round
     const roundOrder = this.getRoundOrder();
     const currentRoundIdx = roundOrder.indexOf(match.round);
-    if (currentRoundIdx === -1 || currentRoundIdx >= roundOrder.length - 1) return;
+    if (currentRoundIdx === -1 || currentRoundIdx >= roundOrder.length - 1)
+      return;
 
     const nextRound = roundOrder[currentRoundIdx + 1];
 
@@ -1092,9 +1191,10 @@ export class CategoriesService {
     const position = (matchIndex % 2) + 1; // 1 or 2
 
     // Check if participant already exists
-    const existingParticipant = await this.prisma.categoryMatchParticipant.findFirst({
-      where: { matchId: nextMatch.id, position },
-    });
+    const existingParticipant =
+      await this.prisma.categoryMatchParticipant.findFirst({
+        where: { matchId: nextMatch.id, position },
+      });
 
     if (!existingParticipant) {
       await this.prisma.categoryMatchParticipant.create({
@@ -1118,13 +1218,17 @@ export class CategoriesService {
         });
         if (thirdPlaceMatches.length > 0) {
           const loser = match.participants.find(
-            (p) => p.categoryRegistrationId !== match.winnerId,
+            (p) => p.categoryRegistrationId !== match.winnerId
           );
           if (loser) {
             const loserPosition = (matchIndex % 2) + 1;
-            const existing = await this.prisma.categoryMatchParticipant.findFirst({
-              where: { matchId: thirdPlaceMatches[0].id, position: loserPosition },
-            });
+            const existing =
+              await this.prisma.categoryMatchParticipant.findFirst({
+                where: {
+                  matchId: thirdPlaceMatches[0].id,
+                  position: loserPosition,
+                },
+              });
             if (!existing) {
               await this.prisma.categoryMatchParticipant.create({
                 data: {
@@ -1162,18 +1266,31 @@ export class CategoriesService {
     // Extract point values from formatConfig (supports both RR and RR→SE configs)
     const config = category.formatConfig as Record<string, unknown> | null;
     const rrConfig = (config?.roundRobin as Record<string, unknown>) ?? config;
-    const pointsEarning = (rrConfig?.pointsEarning as string) ?? 'match_results';
+    const pointsEarning =
+      (rrConfig?.pointsEarning as string) ?? 'match_results';
 
     // When tiebreakers_only mode, all point values are 0
     const isTiebreakersOnly = pointsEarning === 'tiebreakers_only';
-    const winPoints = isTiebreakersOnly ? 0 : ((rrConfig?.winPoints as number) ?? 2);
-    const tiePoints = isTiebreakersOnly ? 0 : ((rrConfig?.tiePoints as number) ?? 1);
-    const lossPoints = isTiebreakersOnly ? 0 : ((rrConfig?.lossPoints as number) ?? 0);
-    const gameWinPoints = isTiebreakersOnly ? 0 : ((rrConfig?.gameWinPoints as number) ?? 0);
-    const gameLossPoints = isTiebreakersOnly ? 0 : ((rrConfig?.gameLossPoints as number) ?? 0);
+    const winPoints = isTiebreakersOnly
+      ? 0
+      : ((rrConfig?.winPoints as number) ?? 2);
+    const tiePoints = isTiebreakersOnly
+      ? 0
+      : ((rrConfig?.tiePoints as number) ?? 1);
+    const lossPoints = isTiebreakersOnly
+      ? 0
+      : ((rrConfig?.lossPoints as number) ?? 0);
+    const gameWinPoints = isTiebreakersOnly
+      ? 0
+      : ((rrConfig?.gameWinPoints as number) ?? 0);
+    const gameLossPoints = isTiebreakersOnly
+      ? 0
+      : ((rrConfig?.gameLossPoints as number) ?? 0);
 
     // Configurable tiebreaker order
-    const tiebreakerOrder = (rrConfig?.tiebreakers as Array<{ id: string }>) ?? [
+    const tiebreakerOrder = (rrConfig?.tiebreakers as Array<{
+      id: string;
+    }>) ?? [
       { id: 'total_points' },
       { id: 'game_differential' },
       { id: 'total_wins' },
@@ -1264,7 +1381,10 @@ export class CategoriesService {
 
       // Count games from sets data
       if (match.sets && Array.isArray(match.sets)) {
-        for (const set of match.sets as Array<{ player1Score?: number; player2Score?: number }>) {
+        for (const set of match.sets as Array<{
+          player1Score?: number;
+          player2Score?: number;
+        }>) {
           const p1Score = set.player1Score ?? 0;
           const p2Score = set.player2Score ?? 0;
           if (p1Score > p2Score) {
@@ -1276,8 +1396,10 @@ export class CategoriesService {
           }
         }
         // Add game-level points
-        s1.points += s1.gamesWon * gameWinPoints + s1.gamesLost * gameLossPoints;
-        s2.points += s2.gamesWon * gameWinPoints + s2.gamesLost * gameLossPoints;
+        s1.points +=
+          s1.gamesWon * gameWinPoints + s1.gamesLost * gameLossPoints;
+        s2.points +=
+          s2.gamesWon * gameWinPoints + s2.gamesLost * gameLossPoints;
       }
 
       if (match.isDraw) {
@@ -1349,7 +1471,7 @@ export class CategoriesService {
       winnerId: string | null;
       isDraw: boolean;
       participants: Array<{ categoryRegistrationId: string; position: number }>;
-    }>,
+    }>
   ): number {
     const h2hMatches = matches.filter((m) => {
       const ids = m.participants.map((p) => p.categoryRegistrationId);
@@ -1378,7 +1500,7 @@ export class CategoriesService {
     categoryId: string,
     groupId: string,
     userId: string,
-    role?: string,
+    role?: string
   ) {
     await this.getCategoryWithOwnership(categoryId, userId, role);
     return this.getGroupStandings(categoryId, groupId);
@@ -1406,7 +1528,9 @@ export class CategoriesService {
     if (!category) throw new NotFoundException('Category not found');
 
     const results = await Promise.all(
-      category.groups.map((group) => this.getGroupStandings(categoryId, group.id)),
+      category.groups.map((group) =>
+        this.getGroupStandings(categoryId, group.id)
+      )
     );
 
     return results;
@@ -1414,7 +1538,11 @@ export class CategoriesService {
 
   // ─── Bulk Group Match Generation ─────────────────────────
 
-  async generateAllGroupMatches(categoryId: string, userId: string, role?: string) {
+  async generateAllGroupMatches(
+    categoryId: string,
+    userId: string,
+    role?: string
+  ) {
     await this.getCategoryWithOwnership(categoryId, userId, role);
 
     const groups = await this.prisma.categoryGroup.findMany({
@@ -1426,9 +1554,15 @@ export class CategoriesService {
       throw new BadRequestException('No groups exist. Create groups first.');
     }
 
-    const results: Array<{ group: (typeof groups)[0]; matches: unknown[] }> = [];
+    const results: Array<{ group: (typeof groups)[0]; matches: unknown[] }> =
+      [];
     for (const group of groups) {
-      const matches = await this.generateGroupMatches(categoryId, group.id, userId, role);
+      const matches = await this.generateGroupMatches(
+        categoryId,
+        group.id,
+        userId,
+        role
+      );
       results.push({ group, matches });
     }
     return results;
@@ -1471,7 +1605,11 @@ export class CategoriesService {
   // ─── Phase 9: Elimination Bracket ─────────────────────────
 
   async completeGroupStage(categoryId: string, userId: string, role?: string) {
-    const category = await this.getCategoryWithOwnership(categoryId, userId, role);
+    const category = await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role
+    );
 
     if (category.hasGroupStage) {
       // Validate all group matches are finished
@@ -1485,7 +1623,7 @@ export class CategoriesService {
 
       if (unfinishedMatches > 0) {
         throw new BadRequestException(
-          `${unfinishedMatches} group match(es) are not finished yet`,
+          `${unfinishedMatches} group match(es) are not finished yet`
         );
       }
 
@@ -1501,7 +1639,10 @@ export class CategoriesService {
       // Interleave winners: all #1s first, then all #2s, etc.
       for (let rank = 0; rank < winnersPerGroup; rank++) {
         for (const group of groups) {
-          const { standings } = await this.getGroupStandings(categoryId, group.id);
+          const { standings } = await this.getGroupStandings(
+            categoryId,
+            group.id
+          );
           if (standings[rank]) {
             allWinners.push(standings[rank].categoryRegistrationId);
           }
@@ -1509,7 +1650,9 @@ export class CategoriesService {
       }
 
       if (allWinners.length < 2) {
-        throw new BadRequestException('Not enough winners to generate elimination bracket');
+        throw new BadRequestException(
+          'Not enough winners to generate elimination bracket'
+        );
       }
 
       return this.generateEliminationBracket(categoryId, allWinners);
@@ -1526,14 +1669,14 @@ export class CategoriesService {
 
       return this.generateEliminationBracket(
         categoryId,
-        registrations.map((r) => r.id),
+        registrations.map((r) => r.id)
       );
     }
   }
 
   private async generateEliminationBracket(
     categoryId: string,
-    registrationIds: string[],
+    registrationIds: string[]
   ) {
     const category = await this.prisma.category.findUnique({
       where: { id: categoryId },
@@ -1544,13 +1687,16 @@ export class CategoriesService {
     const totalRounds = Math.log2(bracketSize);
 
     // Use elimination-specific match format if configured, otherwise fall back to category default
-    const bracketMatchFormat = category?.eliminationMatchFormat ?? category?.matchFormat;
+    const bracketMatchFormat =
+      category?.eliminationMatchFormat ?? category?.matchFormat;
 
     // Standard seeding to separate top seeds
     const seedOrder = this.generateStandardSeeding(bracketSize);
 
     // Place registrations into seeded slots (null = BYE)
-    const slots: (string | null)[] = new Array(bracketSize).fill(null);
+    const slots: (string | null)[] = (
+      new Array(bracketSize) as (string | null)[]
+    ).fill(null);
     for (let i = 0; i < n; i++) {
       slots[seedOrder[i] - 1] = registrationIds[i];
     }
@@ -1566,7 +1712,9 @@ export class CategoriesService {
     let globalMatchNumber =
       (await this.prisma.categoryMatch.count({ where: { categoryId } })) + 1;
 
-    type BracketMatch = Awaited<ReturnType<typeof this.prisma.categoryMatch.create>>;
+    type BracketMatch = Awaited<
+      ReturnType<typeof this.prisma.categoryMatch.create>
+    >;
     const allCreatedMatches: BracketMatch[] = [];
 
     // Generate first round matches
@@ -1655,11 +1803,8 @@ export class CategoriesService {
 
     // Advance BYE winners to their next round matches
     if (byeAdvances.length > 0 && totalRounds > 1) {
-      const firstRoundMatches = allCreatedMatches.filter(
-        (m) => m.round === roundNames[0],
-      );
       const secondRoundMatches = allCreatedMatches.filter(
-        (m) => m.round === roundNames[1],
+        (m) => m.round === roundNames[1]
       );
 
       for (const bye of byeAdvances) {
@@ -1723,7 +1868,7 @@ export class CategoriesService {
       endTime?: string | null;
     }>,
     userId: string,
-    role?: string,
+    role?: string
   ) {
     if (updates.length === 0) return [];
 
@@ -1739,8 +1884,8 @@ export class CategoriesService {
       throw new ForbiddenException('You can only manage your own tournaments');
     }
 
-    const tournamentId =
-      (firstMatch.category as { tournamentId: string }).tournamentId;
+    const tournamentId = (firstMatch.category as { tournamentId: string })
+      .tournamentId;
 
     return this.prisma.$transaction(async (tx) => {
       const results: Awaited<ReturnType<typeof tx.categoryMatch.update>>[] = [];

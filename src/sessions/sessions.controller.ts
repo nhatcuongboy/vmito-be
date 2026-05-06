@@ -30,7 +30,6 @@ import { UpdateSessionDto } from './dto/update-session.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { UpdateWaitTimesDto } from './dto/update-wait-times.dto';
 import { BulkSessionCreationDto } from './dto/bulk-session.dto';
-import { GetRecommendationsQueryDto } from './dto/get-recommendations-query.dto';
 import { RecommendationResponseDto } from './dto/recommendation-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';

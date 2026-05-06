@@ -45,7 +45,6 @@ export const normalizeForSearch = (str: string): string => {
 };
 
 export const generateSlug = (str: string): string => {
-
   let slug = normalizeForSearch(str);
   slug = slug.replace(/[^a-z0-9]/g, '-');
   slug = slug.replace(/-+/g, '-').replace(/^-|-$/g, '');
