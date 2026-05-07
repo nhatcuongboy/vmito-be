@@ -835,10 +835,8 @@ export class ClubsService {
 
     const { schedules, ...clubData } = dto;
 
-    // Only ADMIN-created clubs are approved immediately;
-    // HOST and PLAYER VIP go through admin review (PENDING)
-    const clubStatus =
-      role === Role.ADMIN ? ClubStatus.APPROVED : ClubStatus.PENDING;
+    // All clubs are approved immediately upon creation
+    const clubStatus = ClubStatus.APPROVED;
 
     const club = await this.prisma.$transaction(async (tx) => {
       const slug = await this.uniqueClubSlug(dto.name);
@@ -902,57 +900,19 @@ export class ClubsService {
       return club;
     });
 
-    // Send notifications after successful creation
-    if (clubStatus === ClubStatus.PENDING) {
-      // Notify creator that club is pending approval
-      await this.notificationsService.createForUser(
-        hostId,
-        'CLUB',
-        'club_creation_pending',
-        '',
-        {
-          clubId: club.id,
-          clubSlug: club.slug,
-          clubName: club.name,
-          action: 'club_creation_pending',
-        }
-      );
-
-      // Notify all admins about new pending club (excluding creator)
-      const admins = await this.prisma.user.findMany({
-        where: { role: Role.ADMIN, NOT: { id: hostId } },
-        select: { id: true },
-      });
-
-      for (const admin of admins) {
-        await this.notificationsService.createForUser(
-          admin.id,
-          'CLUB',
-          'admin_new_pending_club',
-          '',
-          {
-            clubId: club.id,
-            clubSlug: club.slug,
-            clubName: club.name,
-            action: 'admin_new_pending_club',
-          }
-        );
+    // Notify creator that club was created successfully
+    await this.notificationsService.createForUser(
+      hostId,
+      'CLUB',
+      'club_creation_approved',
+      '',
+      {
+        clubId: club.id,
+        clubSlug: club.slug,
+        clubName: club.name,
+        action: 'club_creation_approved',
       }
-    } else {
-      // Notify creator that club was created successfully (ADMIN)
-      await this.notificationsService.createForUser(
-        hostId,
-        'CLUB',
-        'club_creation_approved',
-        '',
-        {
-          clubId: club.id,
-          clubSlug: club.slug,
-          clubName: club.name,
-          action: 'club_creation_approved',
-        }
-      );
-    }
+    );
 
     return club;
   }
