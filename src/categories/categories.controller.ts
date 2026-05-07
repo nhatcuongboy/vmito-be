@@ -48,9 +48,14 @@ export class CategoriesController {
   update(
     @Param('id') id: string,
     @Body() updateCategoryDto: UpdateCategoryDto,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
-    return this.categoriesService.update(id, updateCategoryDto, user.userId, user.role);
+    return this.categoriesService.update(
+      id,
+      updateCategoryDto,
+      user.userId,
+      user.role
+    );
   }
 
   @Delete(':id')
@@ -70,22 +75,27 @@ export class CategoriesController {
   createRegistration(
     @Param('id') id: string,
     @Body() dto: CreateCategoryRegistrationDto,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
-    return this.categoriesService.createRegistration(id, dto, user.userId, user.role);
+    return this.categoriesService.createRegistration(
+      id,
+      dto,
+      user.userId,
+      user.role
+    );
   }
 
   @Delete(':id/registrations/:registrationId')
   deleteRegistration(
     @Param('id') id: string,
     @Param('registrationId') registrationId: string,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.deleteRegistration(
       id,
       registrationId,
       user.userId,
-      user.role,
+      user.role
     );
   }
 
@@ -98,16 +108,23 @@ export class CategoriesController {
   }
 
   @Post(':id/groups')
-  createGroups(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+  createGroups(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
     return this.categoriesService.createGroups(id, user.userId, user.role);
   }
 
   @Post(':id/groups/generate-all-matches')
   generateAllGroupMatches(
     @Param('id') id: string,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
-    return this.categoriesService.generateAllGroupMatches(id, user.userId, user.role);
+    return this.categoriesService.generateAllGroupMatches(
+      id,
+      user.userId,
+      user.role
+    );
   }
 
   @Put(':id/groups/:groupId')
@@ -115,18 +132,29 @@ export class CategoriesController {
     @Param('id') id: string,
     @Param('groupId') groupId: string,
     @Body() dto: UpdateGroupDto,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
-    return this.categoriesService.updateGroup(id, groupId, dto, user.userId, user.role);
+    return this.categoriesService.updateGroup(
+      id,
+      groupId,
+      dto,
+      user.userId,
+      user.role
+    );
   }
 
   @Delete(':id/groups/:groupId')
   deleteGroup(
     @Param('id') id: string,
     @Param('groupId') groupId: string,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
-    return this.categoriesService.deleteGroup(id, groupId, user.userId, user.role);
+    return this.categoriesService.deleteGroup(
+      id,
+      groupId,
+      user.userId,
+      user.role
+    );
   }
 
   // ─── Group Registration Assignment ────────────────────────
@@ -136,14 +164,14 @@ export class CategoriesController {
     @Param('id') id: string,
     @Param('groupId') groupId: string,
     @Body() dto: AssignGroupRegistrationDto,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.assignRegistrationToGroup(
       id,
       groupId,
       dto.categoryRegistrationId,
       user.userId,
-      user.role,
+      user.role
     );
   }
 
@@ -152,14 +180,14 @@ export class CategoriesController {
     @Param('id') id: string,
     @Param('groupId') groupId: string,
     @Body() dto: BulkAssignGroupRegistrationDto,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.bulkAssignRegistrations(
       id,
       groupId,
       dto.categoryRegistrationIds,
       user.userId,
-      user.role,
+      user.role
     );
   }
 
@@ -167,13 +195,13 @@ export class CategoriesController {
   autoAssignRegistrations(
     @Param('id') id: string,
     @Body() dto: AutoAssignDto,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.autoAssignRegistrations(
       id,
       { shuffle: dto.shuffle, strategy: dto.strategy },
       user.userId,
-      user.role,
+      user.role
     );
   }
 
@@ -182,14 +210,14 @@ export class CategoriesController {
     @Param('id') id: string,
     @Param('groupId') groupId: string,
     @Param('registrationId') registrationId: string,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.removeRegistrationFromGroup(
       id,
       groupId,
       registrationId,
       user.userId,
-      user.role,
+      user.role
     );
   }
 
@@ -199,22 +227,19 @@ export class CategoriesController {
   generateGroupMatches(
     @Param('id') id: string,
     @Param('groupId') groupId: string,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.generateGroupMatches(
       id,
       groupId,
       user.userId,
-      user.role,
+      user.role
     );
   }
 
   @Public()
   @Get(':id/groups/:groupId/matches')
-  getGroupMatches(
-    @Param('id') id: string,
-    @Param('groupId') groupId: string,
-  ) {
+  getGroupMatches(@Param('id') id: string, @Param('groupId') groupId: string) {
     return this.categoriesService.getGroupMatches(id, groupId);
   }
 
@@ -230,7 +255,7 @@ export class CategoriesController {
   createMatch(
     @Param('id') id: string,
     @Body() dto: CreateCategoryMatchDto,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.createMatch(id, dto, user.userId, user.role);
   }
@@ -253,7 +278,7 @@ export class CategoriesController {
   @Get(':id/groups/:groupId/standings')
   getGroupStandings(
     @Param('id') id: string,
-    @Param('groupId') groupId: string,
+    @Param('groupId') groupId: string
   ) {
     return this.categoriesService.getGroupStandings(id, groupId);
   }
@@ -262,22 +287,19 @@ export class CategoriesController {
   calculateStandings(
     @Param('id') id: string,
     @Param('groupId') groupId: string,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.calculateGroupStandings(
       id,
       groupId,
       user.userId,
-      user.role,
+      user.role
     );
   }
 
   @Public()
   @Get(':id/groups/:groupId/winners')
-  getGroupWinners(
-    @Param('id') id: string,
-    @Param('groupId') groupId: string,
-  ) {
+  getGroupWinners(@Param('id') id: string, @Param('groupId') groupId: string) {
     return this.categoriesService.getGroupWinners(id, groupId);
   }
 
@@ -286,8 +308,12 @@ export class CategoriesController {
   @Post(':id/complete-group-stage')
   completeGroupStage(
     @Param('id') id: string,
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user: CurrentUserPayload
   ) {
-    return this.categoriesService.completeGroupStage(id, user.userId, user.role);
+    return this.categoriesService.completeGroupStage(
+      id,
+      user.userId,
+      user.role
+    );
   }
 }

@@ -3320,7 +3320,7 @@ export class SessionsService {
    * @returns Popular sessions in same city
    */
   private async getFallbackRecommendations(
-    currentSession: any,
+    currentSession: { id: string; venue?: { city?: string | null } | null },
     options?: { page?: number; limit?: number }
   ) {
     const page = options?.page || 1;

@@ -4,6 +4,9 @@ dist/
 # Node modules
 node_modules/
 
+# Package lock (not committed in this project)
+package-lock.json
+
 # Environment files (keep .env.example)
 .env
 .env.local

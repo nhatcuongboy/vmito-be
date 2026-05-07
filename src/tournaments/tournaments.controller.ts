@@ -14,6 +14,7 @@ import { CategoriesService } from '../categories/categories.service';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
 import { CreateCategoryDto } from '../categories/dto/create-category.dto';
+import { CreateTournamentPlayerDto } from './dto/create-tournament-player.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
@@ -25,7 +26,7 @@ import { Public } from '../auth/decorators/public.decorator';
 export class TournamentsController {
   constructor(
     private readonly tournamentsService: TournamentsService,
-    private readonly categoriesService: CategoriesService,
+    private readonly categoriesService: CategoriesService
   ) {}
 
   @Public()
@@ -99,7 +100,12 @@ export class TournamentsController {
     @Body() dto: CreateCategoryDto,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    return this.categoriesService.createCategory(id, dto, user.userId, user.role);
+    return this.categoriesService.createCategory(
+      id,
+      dto,
+      user.userId,
+      user.role
+    );
   }
 
   @Public()
@@ -111,9 +117,14 @@ export class TournamentsController {
   @Post(':id/players')
   createPlayer(
     @Param('id') id: string,
-    @Body() dto: any, // or specific DTO
+    @Body() dto: CreateTournamentPlayerDto,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    return this.tournamentsService.createPlayer(id, dto, user.userId, user.role);
+    return this.tournamentsService.createPlayer(
+      id,
+      dto,
+      user.userId,
+      user.role
+    );
   }
 }

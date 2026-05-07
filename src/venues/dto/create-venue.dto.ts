@@ -48,7 +48,10 @@ export class CreateVenueDto {
   @IsString()
   city?: string;
 
-  @ApiProperty({ required: false, description: 'New admin unit address (post Nghị quyết 60)' })
+  @ApiProperty({
+    required: false,
+    description: 'New admin unit address (post Nghị quyết 60)',
+  })
   @IsOptional()
   @IsString()
   newAddress?: string;
@@ -58,7 +61,10 @@ export class CreateVenueDto {
   @IsString()
   newDistrict?: string;
 
-  @ApiProperty({ required: false, description: 'New city/province name if changed' })
+  @ApiProperty({
+    required: false,
+    description: 'New city/province name if changed',
+  })
   @IsOptional()
   @IsString()
   newCity?: string;

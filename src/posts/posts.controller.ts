@@ -19,13 +19,24 @@ import { UpdatePostDto } from './dto/update-post.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
+interface AuthenticatedRequest {
+  user: {
+    userId: string;
+    role: string;
+    name?: string;
+  };
+}
+
 @Controller('posts')
 @UseGuards(JwtAuthGuard)
 export class PostsController {
   constructor(private readonly postsService: PostsService) {}
 
   @Post()
-  create(@Request() req, @Body() createPostDto: CreatePostDto) {
+  create(
+    @Request() req: AuthenticatedRequest,
+    @Body() createPostDto: CreatePostDto
+  ) {
     return this.postsService.create(req.user.userId, createPostDto);
   }
 
@@ -33,12 +44,12 @@ export class PostsController {
   getFeed(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-    @Request() req?,
+    @Request() req?: AuthenticatedRequest
   ) {
     return this.postsService.findAll(
       page ? parseInt(page) : 1,
       limit ? parseInt(limit) : 10,
-      req?.user?.userId,
+      req?.user?.userId
     );
   }
 
@@ -46,31 +57,31 @@ export class PostsController {
   findAll(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-    @Request() req?,
+    @Request() req?: AuthenticatedRequest
   ) {
     return this.postsService.findAll(
       page ? parseInt(page) : 1,
       limit ? parseInt(limit) : 10,
-      req?.user?.userId,
+      req?.user?.userId
     );
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string, @Request() req?) {
+  findOne(@Param('id') id: string, @Request() req?: AuthenticatedRequest) {
     return this.postsService.findOne(id, req?.user?.userId);
   }
 
   @Patch(':id')
   update(
     @Param('id') id: string,
-    @Request() req,
-    @Body() updatePostDto: UpdatePostDto,
+    @Request() req: AuthenticatedRequest,
+    @Body() updatePostDto: UpdatePostDto
   ) {
     return this.postsService.update(id, req.user.userId, updatePostDto);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string, @Request() req) {
+  remove(@Param('id') id: string, @Request() req: AuthenticatedRequest) {
     return this.postsService.remove(id, req.user.userId);
   }
 
@@ -78,46 +89,53 @@ export class PostsController {
   @UseInterceptors(FilesInterceptor('images', 10))
   uploadImages(
     @Param('id') id: string,
-    @Request() req,
-    @UploadedFiles() files: Express.Multer.File[],
+    @Request() req: AuthenticatedRequest,
+    @UploadedFiles() files: Express.Multer.File[]
   ) {
     return this.postsService.uploadImages(id, req.user.userId, files);
   }
 
   @Post(':id/like')
-  toggleLike(@Param('id') id: string, @Request() req) {
+  toggleLike(@Param('id') id: string, @Request() req: AuthenticatedRequest) {
     return this.postsService.toggleLike(id, req.user.userId);
   }
 
   @Post(':id/comments')
   createComment(
     @Param('id') id: string,
-    @Request() req,
-    @Body() createCommentDto: CreateCommentDto,
+    @Request() req: AuthenticatedRequest,
+    @Body() createCommentDto: CreateCommentDto
   ) {
-    return this.postsService.createComment(id, req.user.userId, createCommentDto);
+    return this.postsService.createComment(
+      id,
+      req.user.userId,
+      createCommentDto
+    );
   }
 
   @Get(':id/comments')
   getComments(
     @Param('id') id: string,
     @Query('page') page?: string,
-    @Query('limit') limit?: string,
+    @Query('limit') limit?: string
   ) {
     return this.postsService.getComments(
       id,
       page ? parseInt(page) : 1,
-      limit ? parseInt(limit) : 20,
+      limit ? parseInt(limit) : 20
     );
   }
 
   @Delete('comments/:commentId')
-  deleteComment(@Param('commentId') commentId: string, @Request() req) {
+  deleteComment(
+    @Param('commentId') commentId: string,
+    @Request() req: AuthenticatedRequest
+  ) {
     return this.postsService.deleteComment(commentId, req.user.userId);
   }
 
   @Post(':id/share')
-  sharePost(@Param('id') id: string, @Request() req) {
+  sharePost(@Param('id') id: string, @Request() req: AuthenticatedRequest) {
     return this.postsService.sharePost(id, req.user.userId);
   }
 }

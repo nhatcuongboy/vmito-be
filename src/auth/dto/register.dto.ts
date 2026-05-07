@@ -33,6 +33,8 @@ export class RegisterDto {
   phone?: string;
 
   @IsOptional()
-  @IsEnum(Gender, { message: 'Gender must be MALE, FEMALE, OTHER, or PREFER_NOT_TO_SAY' })
+  @IsEnum(Gender, {
+    message: 'Gender must be MALE, FEMALE, OTHER, or PREFER_NOT_TO_SAY',
+  })
   gender?: Gender;
 }
