@@ -379,7 +379,7 @@ export class VenuesService {
           },
         });
         results.push(created);
-      } catch (_err) {
+      } catch {
         // Skip duplicates (e.g. duplicate placeId)
       }
     }
@@ -623,7 +623,10 @@ export class VenuesService {
     }
 
     // 2. Starts with keyword - 500 points
-    if (name.startsWith(keyword) || normalizedName.startsWith(normalizedKeyword)) {
+    if (
+      name.startsWith(keyword) ||
+      normalizedName.startsWith(normalizedKeyword)
+    ) {
       score += 500;
     }
 
@@ -642,7 +645,10 @@ export class VenuesService {
         if (nameToken === keywordToken) {
           exactTokenMatches++;
           tokenMatchCount++;
-        } else if (nameToken.includes(keywordToken) || keywordToken.includes(nameToken)) {
+        } else if (
+          nameToken.includes(keywordToken) ||
+          keywordToken.includes(nameToken)
+        ) {
           tokenMatchCount++;
         }
       }
@@ -653,7 +659,10 @@ export class VenuesService {
     score += (tokenMatchCount - exactTokenMatches) * 20;
 
     // 5. Address matching - 100 points
-    if (address.includes(keyword) || removeVietnameseTones(address).toLowerCase().includes(normalizedKeyword)) {
+    if (
+      address.includes(keyword) ||
+      removeVietnameseTones(address).toLowerCase().includes(normalizedKeyword)
+    ) {
       score += 100;
     }
 

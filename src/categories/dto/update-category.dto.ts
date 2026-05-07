@@ -1,4 +1,11 @@
-import { IsOptional, IsBoolean, IsNumber, IsIn, IsObject, IsString } from 'class-validator';
+import {
+  IsOptional,
+  IsBoolean,
+  IsNumber,
+  IsIn,
+  IsObject,
+  IsString,
+} from 'class-validator';
 
 export class UpdateCategoryDto {
   @IsOptional()

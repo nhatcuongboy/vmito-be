@@ -1,9 +1,23 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Put,
+  Delete,
+  Param,
+  Body,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { TournamentsService } from './tournaments.service';
+import { UpdateTournamentPlayerDto } from './dto/create-tournament-player.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
+
+interface CurrentUserPayload {
+  userId: string;
+  role?: string;
+}
 
 @ApiTags('tournament-players')
 @ApiBearerAuth('JWT-auth')
@@ -27,8 +41,8 @@ export class TournamentPlayersController {
   @Put(':id')
   updatePlayer(
     @Param('id') id: string,
-    @Body() dto: any,
-    @CurrentUser() user: any
+    @Body() dto: UpdateTournamentPlayerDto,
+    @CurrentUser() user: CurrentUserPayload
   ) {
     return this.service.updatePlayer(id, dto, user.userId, user.role);
   }
@@ -36,7 +50,7 @@ export class TournamentPlayersController {
   @Delete(':id')
   deletePlayer(
     @Param('id') id: string,
-    @CurrentUser() user: any
+    @CurrentUser() user: CurrentUserPayload
   ) {
     return this.service.deletePlayer(id, user.userId, user.role);
   }

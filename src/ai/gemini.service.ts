@@ -1,13 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenAI } from '@google/genai';
-import {
-  ExtractedSessionDto,
-  ChatMessageDto,
-} from './dto/extract-session.dto';
+import { ExtractedSessionDto, ChatMessageDto } from './dto/extract-session.dto';
 import { Language, DEFAULT_LANGUAGE } from '../common/constants/language.enum';
 import { PrismaService } from '../prisma/prisma.service';
-import { Venue } from '@prisma/client';
 
 const MODEL = 'gemini-3-flash-preview';
 
@@ -42,7 +38,7 @@ export class GeminiService {
 
   constructor(
     private configService: ConfigService,
-    private prisma: PrismaService,
+    private prisma: PrismaService
   ) {
     const apiKey = this.configService.get<string>('GEMINI_API_KEY');
     if (!apiKey) {
@@ -119,7 +115,9 @@ export class GeminiService {
       const normalizedVenueName = normalizeText(venue.name);
       const normalizedVenueAddress = venue.address.toLowerCase();
       const normalizedSearchName = normalizeText(extractedVenue.name || '');
-      const normalizedSearchAddress = (extractedVenue.address || '').toLowerCase();
+      const normalizedSearchAddress = (
+        extractedVenue.address || ''
+      ).toLowerCase();
 
       // Exact match gets highest score
       if (normalizedVenueName === normalizedSearchName) {
@@ -133,12 +131,19 @@ export class GeminiService {
       }
       // Word-by-word matching
       else {
-        const searchWords = normalizedSearchName.split(' ').filter((w) => w.length > 2);
-        const venueWords = normalizedVenueName.split(' ').filter((w) => w.length > 2);
+        const searchWords = normalizedSearchName
+          .split(' ')
+          .filter((w) => w.length > 2);
+        const venueWords = normalizedVenueName
+          .split(' ')
+          .filter((w) => w.length > 2);
 
         searchWords.forEach((searchWord) => {
           venueWords.forEach((venueWord) => {
-            if (venueWord.includes(searchWord) || searchWord.includes(venueWord)) {
+            if (
+              venueWord.includes(searchWord) ||
+              searchWord.includes(venueWord)
+            ) {
               score += 10;
             }
           });
@@ -153,7 +158,9 @@ export class GeminiService {
           score += 30;
         } else {
           // Word-by-word address matching
-          const addressWords = normalizedSearchAddress.split(' ').filter((w) => w.length > 2);
+          const addressWords = normalizedSearchAddress
+            .split(' ')
+            .filter((w) => w.length > 2);
           addressWords.forEach((word) => {
             if (normalizedVenueAddress.includes(word)) {
               score += 5;
@@ -164,7 +171,9 @@ export class GeminiService {
 
       // District matching
       if (extractedVenue.district && venue.district) {
-        const normalizedExtractedDistrict = normalizeText(extractedVenue.district);
+        const normalizedExtractedDistrict = normalizeText(
+          extractedVenue.district
+        );
         const normalizedVenueDistrict = normalizeText(venue.district);
         if (normalizedVenueDistrict === normalizedExtractedDistrict) {
           score += 20;
@@ -208,13 +217,13 @@ export class GeminiService {
     // Only return match if score is above threshold
     if (bestMatch && bestScore >= 20) {
       console.log(
-        `[AI] Matched venue: "${(bestMatch as VenueMatch).name}" (ID: ${(bestMatch as VenueMatch).id}) with score: ${bestScore} for extracted venue: "${extractedVenue.name}"`,
+        `[AI] Matched venue: "${(bestMatch as VenueMatch).name}" (ID: ${(bestMatch as VenueMatch).id}) with score: ${bestScore} for extracted venue: "${extractedVenue.name}"`
       );
       return (bestMatch as VenueMatch).id;
     }
 
     console.log(
-      `[AI] No matching venue found for: "${extractedVenue.name}" (best score was: ${bestScore})`,
+      `[AI] No matching venue found for: "${extractedVenue.name}" (best score was: ${bestScore})`
     );
     return null;
   }

@@ -947,7 +947,7 @@ export class CourtsService {
     }
 
     const effectiveMatchType: MatchType =
-      matchType || (court.session.defaultMatchType as MatchType) || 'DOUBLES';
+      matchType || court.session.defaultMatchType || 'DOUBLES';
     const isSingles = effectiveMatchType === 'SINGLES';
     const minPlayers = isSingles ? 2 : 4;
 

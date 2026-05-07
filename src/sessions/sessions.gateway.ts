@@ -9,6 +9,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 
 // Event types for realtime updates
 export enum SessionEventType {
@@ -42,16 +43,18 @@ export class SessionsGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
   @WebSocketServer()
-  server: Server;
+  server!: Server;
 
   private logger: Logger = new Logger('SessionsGateway');
+
+  constructor(private readonly jwtService: JwtService) {}
 
   handleConnection(client: Socket) {
     this.logger.log(`Client connected: ${client.id}`);
   }
 
   handleDisconnect(client: Socket) {
-    const userId = client.data.userId;
+    const userId = (client.data as { userId?: string }).userId;
     this.logger.log(
       `Client disconnected: ${client.id}${userId ? ` (user: ${userId})` : ''}`
     );
@@ -60,8 +63,10 @@ export class SessionsGateway
     const currentRooms = Array.from(client.rooms);
     for (const room of currentRooms) {
       if (room.startsWith('user-')) {
-        client.leave(room);
-        this.logger.log(`Socket ${client.id} auto-left user room ${room} on disconnect`);
+        void client.leave(room);
+        this.logger.log(
+          `Socket ${client.id} auto-left user room ${room} on disconnect`
+        );
       }
     }
   }
@@ -93,12 +98,40 @@ export class SessionsGateway
     @MessageBody() data: { userId: string },
     @ConnectedSocket() client: Socket
   ) {
-    if (!data?.userId) {
-      this.logger.warn(`Socket ${client.id} attempted to join user room without userId`);
-      return;
+    // Extract and verify the token from the socket handshake
+    const authToken = (client.handshake.auth as { token?: string }).token;
+    const authHeader = client.handshake.headers.authorization?.replace(
+      'Bearer ',
+      ''
+    );
+    const token = authToken ?? authHeader;
+
+    if (!token) {
+      this.logger.warn(
+        `Socket ${client.id} attempted to join user room without auth token`
+      );
+      return { error: 'Authentication required' };
     }
 
-    const roomName = `user-${data.userId}`;
+    let authenticatedUserId: string;
+    try {
+      const payload = this.jwtService.verify<{ sub: string }>(token);
+      authenticatedUserId = payload.sub;
+    } catch {
+      this.logger.warn(
+        `Socket ${client.id} provided an invalid or expired token`
+      );
+      return { error: 'Invalid or expired token' };
+    }
+
+    // Ignore the client-supplied userId; use the authenticated one
+    if (data?.userId && data.userId !== authenticatedUserId) {
+      this.logger.warn(
+        `Socket ${client.id} supplied userId ${data.userId} does not match authenticated userId ${authenticatedUserId}. Using authenticated userId.`
+      );
+    }
+
+    const roomName = `user-${authenticatedUserId}`;
 
     // Leave ALL user rooms to prevent leakage
     const currentRooms = Array.from(client.rooms);
@@ -109,15 +142,18 @@ export class SessionsGateway
       }
     }
 
-    // Store userId in socket data for verification
-    client.data.userId = data.userId;
+    // Store verified userId in socket data
+    (client.data as { userId?: string }).userId = authenticatedUserId;
 
     await client.join(roomName);
     this.logger.log(
-      `[Socket] User ${data.userId} joined room ${roomName} (socket: ${client.id})`
+      `[Socket] User ${authenticatedUserId} joined room ${roomName} (socket: ${client.id})`
     );
 
-    return { event: 'joinedUserRoom', data: { userId: data.userId } };
+    return {
+      event: 'joinedUserRoom',
+      data: { userId: authenticatedUserId },
+    };
   }
 
   /**
@@ -162,24 +198,24 @@ export class SessionsGateway
     }
 
     const roomName = `user-${userId}`;
-    
+
     // Get all sockets in this room and verify they belong to the correct user
     const socketsInRoom = this.server.in(roomName).fetchSockets();
-    socketsInRoom.then((sockets) => {
+    void socketsInRoom.then((sockets) => {
       let validSocketCount = 0;
       for (const socket of sockets) {
         // Verify socket belongs to the correct user
-        if (socket.data.userId === userId) {
+        if ((socket.data as { userId?: string }).userId === userId) {
           validSocketCount++;
         } else {
           // Socket in wrong room - force leave
           this.logger.warn(
-            `[Security] Socket ${socket.id} (user: ${socket.data.userId}) found in wrong room ${roomName}. Removing.`
+            `[Security] Socket ${socket.id} (user: ${(socket.data as { userId?: string }).userId}) found in wrong room ${roomName}. Removing.`
           );
-          socket.leave(roomName);
+          void socket.leave(roomName);
         }
       }
-      
+
       if (validSocketCount > 0) {
         this.logger.log(
           `[Realtime] Notified user ${userId} of ${eventType} (${validSocketCount} socket(s))`

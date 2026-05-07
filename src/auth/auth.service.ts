@@ -106,9 +106,7 @@ export class AuthService {
     });
 
     if (existingUser) {
-      throw new ConflictException(
-        getErrorMessage('userAlreadyExists', locale),
-      );
+      throw new ConflictException(getErrorMessage('userAlreadyExists', locale));
     }
 
     try {
@@ -142,9 +140,7 @@ export class AuthService {
       if (error instanceof ConflictException) {
         throw error;
       }
-      throw new ConflictException(
-        getErrorMessage('unexpectedError', locale),
-      );
+      throw new ConflictException(getErrorMessage('unexpectedError', locale));
     }
   }
 
@@ -333,7 +329,7 @@ export class AuthService {
 
     if (existingAccount?.user) {
       // Update user info if new data is available
-      const updateData: any = {};
+      const updateData: { image?: string; phone?: string } = {};
       if (!existingAccount.user.image && profile.image) {
         updateData.image = profile.image;
       }

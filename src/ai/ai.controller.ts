@@ -17,6 +17,14 @@ import {
 } from './dto/extract-session.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
+interface AuthenticatedRequest {
+  user: {
+    userId: string;
+    name?: string;
+    role: string;
+  };
+}
+
 @ApiTags('ai')
 @ApiBearerAuth('JWT-auth')
 @Controller('ai')
@@ -25,7 +33,10 @@ export class AiController {
   constructor(private readonly geminiService: GeminiService) {}
 
   @Post('extract-session')
-  async extractSession(@Body() dto: ExtractSessionRequestDto, @Request() req: any) {
+  async extractSession(
+    @Body() dto: ExtractSessionRequestDto,
+    @Request() req: AuthenticatedRequest
+  ) {
     const extracted = await this.geminiService.extractSessionFromArticle(
       dto.articleContent,
       dto.language

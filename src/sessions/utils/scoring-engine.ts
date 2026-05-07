@@ -1,6 +1,6 @@
 /**
  * Scoring Engine for Session Recommendations
- * 
+ *
  * This utility class implements the scoring algorithm for session recommendations.
  * It calculates relevance scores based on multiple weighted factors:
  * - Location proximity (30%)
@@ -42,11 +42,11 @@ interface ScoreResult {
 export class ScoringEngine {
   // Scoring weights (must sum to 1.0)
   private static readonly WEIGHTS = {
-    location: 0.30,
+    location: 0.3,
     level: 0.25,
-    time: 0.20,
+    time: 0.2,
     host: 0.15,
-    slots: 0.10,
+    slots: 0.1,
   };
 
   // Distance thresholds in kilometers
@@ -105,7 +105,7 @@ export class ScoringEngine {
    * - Within 3km: 0.5
    * - Beyond 3km: 0.0
    * - Missing coordinates: 0.5 (default)
-   * 
+   *
    * @param current - Current session
    * @param candidate - Candidate session
    * @param distance - Pre-calculated distance in km (optional)
@@ -117,7 +117,11 @@ export class ScoringEngine {
     distance?: number | null
   ): number {
     // Same venue
-    if (current.venueId && candidate.venueId && current.venueId === candidate.venueId) {
+    if (
+      current.venueId &&
+      candidate.venueId &&
+      current.venueId === candidate.venueId
+    ) {
       return 1.0;
     }
 
@@ -143,7 +147,7 @@ export class ScoringEngine {
    * - ±2 levels: 0.4
    * - Beyond ±2: 0.0
    * - Empty required levels (accepts all): 1.0
-   * 
+   *
    * @param current - Current session
    * @param candidate - Candidate session
    * @returns Level score (0-1)
@@ -185,7 +189,7 @@ export class ScoringEngine {
    * - Same day: 0.3
    * - Different day: 0.0
    * - Missing start time: 0.5 (default)
-   * 
+   *
    * @param current - Current session
    * @param candidate - Candidate session
    * @returns Time score (0-1)
@@ -219,7 +223,7 @@ export class ScoringEngine {
    * Score host matching
    * - Same host: 1.0
    * - Different host: 0.0
-   * 
+   *
    * @param current - Current session
    * @param candidate - Candidate session
    * @returns Host score (0 or 1)
@@ -237,7 +241,7 @@ export class ScoringEngine {
    * - 2-3 slots: 0.6
    * - 1 slot: 0.3
    * - 0 slots: 0.0
-   * 
+   *
    * @param candidate - Candidate session
    * @param approvedPlayerCount - Number of approved players (optional)
    * @returns Slots score (0-1)
@@ -268,7 +272,7 @@ export class ScoringEngine {
     current: SessionForScoring,
     candidate: SessionForScoring,
     score: ScoreResult,
-    distance?: number | null
+    _distance?: number | null
   ): string[] {
     const reasons: string[] = [];
 
@@ -307,7 +311,7 @@ export class ScoringEngine {
   /**
    * Haversine formula to calculate distance between two lat/lng points in kilometers
    * (Reused from existing SessionsService implementation)
-   * 
+   *
    * @param lat1 - Latitude of first point
    * @param lng1 - Longitude of first point
    * @param lat2 - Latitude of second point
