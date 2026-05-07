@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { TournamentsService } from './tournaments.service';
+import { UpdateTournamentPlayerDto } from './dto/create-tournament-player.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
@@ -40,7 +41,7 @@ export class TournamentPlayersController {
   @Put(':id')
   updatePlayer(
     @Param('id') id: string,
-    @Body() dto: Record<string, unknown>,
+    @Body() dto: UpdateTournamentPlayerDto,
     @CurrentUser() user: CurrentUserPayload
   ) {
     return this.service.updatePlayer(id, dto, user.userId, user.role);

@@ -7,17 +7,11 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
-import { TournamentStatus, ScheduleType, Gender } from '@prisma/client';
-
-interface CreatePlayerDto {
-  name?: string;
-  email?: string;
-  phone?: string;
-  gender?: Gender | null;
-  level?: number;
-  levelDescription?: string;
-  userId?: string;
-}
+import {
+  CreateTournamentPlayerDto,
+  UpdateTournamentPlayerDto,
+} from './dto/create-tournament-player.dto';
+import { TournamentStatus, ScheduleType } from '@prisma/client';
 
 @Injectable()
 export class TournamentsService {
@@ -377,7 +371,7 @@ export class TournamentsService {
 
   async createPlayer(
     tournamentId: string,
-    dto: CreatePlayerDto,
+    dto: CreateTournamentPlayerDto,
     userId: string,
     role?: string
   ) {
@@ -389,10 +383,14 @@ export class TournamentsService {
       throw new ForbiddenException('You can only modify your own tournaments');
     }
 
+    if (!dto.name || dto.name.trim() === '') {
+      throw new BadRequestException('Player name is required');
+    }
+
     return this.prisma.tournamentPlayer.create({
       data: {
         tournamentId,
-        name: dto.name ?? '',
+        name: dto.name,
         email: dto.email,
         phone: dto.phone,
         gender: dto.gender,
@@ -428,7 +426,7 @@ export class TournamentsService {
 
   async updatePlayer(
     id: string,
-    dto: Record<string, unknown>,
+    dto: UpdateTournamentPlayerDto,
     userId: string,
     role?: string
   ) {

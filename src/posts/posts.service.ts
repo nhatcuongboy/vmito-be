@@ -10,8 +10,6 @@ import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
 
-/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return */
-
 @Injectable()
 export class PostsService {
   constructor(
@@ -20,10 +18,11 @@ export class PostsService {
   ) {}
 
   async create(userId: string, createPostDto: CreatePostDto) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return await (this.prisma as any).post.create({
+    return this.prisma.post.create({
       data: {
-        ...createPostDto,
+        content: createPostDto.content,
+        videoUrl: createPostDto.videoUrl,
+        location: createPostDto.location,
         authorId: userId,
       },
       include: {
