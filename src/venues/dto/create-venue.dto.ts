@@ -13,11 +13,16 @@ import { VenueStatus, ClosureStatus } from '@prisma/client';
 export class CreateVenueDto {
   @ApiProperty()
   @IsString()
-  placeId: string;
+  placeId!: string;
 
   @ApiProperty()
   @IsString()
-  name: string;
+  name!: string;
+
+  @ApiProperty({ required: false, description: 'Venue acronym' })
+  @IsOptional()
+  @IsString()
+  acronym?: string;
 
   @ApiProperty({ required: false, description: 'Venue description' })
   @IsOptional()
@@ -26,7 +31,7 @@ export class CreateVenueDto {
 
   @ApiProperty()
   @IsString()
-  address: string;
+  address!: string;
 
   @ApiProperty({ required: false })
   @IsOptional()

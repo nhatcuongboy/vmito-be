@@ -2,6 +2,34 @@
 
 NestJS RESTful API for Badminton Session & Tournament Management.
 
+## 📚 Documentation
+
+### Tournament Scheduling ⭐ NEW
+- **[Tournament Scheduling Index](./docs/TOURNAMENT-SCHEDULING-INDEX.md)** - Start here!
+  - Next Available Court mode (auto-scheduling)
+  - Assigned Courts & Times mode (pre-scheduling)
+  - [Quick Start Guide](./docs/SCHEDULE-QUICK-START.md)
+  - [Flow Diagrams](./docs/SCHEDULE-FLOW-DIAGRAM.md)
+  - [Full Documentation](./docs/TOURNAMENT-SCHEDULING.md)
+
+### Core Documentation
+- [API Reference](./docs/API-REFERENCE.md)
+- [Architecture](./docs/ARCHITECTURE.md)
+- [Database Schema](./docs/DATABASE-SCHEMA.md)
+- [Setup Guide](./docs/SETUP-GUIDE.md)
+
+### Other Features
+- [Image Gallery](./docs/IMAGE-GALLERY-FEATURE.md)
+- [Session Cover Photo](./docs/SESSION-COVER-PHOTO.md)
+- [Cloudinary Setup](./docs/CLOUDINARY-SETUP.md)
+
+### Deployment
+- [Server Architecture & CI/CD](./docs/SERVER_ARCHITECTURE_CICD.md)
+- [Server Migration](./docs/SERVER-MIGRATION.md)
+- [Staging Setup](./docs/STAGING_SETUP.md)
+
+---
+
 ## Quick Start
 
 ```bash

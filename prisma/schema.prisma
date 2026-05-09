@@ -176,12 +176,12 @@ model Session {
   // Player level requirements (empty array = all levels allowed)
   requiredLevels Int[] @default([]) // Array of level IDs (1-7)
 
-  courtColor         String  @default("#179a3b")
+  courtColor         String    @default("#179a3b")
   defaultMatchType   MatchType @default(DOUBLES) // Default match type for courts in this session
   coverPhoto         String? // Cloudinary URL for session cover photo
   coverPhotoPublicId String? // Cloudinary public ID for cover photo
-  images             String[] @default([]) // Additional session images (max 5)
-  imagePublicIds     String[] @default([]) // Cloudinary public IDs for additional images
+  images             String[]  @default([]) // Additional session images (max 5)
+  imagePublicIds     String[]  @default([]) // Cloudinary public IDs for additional images
   shuttlecock        String?
 
   createdAt DateTime @default(now())
@@ -203,10 +203,11 @@ model Session {
 }
 
 model Venue {
-  id               String       @id @default(cuid())
-  slug             String?      @unique
-  placeId          String       @unique // Google Place ID
+  id               String            @id @default(cuid())
+  slug             String?           @unique
+  placeId          String            @unique // Google Place ID
   name             String
+  acronym          String? // Venue acronym
   description      String? // Venue description
   searchTerms      String? // Normalized search string
   address          String
@@ -217,38 +218,39 @@ model Venue {
   newAddress       String? // New admin unit address (post Nghị quyết 60)
   newDistrict      String? // New ward/district name
   newCity          String? // New city/province name if changed
-  isVerified       Boolean      @default(false)
+  isVerified       Boolean           @default(false)
   openingHours     String?
   numberOfCourts   Int?
-  status           VenueStatus  @default(ACTIVE)
+  status           VenueStatus       @default(ACTIVE)
   phone            String?
   website          String?
   hourlyRateFixed  Int?
   hourlyRateWalkIn Int?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
   sessions         Session[]
   clubs            Club[]
   tournaments      Tournament[]
+  tournamentVenues TournamentVenue[]
 
   // Amenities
-  hasCarParking  Boolean?
-  hasCanteen     Boolean?
-  wifiName       String?
-  wifiPassword   String?
+  hasCarParking Boolean?
+  hasCanteen    Boolean?
+  wifiName      String?
+  wifiPassword  String?
 
   // Status & Policy
-  closureStatus  ClosureStatus @default(OPERATING)
-  bookingPolicy  String?
-  locatedWithin  String?
+  closureStatus ClosureStatus @default(OPERATING)
+  bookingPolicy String?
+  locatedWithin String?
 
   // Images
-  coverPhoto         String?
-  coverPhotoPublicId String?
+  coverPhoto               String?
+  coverPhotoPublicId       String?
   courtLayoutImage         String?
   courtLayoutImagePublicId String?
-  images             String[] @default([])
-  imagePublicIds     String[] @default([])
+  images                   String[] @default([])
+  imagePublicIds           String[] @default([])
 
   @@index([status])
   @@index([city])
@@ -453,14 +455,16 @@ model Tournament {
   updatedAt    DateTime         @updatedAt
 
   // Relations
-  host           User                      @relation("HostedTournaments", fields: [hostId], references: [id])
-  venue          Venue?                    @relation(fields: [venueId], references: [id])
-  categories     Category[]
-  umpires        TournamentUmpire[]
-  scoringDevices TournamentScoringDevice[]
-  courts         TournamentCourt[]
-  players        TournamentPlayer[]
-  pairs          TournamentPair[]
+  host             User                      @relation("HostedTournaments", fields: [hostId], references: [id])
+  venue            Venue?                    @relation(fields: [venueId], references: [id])
+  categories       Category[]
+  umpires          TournamentUmpire[]
+  scoringDevices   TournamentScoringDevice[]
+  courts           TournamentCourt[]
+  players          TournamentPlayer[]
+  pairs            TournamentPair[]
+  tournamentVenues TournamentVenue[]
+  scheduleConfig   ScheduleConfiguration?
 
   @@map("tournaments")
 }
@@ -475,6 +479,12 @@ enum TournamentStatus {
 enum ScheduleType {
   NEXT_AVAILABLE
   ASSIGNED
+}
+
+enum TournamentCourtStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
 }
 
 model Category {
@@ -595,14 +605,24 @@ model CategoryMatch {
   player4Score Int?
   matchFormat  MatchFormat? // Match format for this specific match/round
   notes        String?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+
+  // Schedule management fields
+  queueOrder        Int? // Priority order in queue for Next Available Court mode
+  isQueued          Boolean   @default(false) // Whether match is waiting for court assignment
+  scheduledDuration Int? // Expected match duration in minutes
+  estimatedEndTime  DateTime? // Calculated end time (startTime + scheduledDuration)
+  autoAssignedAt    DateTime? // When match was auto-assigned to court
+  assignedBy        String? // "AUTO" or userId who manually assigned
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  category     Category                   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  group        CategoryGroup?             @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  court        TournamentCourt?           @relation(fields: [courtId], references: [id])
-  participants CategoryMatchParticipant[]
+  category          Category                   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  group             CategoryGroup?             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  court             TournamentCourt?           @relation("CourtMatches", fields: [courtId], references: [id])
+  currentCourtMatch TournamentCourt?           @relation("CurrentCourtMatch")
+  participants      CategoryMatchParticipant[]
 
   @@map("category_matches")
 }
@@ -656,20 +676,41 @@ model TournamentScoringDevice {
 }
 
 model TournamentCourt {
-  id           String   @id @default(cuid())
-  tournamentId String
-  courtNumber  Int
-  courtName    String?
-  notes        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                String                @id @default(cuid())
+  tournamentId      String
+  tournamentVenueId String?
+  courtNumber       Int
+  courtName         String?
+  status            TournamentCourtStatus @default(AVAILABLE)
+  currentMatchId    String?               @unique
+  notes             String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
 
   // Relations
-  tournament Tournament      @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  matches    CategoryMatch[]
+  tournament      Tournament       @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  tournamentVenue TournamentVenue? @relation(fields: [tournamentVenueId], references: [id], onDelete: SetNull)
+  matches         CategoryMatch[]  @relation("CourtMatches")
+  currentMatch    CategoryMatch?   @relation("CurrentCourtMatch", fields: [currentMatchId], references: [id])
+  courtTimeSlots  CourtTimeSlot[]
 
   @@unique([tournamentId, courtNumber])
   @@map("tournament_courts")
+}
+
+model TournamentVenue {
+  id           String   @id @default(cuid())
+  tournamentId String
+  venueId      String
+  createdAt    DateTime @default(now())
+
+  // Relations
+  tournament Tournament        @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  venue      Venue             @relation(fields: [venueId], references: [id])
+  courts     TournamentCourt[]
+
+  @@unique([tournamentId, venueId])
+  @@map("tournament_venues")
 }
 
 model TournamentPlayer {
@@ -885,11 +926,11 @@ model Club {
   maxMembers     Int?
   image          String? // Cloudinary URL for club image (primary/cover)
   imagePublicId  String? // Cloudinary public ID (primary/cover)
-  images             String[] @default([]) // Multiple images functionality
-  imagePublicIds     String[] @default([]) // Multiple image public IDs
+  images         String[]       @default([]) // Multiple images functionality
+  imagePublicIds String[]       @default([]) // Multiple image public IDs
   location       String? // Primary location/venue
   defaultVenueId String? // Link to default venue
-  requiredLevels Int[] @default([]) // Array of level IDs (1-8)
+  requiredLevels Int[]          @default([]) // Array of level IDs (1-8)
 
   // Statistics (cached for performance)
   sessionCount       Int @default(0)
@@ -1126,39 +1167,39 @@ model UserImage {
 // ===========================================
 
 model Post {
-  id          String   @id @default(cuid())
-  content     String   @db.Text
-  videoUrl    String? // YouTube/Vimeo embed URL
-  location    Json? // {name, lat, lng, address}
-  authorId    String
-  author      User     @relation("UserPosts", fields: [authorId], references: [id], onDelete: Cascade)
-  
-  images      PostImage[]
-  likes       PostLike[]
-  comments    PostComment[]
-  shares      PostShare[]
-  
+  id       String  @id @default(cuid())
+  content  String  @db.Text
+  videoUrl String? // YouTube/Vimeo embed URL
+  location Json? // {name, lat, lng, address}
+  authorId String
+  author   User    @relation("UserPosts", fields: [authorId], references: [id], onDelete: Cascade)
+
+  images   PostImage[]
+  likes    PostLike[]
+  comments PostComment[]
+  shares   PostShare[]
+
   // For repost/share
   originalPostId String?
   originalPost   Post?   @relation("PostShares", fields: [originalPostId], references: [id])
   reposts        Post[]  @relation("PostShares")
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([authorId])
   @@index([createdAt])
   @@map("posts")
 }
 
 model PostImage {
-  id          String @id @default(cuid())
-  postId      String
-  post        Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
-  url         String
-  publicId    String
-  order       Int    @default(0)
-  
+  id       String @id @default(cuid())
+  postId   String
+  post     Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  url      String
+  publicId String
+  order    Int    @default(0)
+
   @@index([postId])
   @@map("post_images")
 }
@@ -1170,7 +1211,7 @@ model PostLike {
   userId    String
   user      User     @relation("UserPostLikes", fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
-  
+
   @@unique([postId, userId])
   @@index([postId])
   @@index([userId])
@@ -1188,7 +1229,7 @@ model PostComment {
   imagePublicId String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  
+
   @@index([postId])
   @@index([userId])
   @@map("post_comments")
@@ -1201,9 +1242,72 @@ model PostShare {
   userId    String
   user      User     @relation("UserPostShares", fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
-  
+
   @@unique([postId, userId])
   @@index([postId])
   @@index([userId])
   @@map("post_shares")
+}
+
+// ===========================================
+// Tournament Schedule Generator Models
+// ===========================================
+
+model ScheduleConfiguration {
+  id                   String   @id @default(cuid())
+  tournamentId         String   @unique
+  categoryPriorities   Json // Ordered array of category IDs
+  matchDurations       Json // { "POOL_PLAY": 60, "PLAYOFFS": 60 }
+  keepScheduledMatches Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  tournament Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  timeSlots  ScheduleTimeSlot[]
+
+  @@map("schedule_configurations")
+}
+
+model ScheduleTimeSlot {
+  id         String   @id @default(cuid())
+  configId   String
+  date       DateTime
+  startTime  String // "09:00"
+  endTime    String // "17:00"
+  timeBuffer Int      @default(0) // minutes between matches
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  configuration ScheduleConfiguration @relation(fields: [configId], references: [id], onDelete: Cascade)
+  courtSlots    CourtTimeSlot[]
+
+  @@map("schedule_time_slots")
+}
+
+model CourtTimeSlot {
+  id          String   @id @default(cuid())
+  timeSlotId  String
+  courtId     String
+  constraints Json? // { categories?: string[], rounds?: string[], groups?: string[] }
+  createdAt   DateTime @default(now())
+
+  timeSlot ScheduleTimeSlot @relation(fields: [timeSlotId], references: [id], onDelete: Cascade)
+  court    TournamentCourt  @relation(fields: [courtId], references: [id], onDelete: Cascade)
+
+  @@unique([timeSlotId, courtId])
+  @@map("court_time_slots")
+}
+
+model GeneratedSchedule {
+  id             String   @id @default(cuid())
+  tournamentId   String
+  configSnapshot Json // Full configuration snapshot
+  assignments    Json // Array of { matchId, courtId, startTime, duration }
+  conflicts      Json // Array of unresolved conflicts
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime // Auto-delete after 1 hour
+
+  @@index([tournamentId])
+  @@index([expiresAt])
+  @@map("generated_schedules")
 }

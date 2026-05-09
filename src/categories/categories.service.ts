@@ -4,7 +4,12 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
-import { Prisma, CategoryType, CategoryFormat, MatchFormat } from '@prisma/client';
+import {
+  Prisma,
+  CategoryType,
+  CategoryFormat,
+  MatchFormat,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
@@ -13,6 +18,7 @@ import { CreateCategoryMatchDto } from './dto/create-category-match.dto';
 import { EndCategoryMatchDto } from './dto/end-category-match.dto';
 
 interface CategoryUpdateData {
+  name?: string;
   hasGroupStage?: boolean;
   averageMatchDuration?: number;
   groupCount?: number;
@@ -201,6 +207,9 @@ export class CategoriesService {
 
     const updateData: CategoryUpdateData = {};
 
+    if (dto.name !== undefined) {
+      updateData.name = dto.name;
+    }
     if (dto.hasGroupStage !== undefined)
       updateData.hasGroupStage = dto.hasGroupStage;
     if (dto.averageMatchDuration !== undefined) {
@@ -1908,6 +1917,18 @@ export class CategoriesService {
         if (!match) continue;
         if (match.category.tournamentId !== tournamentId) continue;
 
+        // Calculate estimatedEndTime and scheduledDuration from startTime + endTime
+        let estimatedEndTime: Date | null = null;
+        let scheduledDuration: number | null = null;
+        if (update.startTime && update.endTime) {
+          estimatedEndTime = new Date(update.endTime);
+          scheduledDuration = Math.round(
+            (estimatedEndTime.getTime() -
+              new Date(update.startTime).getTime()) /
+              60000
+          );
+        }
+
         const updated = await tx.categoryMatch.update({
           where: { id: update.matchId },
           data: {
@@ -1920,6 +1941,8 @@ export class CategoriesService {
             ...(update.endTime !== undefined && {
               endTime: update.endTime ? new Date(update.endTime) : null,
             }),
+            ...(estimatedEndTime && { estimatedEndTime }),
+            ...(scheduledDuration !== null && { scheduledDuration }),
           },
           include: {
             participants: {
