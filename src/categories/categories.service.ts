@@ -1917,6 +1917,18 @@ export class CategoriesService {
         if (!match) continue;
         if (match.category.tournamentId !== tournamentId) continue;
 
+        // Calculate estimatedEndTime and scheduledDuration from startTime + endTime
+        let estimatedEndTime: Date | null = null;
+        let scheduledDuration: number | null = null;
+        if (update.startTime && update.endTime) {
+          estimatedEndTime = new Date(update.endTime);
+          scheduledDuration = Math.round(
+            (estimatedEndTime.getTime() -
+              new Date(update.startTime).getTime()) /
+              60000
+          );
+        }
+
         const updated = await tx.categoryMatch.update({
           where: { id: update.matchId },
           data: {
@@ -1929,6 +1941,8 @@ export class CategoriesService {
             ...(update.endTime !== undefined && {
               endTime: update.endTime ? new Date(update.endTime) : null,
             }),
+            ...(estimatedEndTime && { estimatedEndTime }),
+            ...(scheduledDuration !== null && { scheduledDuration }),
           },
           include: {
             participants: {
