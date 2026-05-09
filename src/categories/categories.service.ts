@@ -4,7 +4,12 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
-import { Prisma, CategoryType, CategoryFormat, MatchFormat } from '@prisma/client';
+import {
+  Prisma,
+  CategoryType,
+  CategoryFormat,
+  MatchFormat,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
@@ -13,6 +18,7 @@ import { CreateCategoryMatchDto } from './dto/create-category-match.dto';
 import { EndCategoryMatchDto } from './dto/end-category-match.dto';
 
 interface CategoryUpdateData {
+  name?: string;
   hasGroupStage?: boolean;
   averageMatchDuration?: number;
   groupCount?: number;
@@ -201,6 +207,9 @@ export class CategoriesService {
 
     const updateData: CategoryUpdateData = {};
 
+    if (dto.name !== undefined) {
+      updateData.name = dto.name;
+    }
     if (dto.hasGroupStage !== undefined)
       updateData.hasGroupStage = dto.hasGroupStage;
     if (dto.averageMatchDuration !== undefined) {

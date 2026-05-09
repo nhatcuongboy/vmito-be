@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { ClosureStatus, Prisma, VenueStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateVenueDto } from './dto/create-venue.dto';
@@ -316,6 +316,18 @@ export class VenuesService {
     }
 
     const slug = await this.generateUniqueSlug(createVenueDto.name);
+
+    // Check for duplicate placeId
+    if (createVenueDto.placeId) {
+      const existing = await this.prisma.venue.findFirst({
+        where: { placeId: createVenueDto.placeId },
+      });
+      if (existing) {
+        throw new ConflictException(
+          'A venue with this location already exists.'
+        );
+      }
+    }
 
     return this.prisma.venue.create({
       data: {

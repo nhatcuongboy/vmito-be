@@ -207,6 +207,7 @@ model Venue {
   slug             String?      @unique
   placeId          String       @unique // Google Place ID
   name             String
+  acronym          String? // Venue acronym
   description      String? // Venue description
   searchTerms      String? // Normalized search string
   address          String
@@ -230,6 +231,7 @@ model Venue {
   sessions         Session[]
   clubs            Club[]
   tournaments      Tournament[]
+  tournamentVenues TournamentVenue[]
 
   // Amenities
   hasCarParking  Boolean?
@@ -461,6 +463,7 @@ model Tournament {
   courts         TournamentCourt[]
   players        TournamentPlayer[]
   pairs          TournamentPair[]
+  tournamentVenues TournamentVenue[]
 
   @@map("tournaments")
 }
@@ -656,20 +659,37 @@ model TournamentScoringDevice {
 }
 
 model TournamentCourt {
-  id           String   @id @default(cuid())
-  tournamentId String
-  courtNumber  Int
-  courtName    String?
-  notes        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  tournamentId       String
+  tournamentVenueId  String?
+  courtNumber        Int
+  courtName          String?
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   // Relations
-  tournament Tournament      @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  matches    CategoryMatch[]
+  tournament        Tournament       @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  tournamentVenue   TournamentVenue? @relation(fields: [tournamentVenueId], references: [id], onDelete: SetNull)
+  matches           CategoryMatch[]
 
   @@unique([tournamentId, courtNumber])
   @@map("tournament_courts")
+}
+
+model TournamentVenue {
+  id           String   @id @default(cuid())
+  tournamentId String
+  venueId      String
+  createdAt    DateTime @default(now())
+
+  // Relations
+  tournament Tournament      @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  venue      Venue           @relation(fields: [venueId], references: [id])
+  courts     TournamentCourt[]
+
+  @@unique([tournamentId, venueId])
+  @@map("tournament_venues")
 }
 
 model TournamentPlayer {

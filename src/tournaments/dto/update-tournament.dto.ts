@@ -30,4 +30,8 @@ export class UpdateTournamentDto {
   @IsOptional()
   @IsIn(['NEXT_AVAILABLE', 'ASSIGNED'])
   scheduleType?: string;
+
+  @IsOptional()
+  @IsString()
+  venueId?: string;
 }

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any */
 import {
   Injectable,
   NotFoundException,
@@ -219,6 +220,7 @@ export class TournamentsService {
       status?: TournamentStatus;
       isPublished?: boolean;
       scheduleType?: ScheduleType;
+      venueId?: string;
     } = {};
 
     if (dto.name !== undefined) {
@@ -251,6 +253,10 @@ export class TournamentsService {
 
     if (dto.scheduleType !== undefined) {
       updateData.scheduleType = dto.scheduleType as ScheduleType;
+    }
+
+    if (dto.venueId !== undefined) {
+      updateData.venueId = dto.venueId;
     }
 
     // Validate date range only when dates are being changed
@@ -358,7 +364,113 @@ export class TournamentsService {
     });
   }
 
-  // --- Player Management ---
+  // --- Tournament Venues ---
+  async getVenues(tournamentId: string) {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId },
+    });
+    if (!tournament) throw new NotFoundException('Tournament not found');
+
+    return (this.prisma as any).tournamentVenue.findMany({
+      where: { tournamentId },
+      include: {
+        venue: true,
+        courts: { orderBy: { courtNumber: 'asc' } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async addVenue(
+    tournamentId: string,
+    dto: {
+      venueId: string;
+      courts?: { courtNumber: number; courtName?: string }[];
+    }
+  ) {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId },
+    });
+    if (!tournament) throw new NotFoundException('Tournament not found');
+
+    const venue = await this.prisma.venue.findUnique({
+      where: { id: dto.venueId },
+    });
+    if (!venue) throw new NotFoundException('Venue not found');
+
+    // Upsert: if already linked, update courts; otherwise create
+    const existing = await (this.prisma as any).tournamentVenue.findUnique({
+      where: { tournamentId_venueId: { tournamentId, venueId: dto.venueId } },
+    });
+
+    let tournamentVenue: any;
+    if (existing) {
+      tournamentVenue = existing;
+    } else {
+      tournamentVenue = await (this.prisma as any).tournamentVenue.create({
+        data: { tournamentId, venueId: dto.venueId },
+      });
+    }
+
+    if (dto.courts && dto.courts.length > 0) {
+      // Get the current courts for this venue (before deleting) to preserve their courtNumbers
+      const currentCourts = await this.prisma.tournamentCourt.findMany({
+        where: { tournamentVenueId: tournamentVenue.id },
+        orderBy: { courtNumber: 'asc' },
+      });
+
+      // Get max courtNumber across the whole tournament BEFORE deletion
+      const maxCourt = await this.prisma.tournamentCourt.aggregate({
+        where: { tournamentId },
+        _max: { courtNumber: true },
+      });
+      let nextCourtNumber = (maxCourt._max.courtNumber ?? 0) + 1;
+
+      // Remove existing courts for this venue then recreate
+      await this.prisma.tournamentCourt.deleteMany({
+        where: { tournamentVenueId: tournamentVenue.id },
+      });
+
+      await this.prisma.tournamentCourt.createMany({
+        data: dto.courts.map((c, index) => {
+          // Reuse existing courtNumber for courts that already existed (by position)
+          const existingCourtNumber = currentCourts[index]?.courtNumber;
+          return {
+            tournamentId,
+            tournamentVenueId: tournamentVenue.id,
+            courtNumber: existingCourtNumber ?? nextCourtNumber++,
+            courtName: c.courtName,
+          };
+        }),
+      });
+    }
+
+    return (this.prisma as any).tournamentVenue.findUnique({
+      where: { id: tournamentVenue.id },
+      include: {
+        venue: true,
+        courts: { orderBy: { courtNumber: 'asc' } },
+      },
+    });
+  }
+
+  async removeVenue(tournamentId: string, venueId: string) {
+    const tournamentVenue = await (
+      this.prisma as any
+    ).tournamentVenue.findUnique({
+      where: { tournamentId_venueId: { tournamentId, venueId } },
+    });
+    if (!tournamentVenue)
+      throw new NotFoundException('Venue not linked to this tournament');
+
+    // Courts with this venueId get tournamentVenueId set to null (SET NULL cascade)
+    // Then delete the junction record
+    await (this.prisma as any).tournamentVenue.delete({
+      where: { id: tournamentVenue.id },
+    });
+    return { success: true };
+  }
+
   async getPlayers(tournamentId: string) {
     return this.prisma.tournamentPlayer.findMany({
       where: { tournamentId },

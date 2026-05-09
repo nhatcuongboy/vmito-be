@@ -15,6 +15,7 @@ import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
 import { CreateCategoryDto } from '../categories/dto/create-category.dto';
 import { CreateTournamentPlayerDto } from './dto/create-tournament-player.dto';
+import { AddTournamentVenueDto } from './dto/add-tournament-venue.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
@@ -126,5 +127,22 @@ export class TournamentsController {
       user.userId,
       user.role
     );
+  }
+
+  // --- Tournament Venues ---
+  @Public()
+  @Get(':id/venues')
+  getVenues(@Param('id') id: string) {
+    return this.tournamentsService.getVenues(id);
+  }
+
+  @Post(':id/venues')
+  addVenue(@Param('id') id: string, @Body() dto: AddTournamentVenueDto) {
+    return this.tournamentsService.addVenue(id, dto);
+  }
+
+  @Delete(':id/venues/:venueId')
+  removeVenue(@Param('id') id: string, @Param('venueId') venueId: string) {
+    return this.tournamentsService.removeVenue(id, venueId);
   }
 }

@@ -71,7 +71,6 @@ export class VenuesController {
   }
 
   @Patch(':id')
-  @UseGuards(AdminGuard)
   update(@Param('id') id: string, @Body() updateVenueDto: UpdateVenueDto) {
     return this.venuesService.update(id, updateVenueDto);
   }
