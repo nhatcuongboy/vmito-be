@@ -21,7 +21,12 @@ interface ScheduleSummaryCategory {
   categoryName: string;
   scheduled: number;
   total: number;
-  byRound: { round: string; scheduled: number; total: number }[];
+  byRound: {
+    round: string;
+    scheduled: number;
+    total: number;
+    byGroup?: { groupId: string; groupName: string; scheduled: number; total: number }[];
+  }[];
 }
 
 interface GenerateResponse {
@@ -179,35 +184,54 @@ export class ScheduleGeneratorService {
     });
 
     // Build summary
+    interface RoundData {
+      scheduled: number;
+      total: number;
+      groups: Map<string, { name: string; scheduled: number; total: number }>;
+    }
     const categoryMap = new Map<
       string,
       {
         name: string;
-        rounds: Map<string, { scheduled: number; total: number }>;
+        rounds: Map<string, RoundData>;
       }
     >();
 
+    const getOrCreateRound = (catId: string, round: string, catName: string): RoundData => {
+      if (!categoryMap.has(catId)) {
+        categoryMap.set(catId, { name: catName, rounds: new Map() });
+      }
+      const cat = categoryMap.get(catId)!;
+      if (!cat.rounds.has(round)) {
+        cat.rounds.set(round, { scheduled: 0, total: 0, groups: new Map() });
+      }
+      return cat.rounds.get(round)!;
+    };
+
     for (const m of matchesRaw) {
-      if (!categoryMap.has(m.categoryId)) {
-        categoryMap.set(m.categoryId, {
-          name: m.category.name,
-          rounds: new Map(),
-        });
+      const roundData = getOrCreateRound(m.categoryId, m.round, m.category.name);
+      roundData.total++;
+
+      // Track per-group counts
+      if (m.groupId && m.group) {
+        if (!roundData.groups.has(m.groupId)) {
+          roundData.groups.set(m.groupId, { name: m.group.name || `Pool ${roundData.groups.size + 1}`, scheduled: 0, total: 0 });
+        }
+        roundData.groups.get(m.groupId)!.total++;
       }
-      const cat = categoryMap.get(m.categoryId)!;
-      if (!cat.rounds.has(m.round)) {
-        cat.rounds.set(m.round, { scheduled: 0, total: 0 });
-      }
-      cat.rounds.get(m.round)!.total++;
     }
 
-    // Mark scheduled
+    // Mark scheduled from new assignments
+    const assignedSet = new Set(result.assignments.map((a) => a.matchId));
     for (const assignment of result.assignments) {
       const m = matchesRaw.find((match) => match.id === assignment.matchId);
       if (m) {
-        const round = categoryMap.get(m.categoryId)?.rounds.get(m.round);
-        if (round?.scheduled !== undefined) {
-          round.scheduled++;
+        const roundData = categoryMap.get(m.categoryId)?.rounds.get(m.round);
+        if (roundData) {
+          roundData.scheduled++;
+          if (m.groupId && roundData.groups.has(m.groupId)) {
+            roundData.groups.get(m.groupId)!.scheduled++;
+          }
         }
       }
     }
@@ -215,14 +239,17 @@ export class ScheduleGeneratorService {
     // Also count already-scheduled matches if keepScheduledMatches
     if (dto.keepScheduledMatches) {
       const alreadyScheduled = matchesRaw.filter(
-        (m) => m.startTime && m.courtId
+        (m) => m.startTime && m.courtId && !assignedSet.has(m.id)
       );
       for (const m of alreadyScheduled) {
         const cat = categoryMap.get(m.categoryId);
         if (cat) {
-          const round = cat.rounds.get(m.round);
-          if (round) {
-            round.scheduled++;
+          const roundData = cat.rounds.get(m.round);
+          if (roundData) {
+            roundData.scheduled++;
+            if (m.groupId && roundData.groups.has(m.groupId)) {
+              roundData.groups.get(m.groupId)!.scheduled++;
+            }
           }
         }
       }
@@ -230,13 +257,21 @@ export class ScheduleGeneratorService {
 
     const byCategory: ScheduleSummaryCategory[] = [];
     for (const [categoryId, cat] of categoryMap) {
-      const byRound: { round: string; scheduled: number; total: number }[] = [];
+      const byRound: ScheduleSummaryCategory['byRound'] = [];
       let catScheduled = 0;
       let catTotal = 0;
-      for (const [round, counts] of cat.rounds) {
-        byRound.push({ round, ...counts });
-        catScheduled += counts.scheduled;
-        catTotal += counts.total;
+      for (const [round, data] of cat.rounds) {
+        const byGroup = data.groups.size > 0
+          ? Array.from(data.groups.entries()).map(([groupId, g]) => ({
+              groupId,
+              groupName: g.name,
+              scheduled: g.scheduled,
+              total: g.total,
+            }))
+          : undefined;
+        byRound.push({ round, scheduled: data.scheduled, total: data.total, byGroup });
+        catScheduled += data.scheduled;
+        catTotal += data.total;
       }
       byCategory.push({
         categoryId,
