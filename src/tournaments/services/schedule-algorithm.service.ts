@@ -1,8 +1,5 @@
 import { Injectable } from '@nestjs/common';
 
-// Minimal buffer in minutes when time buffer is configured to zero
-const MINIMAL_BUFFER_MINUTES = 1;
-
 export interface MatchForScheduling {
   id: string;
   categoryId: string;
@@ -219,8 +216,7 @@ export class ScheduleAlgorithmService {
       .toISOString()
       .split('T')[0];
     const slot = timeSlots.find((ts) => ts.date === assignDate);
-    const buffer = slot?.timeBuffer ?? 0;
-    return buffer === 0 ? MINIMAL_BUFFER_MINUTES : buffer;
+    return slot?.timeBuffer ?? 0;
   }
 
   private findBestSlot(
@@ -239,8 +235,7 @@ export class ScheduleAlgorithmService {
     }[] = [];
 
     for (const slot of timeSlots) {
-      const buffer =
-        slot.timeBuffer === 0 ? MINIMAL_BUFFER_MINUTES : slot.timeBuffer;
+      const buffer = slot.timeBuffer;
       const slotDate = new Date(slot.date);
 
       const [startH, startM] = slot.startTime.split(':').map(Number);

@@ -517,7 +517,10 @@ export class ScheduleGeneratorService {
       await this.prisma.$transaction(
         assignments.map((a) => {
           const startTime = new Date(a.startTime);
-          const estimatedEndTime = new Date(a.endTime);
+          // Calculate estimatedEndTime from startTime + duration (in minutes)
+          const estimatedEndTime = new Date(
+            startTime.getTime() + a.duration * 60000
+          );
 
           return this.prisma.categoryMatch.update({
             where: { id: a.matchId },
