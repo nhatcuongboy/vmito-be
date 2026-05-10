@@ -7,6 +7,24 @@ import { PrismaService } from '../prisma/prisma.service';
 
 const MODEL = 'gemini-3-flash-preview';
 
+/**
+ * Maps AI-returned short name strings to numeric level IDs (1-8).
+ * Aligned with FE levelShorts: 1=Yếu, 2=TBY, 3=TB-, 4=TB, 5=TB+, 6=Khá, 7=BC, 8=CN
+ */
+const LEVEL_SHORT_NAME_MAP: Record<string, number> = {
+  Y: 1,
+  TBY: 2,
+  'TB-': 3,
+  TB: 4,
+  'TB+': 5,
+  K: 6,
+  'K-': 6,
+  Khá: 6,
+  BC: 7,
+  CN: 8,
+  Pro: 8,
+};
+
 const VMITO_SYSTEM_PROMPT = `Bạn là AI Assistant của Vmito - ứng dụng quản lý và tổ chức các buổi tập thể thao (cầu lông, pickleball, tennis, bóng đá, v.v.).
 
 ## Về Vmito
@@ -22,6 +40,19 @@ Vmito giúp người dùng:
 - **Host**: Người tổ chức buổi tập, có thể tạo session, mời người chơi, thu phí
 - **Player**: Người tham gia buổi tập
 - **Admin**: Quản trị viên hệ thống
+
+## Trình độ người chơi (luôn dùng tên ngắn, KHÔNG dùng số)
+Khi nhắc đến trình độ, LUÔN dùng tên ngắn theo bảng sau:
+- **Y** = Yếu (Beginner)
+- **TBY** = Trung bình yếu (Advanced Beginner)
+- **TB-** = Trung bình- (Low Intermediate)
+- **TB** = Trung bình (Intermediate)
+- **TB+** = Trung bình+ (High Intermediate)
+- **Khá** = Khá (Advanced)
+- **BC** = Bán chuyên (Semi Pro)
+- **CN** = Chuyên nghiệp (Pro)
+
+Ví dụ: thay vì "Level 3" hãy nói "TB-"; thay vì "Level 6" hãy nói "Khá".
 
 ## Hướng dẫn trả lời
 - Trả lời bằng tiếng Việt trừ khi người dùng hỏi bằng tiếng Anh
@@ -273,7 +304,7 @@ Extract and return a JSON object with the following fields (use null for fields 
   "startTime": "ISO 8601 datetime string (use year ${currentYear} if year not specified)",
   "endTime": "ISO 8601 datetime string (use year ${currentYear} if year not specified)",
   "maxPlayersPerCourt": "Number of max players per court (default 8 if not specified)",
-  "requiredLevels": "Array of short name strings representing skill levels. Use these exact values: 'Y' (Yếu/Beginner), 'TB-' (Trung bình yếu/Advanced Beginner), 'TB' (Trung bình/Intermediate), 'TB+' (Trung bình+/High Intermediate), 'K-' (Khá-/Low Advanced), 'K' (Khá/Advanced), 'BC' (Bán chuyên/Semi Pro), 'Pro' (Chuyên nghiệp/Professional). Map Vietnamese terms: Yếu→'Y', TB-→'TB-', TB/Trung Bình→'TB', TB+/Khá-→'TB+', K-→'K-', Khá/K→'K', Mạnh/Giỏi/BC→'BC', Chuyên→'Pro'. Return array like ['TB-','TB','TB+'] for a range. Return null if all levels welcome.",
+  "requiredLevels": "Array of short name strings for skill levels. Use EXACTLY these values: 'Y' (Yếu/Beginner=1), 'TBY' (Trung bình yếu/Advanced Beginner=2), 'TB-' (Trung bình-/Low Intermediate=3), 'TB' (Trung bình/Intermediate=4), 'TB+' (Trung bình+/High Intermediate=5), 'K' (Khá/Advanced=6), 'BC' (Bán chuyên/Semi Pro=7), 'CN' (Chuyên nghiệp/Pro=8). Mapping: Yếu→'Y', TBY/Trung bình yếu→'TBY', TB-/Trung bình-→'TB-', TB/Trung Bình→'TB', TB+→'TB+', Khá/K→'K', Mạnh/Giỏi/BC→'BC', Chuyên/Pro→'CN'. Return array like ['TB-','TB','TB+'] for a range. Return null if all levels welcome.",
   "numberOfCourts": "Number of courts if mentioned",
   "courtNames": "Array of specific court names or numbers mentioned (e.g., ['Sân 5', 'Sân 6']). Return null if not specified.",
   "shuttlecock": "Type of shuttlecock used (e.g., 'Thành Công', 'Victor'). Return null if not specified.",
@@ -294,7 +325,7 @@ Extract and return a JSON object with the following fields (use null for fields 
 IMPORTANT:
 - Return ONLY valid JSON, no markdown formatting
 - For time, if only time is given (e.g., "18h-20h"), combine with the date mentioned or today's date
-- For Vietnamese level terms: Y/Yếu→'Y', TB-→'TB-', TB/Trung Bình→'TB', TB+/Khá-→'TB+', K-→'K-', Khá/K→'K', Mạnh/Giỏi/BC→'BC', Chuyên→'Pro'
+- For Vietnamese level terms: Yếu→'Y', Trung bình yếu/TBY→'TBY', Trung bình-/TB-→'TB-', Trung bình/TB→'TB', Trung bình+/TB+→'TB+', Khá/K→'K', Bán chuyên/BC→'BC', Chuyên nghiệp→'CN'
 - Phone numbers should be in format 0xxxxxxxxx
 - Extract fees carefully: 'k' means thousand (50k = 50000)
 - If a field cannot be determined, use null`;
@@ -311,6 +342,16 @@ IMPORTANT:
       .trim();
 
     const extracted = JSON.parse(cleanedText) as ExtractedSessionDto;
+
+    // Convert requiredLevels from AI short name strings to numeric level IDs
+    if (Array.isArray(extracted.requiredLevels)) {
+      const numericLevels = (extracted.requiredLevels as unknown as string[])
+        .map((s) => LEVEL_SHORT_NAME_MAP[s])
+        .filter((n): n is number => n !== undefined);
+      extracted.requiredLevels = [...new Set(numericLevels)].sort(
+        (a, b) => a - b
+      );
+    }
 
     // Try to match venue in database
     if (extracted.venue) {

@@ -34,8 +34,8 @@ export interface ExtractedSessionDto {
   startTime?: string; // ISO date string
   endTime?: string; // ISO date string
   maxPlayersPerCourt?: number;
-  // Valid values: 'Y', 'TB-', 'TB', 'TB+', 'K-', 'K', 'BC', 'Pro'
-  requiredLevels?: string[];
+  // Numeric level IDs (1-8) matching LEVELS constant
+  requiredLevels?: number[];
   venue?: ExtractedVenue;
   venueId?: string; // Matched venue ID from database
   numberOfCourts?: number;
