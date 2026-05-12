@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsBoolean, IsArray } from 'class-validator';
+import { IsOptional, IsString, IsBoolean, IsArray, IsNumber, Min } from 'class-validator';
 
 export class UpdateMatchDto {
   @IsOptional()
@@ -25,4 +25,9 @@ export class UpdateMatchDto {
   @IsArray()
   @IsString({ each: true })
   playerIds?: string[];
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  shuttlecockCount?: number;
 }

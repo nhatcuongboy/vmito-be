@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsBoolean, IsArray } from 'class-validator';
+import { IsOptional, IsString, IsBoolean, IsArray, IsNumber, Min } from 'class-validator';
 
 export class EndMatchDto {
   @IsOptional()
@@ -16,4 +16,9 @@ export class EndMatchDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  shuttlecockCount?: number;
 }

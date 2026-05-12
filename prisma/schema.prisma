@@ -358,10 +358,11 @@ model Match {
   session      Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   // Match result
-  score     String?
-  winnerIds String?
-  isDraw    Boolean? @default(false)
-  notes     String?
+  score            String?
+  winnerIds        String?
+  isDraw           Boolean? @default(false)
+  notes            String?
+  shuttlecockCount Float?
 
   @@map("matches")
 }

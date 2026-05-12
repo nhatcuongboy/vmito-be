@@ -564,6 +564,9 @@ export class CourtsService {
             ...(endMatchDto?.notes !== undefined
               ? { notes: endMatchDto.notes }
               : {}),
+            ...(endMatchDto?.shuttlecockCount !== undefined
+              ? { shuttlecockCount: endMatchDto.shuttlecockCount }
+              : {}),
           },
         });
 

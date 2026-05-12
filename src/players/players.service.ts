@@ -1414,6 +1414,18 @@ export class PlayersService {
         return total;
       }, 0);
 
+      // Calculate total shuttlecocks
+      const matchesWithShuttlecock = playedMatches.filter(
+        (match) => match.shuttlecockCount != null
+      );
+      const totalShuttlecocks =
+        matchesWithShuttlecock.length > 0
+          ? matchesWithShuttlecock.reduce(
+              (total, match) => total + (match.shuttlecockCount || 0),
+              0
+            )
+          : null;
+
       return {
         playerId: player.id,
         playerNumber: player.playerNumber,
@@ -1429,6 +1441,7 @@ export class PlayersService {
         averageScore: 0, // Simplified - would need score parsing
         totalPlayTime,
         totalWaitTime: player.totalWaitTime,
+        totalShuttlecocks,
         status: player.status,
       };
     });
