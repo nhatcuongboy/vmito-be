@@ -100,11 +100,8 @@ export class SessionsGateway
   ) {
     // Extract and verify the token from the socket handshake
     const authToken = (client.handshake.auth as { token?: string }).token;
-    const authHeader = client.handshake.headers.authorization?.replace(
-      'Bearer ',
-      ''
-    );
-    const token = authToken ?? authHeader;
+    const authHeader = client.handshake.headers.authorization;
+    const token = (authToken ?? authHeader)?.replace(/^Bearer\s+/i, '');
 
     if (!token) {
       this.logger.warn(
