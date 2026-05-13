@@ -28,6 +28,8 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { ClubsModule } from './clubs/clubs.module';
 import { UserImagesModule } from './user-images/user-images.module';
 import { PostsModule } from './posts/posts.module';
+import { FeedbackModule } from './feedback/feedback.module';
+import { MailModule } from './mail/mail.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import configuration from './config';
 
@@ -63,6 +65,8 @@ import configuration from './config';
     ClubsModule,
     UserImagesModule,
     PostsModule,
+    MailModule,
+    FeedbackModule,
   ],
   controllers: [AppController],
   providers: [
