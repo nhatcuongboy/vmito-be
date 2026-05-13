@@ -67,7 +67,8 @@ export class AiController {
     try {
       const stream = await this.geminiService.chatWithAssistant(
         dto.messages,
-        dto.pageContext
+        dto.pageContext,
+        dto.language
       );
 
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');

@@ -35,6 +35,17 @@ export interface PreSelectedPlayerInfo {
   };
 }
 
+const LEVEL_SHORT_LABELS: Record<number, string> = {
+  1: 'Yếu',
+  2: 'TBY',
+  3: 'TB-',
+  4: 'TB',
+  5: 'TB+',
+  6: 'Khá',
+  7: 'BC',
+  8: 'CN',
+};
+
 @Injectable()
 export class CourtsService {
   constructor(
@@ -1059,7 +1070,7 @@ export class CourtsService {
     const playersList = waitingPlayers
       .map(
         (p, i) =>
-          `${i + 1}. ID:${p.id} - ${p.name || `Player ${p.playerNumber}`} (Level: ${p.level || 'Unknown'}, Wait: ${p.totalWaitTime}s, Matches: ${p.matchesPlayed}, Desire: ${p.desire || 'None'})`
+          `${i + 1}. ID:${p.id} - ${p.name || `Player ${p.playerNumber}`} (Skill: ${p.level ? LEVEL_SHORT_LABELS[p.level] : 'Unknown'}, Wait: ${p.totalWaitTime}s, Matches: ${p.matchesPlayed}, Desire: ${p.desire || 'None'})`
       )
       .join('\n');
 
@@ -1074,6 +1085,18 @@ Consider these factors in order of priority:
 2. Skill level balance - teams should be evenly matched
 3. Player preferences (desire field) - respect if they want to play with specific people
 4. Match history - avoid always pairing same players
+
+Skill labels:
+- 1 = Yếu
+- 2 = TBY
+- 3 = TB-
+- 4 = TB
+- 5 = TB+
+- 6 = Khá
+- 7 = BC
+- 8 = CN
+
+In the "reason" field, always refer to player skill with the short labels above (Yếu, TBY, TB-, TB, TB+, Khá, BC, CN). Do NOT use numeric labels like "Level 5", "Cấp 5", or "等级 5".
 
 Return ONLY a raw JSON object in this exact format:
 {

@@ -25,43 +25,64 @@ const LEVEL_SHORT_NAME_MAP: Record<string, number> = {
   Pro: 8,
 };
 
-const VMITO_SYSTEM_PROMPT = `Bạn là AI Assistant của Vmito - ứng dụng quản lý và tổ chức các buổi tập thể thao (cầu lông, pickleball, tennis, bóng đá, v.v.).
+const getDatePartsInVietnam = () => {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
 
-## Về Vmito
-Vmito giúp người dùng:
-- **Tạo kèo (session)**: Tổ chức buổi tập, mời bạn tham gia, đặt sân
-- **Tham gia kèo**: Tìm và đăng ký tham gia các buổi tập do người khác tổ chức
-- **Quản lý Club**: Tạo và quản lý nhóm/câu lạc bộ thể thao
-- **Thanh toán phí**: Theo dõi và thu phí tham gia từ các thành viên
-- **Quản lý người chơi**: Phân chia sân, nhóm, đội trong buổi tập
-- **Xem lịch sử**: Theo dõi các buổi tập đã qua và sắp tới
+  const getPart = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? '';
 
-## Vai trò người dùng
-- **Host**: Người tổ chức buổi tập, có thể tạo session, mời người chơi, thu phí
-- **Player**: Người tham gia buổi tập
-- **Admin**: Quản trị viên hệ thống
+  const year = getPart('year');
+  const month = getPart('month');
+  const day = getPart('day');
 
-## Trình độ người chơi (luôn dùng tên ngắn, KHÔNG dùng số)
-Khi nhắc đến trình độ, LUÔN dùng tên ngắn theo bảng sau:
-- **Y** = Yếu (Beginner)
-- **TBY** = Trung bình yếu (Advanced Beginner)
-- **TB-** = Trung bình- (Low Intermediate)
-- **TB** = Trung bình (Intermediate)
-- **TB+** = Trung bình+ (High Intermediate)
-- **Khá** = Khá (Advanced)
-- **BC** = Bán chuyên (Semi Pro)
-- **CN** = Chuyên nghiệp (Pro)
+  return {
+    year,
+    date: `${year}-${month}-${day}`,
+  };
+};
 
-Ví dụ: thay vì "Level 3" hãy nói "TB-"; thay vì "Level 6" hãy nói "Khá".
+const VMITO_SYSTEM_PROMPT = `You are Vmito's AI Assistant.
 
-## Hướng dẫn trả lời
-- Trả lời bằng tiếng Việt trừ khi người dùng hỏi bằng tiếng Anh
-- Ngắn gọn, rõ ràng và thực tế
-- Nếu có context về trang hiện tại, ưu tiên giải đáp liên quan đến trang đó
-- Khi không biết thông tin cụ thể của user (số liệu, dữ liệu thực), hãy hướng dẫn họ cách thực hiện trong app
-- Sử dụng emoji phù hợp để câu trả lời dễ đọc hơn
+## About Vmito
+Vmito helps users organize and join sport sessions such as badminton, pickleball, tennis, and football.
 
-Hãy giúp đỡ người dùng sử dụng Vmito một cách hiệu quả nhất!`;
+Core capabilities:
+- Create sessions: organize a play session, invite players, choose venues, set time, fees, and skill requirements.
+- Join sessions: find available sessions and register to play.
+- Manage sessions: approve players, assign players to courts, call matches, update results, and share sessions.
+- Manage clubs/groups: create groups, approve members, manage members, and organize recurring play schedules.
+- Manage payments: configure payment settings, track player payments, approve or reject transactions, and support fixed or split fees.
+- Manage tournaments: create tournaments, add players or pairs, generate schedules, and view standings/results.
+- Browse venues: find venues, view venue details, and open map directions.
+- View profiles/history: manage personal information, language settings, ratings, and play history.
+
+## User roles
+- Host: organizes sessions, invites players, approves registrations, manages fees and courts.
+- Player: joins sessions and tracks personal play/payment history.
+- Admin: manages system data and moderation.
+
+## Skill levels
+When discussing player skill levels, prefer these short labels instead of raw numbers:
+- Y = Beginner
+- TBY = Advanced beginner
+- TB- = Low intermediate
+- TB = Intermediate
+- TB+ = High intermediate
+- Khá = Advanced
+- BC = Semi pro
+- CN = Pro
+
+## Answering guidance
+- Keep answers concise, clear, practical, and app-specific.
+- If page context is provided, prioritize help that matches the current page.
+- If you do not have access to a user's private data or exact app state, explain how they can check or perform the action in the app.
+- Do not claim that a feature exists unless it is listed above or present in the user's context.
+- Avoid unnecessary formatting and keep steps short.`;
 
 @Injectable()
 export class GeminiService {
@@ -88,6 +109,19 @@ export class GeminiService {
       [Language.CN]: 'Chinese (中文)',
     };
     return `IMPORTANT: You MUST respond in ${languageNames[language]}. All field values in the JSON response should be in ${languageNames[language]}.`;
+  }
+
+  private getAssistantLanguageInstruction(language: Language): string {
+    const languageNames = {
+      [Language.VI]: 'Vietnamese (Tiếng Việt)',
+      [Language.EN]: 'English',
+      [Language.CN]: 'Chinese (中文)',
+    };
+
+    return `## Language rule
+You MUST answer in ${languageNames[language]} because this is the user's selected app language.
+This rule overrides the language used in the user's message, chat history, or page context.
+Only use another language if the user explicitly asks you to translate, compare languages, or explain wording in another language.`;
   }
 
   /**
@@ -280,7 +314,7 @@ export class GeminiService {
   ): Promise<ExtractedSessionDto> {
     if (!this.ai) throw new Error('Gemini API key is missing.');
 
-    const currentYear = new Date().getFullYear();
+    const currentDate = getDatePartsInVietnam();
     const languageInstruction = this.getLanguageInstruction(language);
 
     const prompt = `You are an AI assistant that extracts badminton session information from recruitment posts.
@@ -294,6 +328,8 @@ Article content:
 ${articleContent}
 """
 
+Current date in Vietnam timezone: ${currentDate.date}
+
 Extract and return a JSON object with the following fields (use null for fields that cannot be determined):
 
 {
@@ -301,12 +337,12 @@ Extract and return a JSON object with the following fields (use null for fields 
   "description": "Additional details or notes from the post",
   "hostName": "Name of the host/organizer",
   "hostPhone": "Phone number of the host (format: 0xxxxxxxxx)",
-  "startTime": "ISO 8601 datetime string (use year ${currentYear} if year not specified)",
-  "endTime": "ISO 8601 datetime string (use year ${currentYear} if year not specified)",
+  "startTime": "ISO 8601 datetime string. If the post does not mention a calendar date, use current date ${currentDate.date}. If it mentions date without year, use year ${currentDate.year}.",
+  "endTime": "ISO 8601 datetime string. If the post does not mention a calendar date, use current date ${currentDate.date}. If it mentions date without year, use year ${currentDate.year}.",
   "maxPlayersPerCourt": "Number of max players per court (default 8 if not specified)",
   "requiredLevels": "Array of short name strings for skill levels. Use EXACTLY these values: 'Y' (Yếu/Beginner=1), 'TBY' (Trung bình yếu/Advanced Beginner=2), 'TB-' (Trung bình-/Low Intermediate=3), 'TB' (Trung bình/Intermediate=4), 'TB+' (Trung bình+/High Intermediate=5), 'K' (Khá/Advanced=6), 'BC' (Bán chuyên/Semi Pro=7), 'CN' (Chuyên nghiệp/Pro=8). Mapping: Yếu→'Y', TBY/Trung bình yếu→'TBY', TB-/Trung bình-→'TB-', TB/Trung Bình→'TB', TB+→'TB+', Khá/K→'K', Mạnh/Giỏi/BC→'BC', Chuyên/Pro→'CN'. Return array like ['TB-','TB','TB+'] for a range. Return null if all levels welcome.",
-  "numberOfCourts": "Number of courts if mentioned",
-  "courtNames": "Array of specific court names or numbers mentioned (e.g., ['Sân 5', 'Sân 6']). Return null if not specified.",
+  "numberOfCourts": "Number of courts if mentioned. For text like '2 sân (3 và 4)', numberOfCourts is 2.",
+  "courtNames": "Array of the actual specific court numbers/names mentioned, not sequential indexes. For text like '2 sân (3 và 4)', return ['3','4']; for 'sân 5,6', return ['5','6']; for 'sân A và B', return ['A','B']. Return null if specific courts are not specified.",
   "shuttlecock": "Type of shuttlecock used (e.g., 'Thành Công', 'Victor'). Return null if not specified.",
   "feeConfig": {
     "feeType": "Use 'FIXED' if prices are set per gender, or 'SPLIT_EVENLY' if costs are shared after play. Default to 'FIXED' if specific prices are mentioned.",
@@ -324,7 +360,8 @@ Extract and return a JSON object with the following fields (use null for fields 
 
 IMPORTANT:
 - Return ONLY valid JSON, no markdown formatting
-- For time, if only time is given (e.g., "18h-20h"), combine with the date mentioned or today's date
+- For time, if only time is given (e.g., "18h-20h") and no calendar date is mentioned, combine it with current date ${currentDate.date}
+- Never invent sequential court numbers. If the post says "2 sân (3 và 4)", this means two courts whose actual court numbers are 3 and 4.
 - For Vietnamese level terms: Yếu→'Y', Trung bình yếu/TBY→'TBY', Trung bình-/TB-→'TB-', Trung bình/TB→'TB', Trung bình+/TB+→'TB+', Khá/K→'K', Bán chuyên/BC→'BC', Chuyên nghiệp→'CN'
 - Phone numbers should be in format 0xxxxxxxxx
 - Extract fees carefully: 'k' means thousand (50k = 50000)
@@ -366,13 +403,14 @@ IMPORTANT:
 
   async chatWithAssistant(
     messages: ChatMessageDto[],
-    pageContext?: string
+    pageContext?: string,
+    language: Language = DEFAULT_LANGUAGE
   ): Promise<ReadableStream<Uint8Array>> {
     if (!this.ai) throw new Error('Gemini API key is missing.');
 
-    let systemPrompt = VMITO_SYSTEM_PROMPT;
+    let systemPrompt = `${this.getAssistantLanguageInstruction(language)}\n\n${VMITO_SYSTEM_PROMPT}`;
     if (pageContext) {
-      systemPrompt += `\n\n## Context hiện tại\nNgười dùng đang ở trang: ${pageContext}`;
+      systemPrompt += `\n\n## Current page context\nThe user is currently on: ${pageContext}`;
     }
 
     const history = messages.slice(0, -1).map((msg) => ({

@@ -67,4 +67,8 @@ export class AiChatRequestDto {
   @IsString()
   @IsOptional()
   pageContext?: string;
+
+  @IsEnum(Language)
+  @IsOptional()
+  language?: Language;
 }
