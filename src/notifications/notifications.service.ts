@@ -8,6 +8,7 @@ import {
 import {
   CreateNotificationDto,
   BroadcastNotificationDto,
+  QueryAdminNotificationsDto,
   QueryNotificationsDto,
 } from './dto';
 
@@ -108,6 +109,89 @@ export class NotificationsService {
   }
 
   /**
+   * Get all notifications for admins with filtering and pagination
+   */
+  async findAllForAdmin(query: QueryAdminNotificationsDto) {
+    const {
+      q,
+      type,
+      isRead,
+      userId,
+      dateFrom,
+      dateTo,
+      page = 1,
+      limit = 20,
+    } = query;
+    const skip = (page - 1) * limit;
+    const createdAt: Prisma.DateTimeFilter = {};
+
+    if (dateFrom) {
+      createdAt.gte = new Date(dateFrom);
+    }
+
+    if (dateTo) {
+      const endDate = new Date(dateTo);
+      endDate.setHours(23, 59, 59, 999);
+      createdAt.lte = endDate;
+    }
+
+    const where: Prisma.NotificationWhereInput = {
+      ...(type && { type }),
+      ...(isRead != null && { isRead: isRead === 'true' }),
+      ...(userId && { userId }),
+      ...(dateFrom || dateTo ? { createdAt } : {}),
+      ...(q
+        ? {
+            OR: [
+              { title: { contains: q, mode: 'insensitive' } },
+              { message: { contains: q, mode: 'insensitive' } },
+              {
+                user: {
+                  is: {
+                    OR: [
+                      { email: { contains: q, mode: 'insensitive' } },
+                      { name: { contains: q, mode: 'insensitive' } },
+                    ],
+                  },
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+
+    const [notifications, total] = await Promise.all([
+      this.prisma.notification.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+            },
+          },
+        },
+      }),
+      this.prisma.notification.count({ where }),
+    ]);
+
+    return {
+      data: notifications,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /**
    * Get unread notification count for a user
    */
   async getUnreadCount(userId: string) {
@@ -157,6 +241,24 @@ export class NotificationsService {
   async delete(id: string, userId: string) {
     const notification = await this.prisma.notification.findFirst({
       where: { id, userId },
+    });
+
+    if (!notification) {
+      throw new NotFoundException('Notification not found');
+    }
+
+    await this.prisma.notification.delete({ where: { id } });
+
+    return { message: 'Notification deleted successfully' };
+  }
+
+  /**
+   * Delete any notification as admin
+   */
+  async deleteAsAdmin(id: string) {
+    const notification = await this.prisma.notification.findUnique({
+      where: { id },
+      select: { id: true },
     });
 
     if (!notification) {
