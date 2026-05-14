@@ -195,32 +195,40 @@ export class SessionsGateway
     }
 
     const roomName = `user-${userId}`;
+    const targetedPayload = { ...(payload ?? {}), userId };
 
-    // Get all sockets in this room and verify they belong to the correct user
-    const socketsInRoom = this.server.in(roomName).fetchSockets();
-    void socketsInRoom.then((sockets) => {
-      let validSocketCount = 0;
-      for (const socket of sockets) {
-        // Verify socket belongs to the correct user
-        if ((socket.data as { userId?: string }).userId === userId) {
-          validSocketCount++;
-        } else {
-          // Socket in wrong room - force leave
+    void this.server
+      .in(roomName)
+      .fetchSockets()
+      .then((sockets) => {
+        let validSocketCount = 0;
+
+        for (const socket of sockets) {
+          // Verify socket belongs to the target user before emitting.
+          if ((socket.data as { userId?: string }).userId === userId) {
+            socket.emit(eventType, targetedPayload);
+            validSocketCount++;
+            continue;
+          }
+
+          // Socket in wrong room - force leave and never emit to it.
           this.logger.warn(
             `[Security] Socket ${socket.id} (user: ${(socket.data as { userId?: string }).userId}) found in wrong room ${roomName}. Removing.`
           );
-          void socket.leave(roomName);
+          socket.leave(roomName);
         }
-      }
 
-      if (validSocketCount > 0) {
-        this.logger.log(
-          `[Realtime] Notified user ${userId} of ${eventType} (${validSocketCount} socket(s))`
+        if (validSocketCount > 0) {
+          this.logger.log(
+            `[Realtime] Notified user ${userId} of ${eventType} (${validSocketCount} socket(s))`
+          );
+        }
+      })
+      .catch((error) => {
+        this.logger.error(
+          `[Realtime] Failed to notify user ${userId} of ${eventType}`,
+          error
         );
-      }
-    });
-
-    // Emit to room (after cleanup above, only valid sockets remain)
-    this.server.to(roomName).emit(eventType, payload);
+      });
   }
 }
