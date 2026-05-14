@@ -53,7 +53,9 @@ model User {
   uploadedImages UserImage[] @relation("UserImages")
 
   // Feedback
-  feedbacks Feedback[] @relation("UserFeedbacks")
+  feedbacks              Feedback[]     @relation("UserFeedbacks")
+  submittedVenueRequests VenueRequest[] @relation("SubmittedVenueRequests")
+  reviewedVenueRequests  VenueRequest[] @relation("ReviewedVenueRequests")
 
   // Post relations
   posts        Post[]        @relation("UserPosts")
@@ -208,7 +210,7 @@ model Session {
 model Venue {
   id               String            @id @default(cuid())
   slug             String?           @unique
-  placeId          String            @unique // Google Place ID
+  placeId          String?           @unique // Google Place ID
   name             String
   acronym          String? // Venue acronym
   description      String? // Venue description
@@ -235,6 +237,8 @@ model Venue {
   clubs            Club[]
   tournaments      Tournament[]
   tournamentVenues TournamentVenue[]
+  venueRequests    VenueRequest[]    @relation("RequestedVenue")
+  appliedRequests  VenueRequest[]    @relation("AppliedVenue")
 
   // Amenities
   hasCarParking Boolean?
@@ -271,6 +275,45 @@ enum ClosureStatus {
   OPERATING
   PERMANENTLY_CLOSED
   TEMPORARILY_CLOSED
+}
+
+enum VenueRequestType {
+  CREATE
+  UPDATE
+}
+
+enum VenueRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model VenueRequest {
+  id                String             @id @default(cuid())
+  type              VenueRequestType
+  status            VenueRequestStatus @default(PENDING)
+  submittedByUserId String
+  venueId           String?
+  appliedVenueId    String?
+  payload           Json
+  adminNote         String?
+  reviewedByUserId  String?
+  reviewedAt        DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  submittedBy  User   @relation("SubmittedVenueRequests", fields: [submittedByUserId], references: [id], onDelete: Cascade)
+  reviewedBy   User?  @relation("ReviewedVenueRequests", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  venue        Venue? @relation("RequestedVenue", fields: [venueId], references: [id], onDelete: SetNull)
+  appliedVenue Venue? @relation("AppliedVenue", fields: [appliedVenueId], references: [id], onDelete: SetNull)
+
+  @@index([submittedByUserId])
+  @@index([venueId])
+  @@index([appliedVenueId])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@map("venue_requests")
 }
 
 model Player {
