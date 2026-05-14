@@ -23,6 +23,10 @@ export class UpdateSessionDto {
 
   @IsString()
   @IsOptional()
+  notes?: string;
+
+  @IsString()
+  @IsOptional()
   location?: string;
 
   @IsString()

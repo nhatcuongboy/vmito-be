@@ -876,6 +876,7 @@ export class SessionsService {
 
         status: 'PREPARING',
         description,
+        notes: createSessionDto.notes ?? null,
         location: finalLocation,
         hostName,
         hostPhone,
@@ -1090,6 +1091,7 @@ export class SessionsService {
           ? new Date(updateSessionDto.endTime)
           : undefined,
         description: updateSessionDto.description,
+        notes: updateSessionDto.notes,
         location: updateSessionDto.location,
         hostName: updateSessionDto.hostName,
         searchTerms: updatedSearchTerms,

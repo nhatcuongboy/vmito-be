@@ -89,6 +89,10 @@ export class CreateSessionDto {
 
   @IsString()
   @IsOptional()
+  notes?: string;
+
+  @IsString()
+  @IsOptional()
   location?: string;
 
   @IsString()

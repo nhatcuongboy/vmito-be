@@ -149,6 +149,7 @@ model Session {
   slug               String?       @unique
   name               String
   description        String?
+  notes              String?
   hostName           String?
   hostPhone          String?
   location           String? // Keeping for backward compatibility
