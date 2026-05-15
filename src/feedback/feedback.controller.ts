@@ -17,20 +17,24 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
 import { FeedbackService } from './feedback.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
-import { CreateFeedbackDto, QueryFeedbackDto, UpdateFeedbackStatusDto } from './dto';
+import {
+  CreateFeedbackDto,
+  QueryFeedbackDto,
+  UpdateFeedbackStatusDto,
+} from './dto';
 
 @Controller('feedback')
 @UseGuards(JwtAuthGuard)
 export class FeedbackController {
   constructor(
     private readonly feedbackService: FeedbackService,
-    private readonly cloudinaryService: CloudinaryService,
+    private readonly cloudinaryService: CloudinaryService
   ) {}
 
   @Post()
   async create(
     @Body() dto: CreateFeedbackDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string }
   ) {
     return this.feedbackService.create(dto, user.userId);
   }
@@ -48,7 +52,7 @@ export class FeedbackController {
   @Get()
   async findMyFeedback(
     @CurrentUser() user: { userId: string },
-    @Query() query: QueryFeedbackDto,
+    @Query() query: QueryFeedbackDto
   ) {
     return this.feedbackService.findUserFeedback(user.userId, query);
   }
@@ -63,7 +67,7 @@ export class FeedbackController {
   @Roles(Role.ADMIN)
   async updateStatus(
     @Param('id') id: string,
-    @Body() dto: UpdateFeedbackStatusDto,
+    @Body() dto: UpdateFeedbackStatusDto
   ) {
     return this.feedbackService.updateStatus(id, dto);
   }
