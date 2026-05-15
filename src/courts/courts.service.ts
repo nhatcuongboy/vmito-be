@@ -760,13 +760,16 @@ export class CourtsService {
   async preSelect(id: string, preSelectDto: PreSelectDto) {
     const { playersWithPosition } = preSelectDto;
 
+    const expectedCount =
+      playersWithPosition && playersWithPosition.length === 2 ? 2 : 4;
+
     if (
       !playersWithPosition ||
       !Array.isArray(playersWithPosition) ||
-      playersWithPosition.length !== 4
+      (playersWithPosition.length !== 2 && playersWithPosition.length !== 4)
     ) {
       throw new BadRequestException(
-        'Must provide exactly 4 players with positions'
+        'Must provide exactly 2 players (singles) or 4 players (doubles) with positions'
       );
     }
 
@@ -810,7 +813,7 @@ export class CourtsService {
       },
     });
 
-    if (players.length !== 4) {
+    if (players.length !== expectedCount) {
       throw new BadRequestException(
         'All selected players must exist and be in WAITING status'
       );
