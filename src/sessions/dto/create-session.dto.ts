@@ -137,6 +137,10 @@ export class CreateSessionDto {
   @IsOptional()
   allowNewPlayers?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  allowZaloContact?: boolean;
+
   @IsArray()
   @IsNumber({}, { each: true })
   @Min(1, { each: true })

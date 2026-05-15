@@ -758,6 +758,7 @@ export class SessionsService {
       requirePlayerInfo = true,
       allowGuestJoin = true,
       allowNewPlayers = true,
+      allowZaloContact = false,
       requiredLevels = [],
       startTime,
       endTime,
@@ -862,6 +863,7 @@ export class SessionsService {
         requirePlayerInfo,
         allowGuestJoin,
         allowNewPlayers,
+        allowZaloContact,
         requiredLevels: requiredLevels || [],
         searchTerms: sessionSearchTerms,
 
@@ -1080,6 +1082,7 @@ export class SessionsService {
         requirePlayerInfo: updateSessionDto.requirePlayerInfo,
         allowGuestJoin: updateSessionDto.allowGuestJoin,
         allowNewPlayers: updateSessionDto.allowNewPlayers,
+        allowZaloContact: updateSessionDto.allowZaloContact,
         requiredLevels:
           updateSessionDto.requiredLevels !== undefined
             ? updateSessionDto.requiredLevels
@@ -2648,6 +2651,7 @@ export class SessionsService {
       requirePlayerInfo = true,
       allowGuestJoin = true,
       allowNewPlayers = true,
+      allowZaloContact = false,
       requiredLevels = [],
       startTime,
       endTime,
@@ -2742,6 +2746,7 @@ export class SessionsService {
         requirePlayerInfo,
         allowGuestJoin,
         allowNewPlayers,
+        allowZaloContact,
         requiredLevels: requiredLevels || [],
         searchTerms: internalSearchTerms,
         startTime: startTime ? new Date(startTime) : new Date(),

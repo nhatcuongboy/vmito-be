@@ -189,6 +189,9 @@ model Session {
   allowGuestJoin  Boolean @default(true) // Allow joining without account
   allowNewPlayers Boolean @default(true) // Allow new players to join via session QR
 
+  // Contact settings
+  allowZaloContact Boolean @default(false) // Allow players to contact host via Zalo
+
   // Player level requirements (empty array = all levels allowed)
   requiredLevels Int[] @default([]) // Array of level IDs (1-8)
 
