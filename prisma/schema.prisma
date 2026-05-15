@@ -20,7 +20,7 @@ model User {
 
   // Player related information
   gender           Gender?
-  level            Int? // 1-7 (Beginner to Pro)
+  level            Int? // 1-8 (Beginner to Pro)
   levelDescription String?
   phone            String?
   searchTerms      String? // Normalized search string
@@ -144,6 +144,16 @@ model VerificationToken {
   @@map("verification_tokens")
 }
 
+model LevelDescription {
+  id          String   @id @default(cuid())
+  level       Int      @unique
+  description String   @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("level_descriptions")
+}
+
 model Session {
   id                 String        @id @default(cuid())
   slug               String?       @unique
@@ -180,7 +190,7 @@ model Session {
   allowNewPlayers Boolean @default(true) // Allow new players to join via session QR
 
   // Player level requirements (empty array = all levels allowed)
-  requiredLevels Int[] @default([]) // Array of level IDs (1-7)
+  requiredLevels Int[] @default([]) // Array of level IDs (1-8)
 
   courtColor         String    @default("#179a3b")
   defaultMatchType   MatchType @default(DOUBLES) // Default match type for courts in this session
