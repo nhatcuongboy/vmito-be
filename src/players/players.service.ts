@@ -1747,7 +1747,7 @@ export class PlayersService {
             select: {
               players: {
                 where: {
-                  isJoined: true,
+                  registrationStatus: 'APPROVED',
                 },
               },
             },
