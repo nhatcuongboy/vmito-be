@@ -11,7 +11,7 @@ import { Language, DEFAULT_LANGUAGE } from '../common/constants/language.enum';
 import { PrismaService } from '../prisma/prisma.service';
 import { removeVietnameseTones } from '../common/utils/string.utils';
 
-const MODEL = 'Gemini 3.1 Flash-Lite';
+const MODEL = 'gemini-3-flash-preview';
 const VIETNAM_TIME_ZONE = 'Asia/Ho_Chi_Minh';
 const VIETNAM_UTC_OFFSET = '+07:00';
 const DEFAULT_MAX_PLAYERS_PER_COURT = 8;
