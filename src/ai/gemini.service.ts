@@ -16,6 +16,8 @@ const VIETNAM_TIME_ZONE = 'Asia/Ho_Chi_Minh';
 const VIETNAM_UTC_OFFSET = '+07:00';
 const DEFAULT_MAX_PLAYERS_PER_COURT = 8;
 const VENUE_MATCH_THRESHOLD = 60;
+const GEMINI_MAX_RETRIES = 3;
+const GEMINI_INITIAL_DELAY_MS = 1000;
 
 type RawExtractedVenue = {
   placeId?: string | null;
@@ -788,6 +790,29 @@ Only use another language if the user explicitly asks you to translate, compare 
     return null;
   }
 
+  private async withRetry<T>(
+    operation: () => Promise<T>,
+    context: string
+  ): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < GEMINI_MAX_RETRIES; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        const isLastAttempt = attempt === GEMINI_MAX_RETRIES - 1;
+        if (isLastAttempt) break;
+
+        const delayMs = GEMINI_INITIAL_DELAY_MS * 2 ** attempt;
+        console.warn(
+          `[AI] ${context} attempt ${attempt + 1} failed: ${error instanceof Error ? error.message : String(error)}. Retrying in ${delayMs}ms...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+    throw lastError;
+  }
+
   async generateText(prompt: string, language?: Language): Promise<string> {
     if (!this.ai) throw new Error('Gemini API key is missing.');
 
@@ -851,15 +876,19 @@ Important rules:
 - Phone numbers should be normalized to 0xxxxxxxxx when possible.
 - If a field cannot be determined, use null.`;
 
-    const response = await this.ai.models.generateContent({
-      model: MODEL,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: SESSION_EXTRACTION_SCHEMA,
-        temperature: 0.1,
-      },
-    });
+    const response = await this.withRetry(
+      () =>
+        this.ai!.models.generateContent({
+          model: MODEL,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: SESSION_EXTRACTION_SCHEMA,
+            temperature: 0.1,
+          },
+        }),
+      'extract-session'
+    );
 
     const text = response.text ?? '';
     let rawExtracted: RawExtractedSession;

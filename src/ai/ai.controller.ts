@@ -47,10 +47,7 @@ export class AiController {
       extracted.hostName = req.user.name;
     }
 
-    return {
-      success: true,
-      data: extracted,
-    };
+    return extracted;
   }
 
   /**
