@@ -349,6 +349,7 @@ export class ClubsService {
       image: club.image,
       images: club.images,
       location: club.location,
+      requiredLevels: club.requiredLevels,
       isPublic: club.isPublic,
       joinPolicy: club.joinPolicy,
       maxMembers: club.maxMembers,
