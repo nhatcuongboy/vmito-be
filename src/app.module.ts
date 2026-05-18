@@ -32,6 +32,7 @@ import { FeedbackModule } from './feedback/feedback.module';
 import { VenueRequestsModule } from './venue-requests/venue-requests.module';
 import { MailModule } from './mail/mail.module';
 import { LevelDescriptionsModule } from './level-descriptions/level-descriptions.module';
+import { ViewsModule } from './views/views.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import configuration from './config';
 
@@ -71,6 +72,7 @@ import configuration from './config';
     FeedbackModule,
     VenueRequestsModule,
     LevelDescriptionsModule,
+    ViewsModule,
   ],
   controllers: [AppController],
   providers: [

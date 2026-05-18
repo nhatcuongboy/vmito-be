@@ -221,6 +221,26 @@ model Session {
   @@map("sessions")
 }
 
+enum ViewTargetType {
+  VENUE
+  CLUB
+  SESSION
+}
+
+model ViewCount {
+  id         String         @id @default(cuid())
+  targetType ViewTargetType
+  targetId   String
+  count      Int            @default(0)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@unique([targetType, targetId])
+  @@index([targetType])
+  @@index([targetId])
+  @@map("view_counts")
+}
+
 model Venue {
   id               String            @id @default(cuid())
   slug             String?           @unique
