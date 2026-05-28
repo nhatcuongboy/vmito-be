@@ -10,12 +10,65 @@ import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
 
+export type PostCount = {
+  likes?: number;
+  comments?: number;
+  shares?: number;
+};
+
+export type NormalizablePost = {
+  images?: unknown;
+  _count?: PostCount | null;
+  likes?: unknown;
+  originalPost?: NormalizablePost | null;
+};
+
+export type NormalizedPost<T extends NormalizablePost> = Omit<
+  T,
+  'images' | '_count' | 'originalPost' | 'likes'
+> & {
+  images: unknown[];
+  _count: {
+    likes: number;
+    comments: number;
+    shares: number;
+  };
+  originalPost: NormalizedPost<NormalizablePost> | null | undefined;
+  isLiked: boolean;
+  likes: undefined;
+};
+
 @Injectable()
 export class PostsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cloudinary: CloudinaryService
   ) {}
+
+  private normalizePost<T extends NormalizablePost>(
+    post: T,
+    userId?: string
+  ): NormalizedPost<T> {
+    const likes = Array.isArray(post.likes) ? post.likes : [];
+    const count = post._count ?? {};
+    const originalPost: NormalizedPost<NormalizablePost> | null | undefined =
+      post.originalPost
+        ? this.normalizePost(post.originalPost)
+        : post.originalPost;
+
+    return {
+      ...post,
+      images: Array.isArray(post.images) ? post.images : [],
+      _count: {
+        likes: count.likes ?? 0,
+        comments: count.comments ?? 0,
+        shares: count.shares ?? 0,
+      },
+      originalPost,
+      isLiked: userId ? likes.length > 0 : false,
+      likes: undefined,
+    };
+  }
 
   async create(userId: string, createPostDto: CreatePostDto) {
     return this.prisma.post.create({
@@ -60,11 +113,7 @@ export class PostsService {
     ]);
 
     return {
-      posts: posts.map((post) => ({
-        ...post,
-        isLiked: userId ? post.likes?.length > 0 : false,
-        likes: undefined,
-      })),
+      posts: posts.map((post) => this.normalizePost(post, userId)),
       total,
       page,
       limit,
@@ -85,6 +134,10 @@ export class PostsService {
             author: {
               select: { id: true, name: true, image: true },
             },
+            images: { orderBy: { order: 'asc' } },
+            _count: {
+              select: { likes: true, comments: true, shares: true },
+            },
           },
         },
         _count: {
@@ -98,11 +151,7 @@ export class PostsService {
       throw new NotFoundException('Post not found');
     }
 
-    return {
-      ...post,
-      isLiked: userId ? post.likes?.length > 0 : false,
-      likes: undefined,
-    };
+    return this.normalizePost(post, userId);
   }
 
   async update(id: string, userId: string, updatePostDto: UpdatePostDto) {
@@ -335,12 +384,16 @@ export class PostsService {
         author: {
           select: { id: true, name: true, image: true },
         },
+        images: { orderBy: { order: 'asc' } },
         originalPost: {
           include: {
             author: {
               select: { id: true, name: true, image: true },
             },
             images: { orderBy: { order: 'asc' } },
+            _count: {
+              select: { likes: true, comments: true, shares: true },
+            },
           },
         },
         _count: {
@@ -349,6 +402,6 @@ export class PostsService {
       },
     });
 
-    return sharedPost;
+    return this.normalizePost(sharedPost, userId);
   }
 }
