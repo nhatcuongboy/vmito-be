@@ -10,10 +10,12 @@ import { LocalStrategy } from './strategies/local.strategy';
 import { RolesGuard } from './guards/roles.guard';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ZaloOAuthService } from './zalo-oauth.service';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
     PrismaModule,
+    MailModule,
     PassportModule,
     ConfigModule,
     JwtModule.registerAsync({

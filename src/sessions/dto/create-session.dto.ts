@@ -89,6 +89,10 @@ export class CreateSessionDto {
 
   @IsString()
   @IsOptional()
+  notes?: string;
+
+  @IsString()
+  @IsOptional()
   location?: string;
 
   @IsString()
@@ -132,6 +136,10 @@ export class CreateSessionDto {
   @IsBoolean()
   @IsOptional()
   allowNewPlayers?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  allowZaloContact?: boolean;
 
   @IsArray()
   @IsNumber({}, { each: true })

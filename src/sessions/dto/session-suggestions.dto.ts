@@ -1,5 +1,5 @@
-import { IsOptional, IsNumber, Min, Max } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsOptional, IsNumber, Min, Max, IsBoolean } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 
 export class SessionSuggestionsQueryDto {
   @IsOptional()
@@ -31,4 +31,9 @@ export class SessionSuggestionsQueryDto {
   @Max(50)
   @Type(() => Number)
   limit?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === true || value === 'true')
+  favoriteHostOnly?: boolean;
 }

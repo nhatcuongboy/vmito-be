@@ -11,6 +11,7 @@
 NestJS-based REST API for Badminton Session & Tournament Management.
 
 **Tech Stack**:
+
 - Framework: NestJS 10.x
 - Database: PostgreSQL with Prisma ORM
 - Authentication: JWT + Google OAuth
@@ -20,21 +21,22 @@ NestJS-based REST API for Badminton Session & Tournament Management.
 ## Authentication
 
 All protected endpoints require Bearer token:
+
 ```
 Authorization: Bearer <access_token>
 ```
 
 ### Auth Endpoints
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/auth/register` | Public | Register new user |
-| POST | `/auth/login` | Public | Login, returns JWT |
-| GET | `/auth/token` | 🔒 | Refresh JWT token |
-| PUT | `/auth/change-password` | 🔒 | Change password |
-| PUT | `/auth/reset-password` | Public | Reset password (admin) |
-| GET | `/auth/google` | Public | Initiate Google OAuth |
-| GET | `/auth/google/callback` | Public | Google OAuth callback |
+| Method | Endpoint                | Auth   | Description            |
+| ------ | ----------------------- | ------ | ---------------------- |
+| POST   | `/auth/register`        | Public | Register new user      |
+| POST   | `/auth/login`           | Public | Login, returns JWT     |
+| GET    | `/auth/token`           | 🔒     | Refresh JWT token      |
+| PUT    | `/auth/change-password` | 🔒     | Change password        |
+| PUT    | `/auth/reset-password`  | Public | Reset password (admin) |
+| GET    | `/auth/google`          | Public | Initiate Google OAuth  |
+| GET    | `/auth/google/callback` | Public | Google OAuth callback  |
 
 #### Login Request/Response
 
@@ -63,25 +65,26 @@ Authorization: Bearer <access_token>
 
 ## Sessions API
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/sessions` | 🔒 | List user's sessions |
-| GET | `/sessions/available` | 🔒 | List available sessions |
-| POST | `/sessions` | 🔒 HOST | Create new session |
-| GET | `/sessions/:id` | 🔒 | Get session details |
-| PUT | `/sessions/:id` | 🔒 | Update session |
-| DELETE | `/sessions/:id` | 🔒 | Delete session |
-| POST | `/sessions/:id/start` | 🔒 | Start session |
-| POST | `/sessions/:id/end` | 🔒 | End session |
-| GET | `/sessions/:id/status` | 🔒 | Get real-time status |
-| PATCH | `/sessions/:id/status` | 🔒 | Update session status |
-| GET | `/sessions/:id/players` | 🔒 | Get session players |
-| GET | `/sessions/:id/courts` | 🔒 | Get session courts |
-| GET | `/sessions/:id/matches` | 🔒 | Get session matches |
-| POST | `/sessions/:id/auto-assign` | 🔒 | Auto-assign players |
-| GET | `/sessions/:id/waiting-queue` | 🔒 | Get waiting queue |
-| PUT | `/sessions/:id/wait-times` | 🔒 | Update wait times |
-| GET | `/sessions/:id/wait-times` | 🔒 | Get wait time stats |
+| Method | Endpoint                      | Auth    | Description                      |
+| ------ | ----------------------------- | ------- | -------------------------------- |
+| GET    | `/sessions`                   | 🔒      | List user's sessions             |
+| GET    | `/sessions/available`         | 🔒      | List available sessions          |
+| POST   | `/sessions`                   | 🔒 HOST | Create new session               |
+| GET    | `/sessions/:id`               | 🔒      | Get session details              |
+| PUT    | `/sessions/:id`               | 🔒      | Update session                   |
+| DELETE | `/sessions/:id`               | 🔒      | Delete session                   |
+| POST   | `/sessions/:id/start`         | 🔒      | Start session                    |
+| POST   | `/sessions/:id/end`           | 🔒      | End session                      |
+| GET    | `/sessions/:id/status`        | 🔒      | Get real-time status             |
+| PATCH  | `/sessions/:id/status`        | 🔒      | Update session status            |
+| GET    | `/sessions/:id/players`       | 🔒      | Get session players              |
+| GET    | `/sessions/:id/courts`        | 🔒      | Get session courts               |
+| GET    | `/sessions/:id/matches`       | 🔒      | Get session matches              |
+| POST   | `/sessions/:id/auto-assign`   | 🔒      | Auto-assign players              |
+| GET    | `/sessions/:id/waiting-queue` | 🔒      | Get waiting queue                |
+| PUT    | `/sessions/:id/wait-times`    | 🔒      | Update wait times                |
+| GET    | `/sessions/:id/wait-times`    | 🔒      | Get wait time stats              |
+| GET    | `/sessions/suggestions`       | 🔒      | Personalized session suggestions |
 
 #### Create Session
 
@@ -103,97 +106,112 @@ Authorization: Bearer <access_token>
 }
 ```
 
+#### Session Suggestions
+
+```http
+GET /sessions/suggestions?lat=10.80837&lng=106.67853&page=1&limit=12
+GET /sessions/suggestions?favoriteHostOnly=true
+```
+
+Suggestions are ranked by deterministic scoring, not AI calls: level fit,
+distance, schedule history, familiar venues, favorite hosts, and available
+slots. Sessions from a user's frequent hosts include the `favorite_host`
+match reason. Use `favoriteHostOnly=true` for the "Host ruột" option.
+
 ---
 
 ## Players API
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/players/check-code?code=ABC123` | Public | Check join code type |
-| POST | `/players/join-by-code` | Public | Join session by code |
-| GET | `/players/status?token=xyz` | Public | Get player status (guest) |
-| GET | `/players/guest/:id` | Public | Get player for guest confirm |
-| GET | `/players/guest/:id/status?code=abc` | Public | Get player status by ID |
-| GET | `/players/pending-requests` | 🔒 | Get pending requests (host) |
-| GET | `/players/me/sessions` | 🔒 | Get user's sessions |
-| POST | `/players/link-account` | 🔒 | Link player to account |
-| GET | `/players/:id` | 🔒 | Get player by ID |
-| PUT | `/players/:id` | 🔒 | Update player |
-| DELETE | `/players/:id` | 🔒 | Remove player |
-| POST | `/players/:id/confirm` | Public | Confirm player info (guest) |
+| Method | Endpoint                             | Auth   | Description                  |
+| ------ | ------------------------------------ | ------ | ---------------------------- |
+| GET    | `/players/check-code?code=ABC123`    | Public | Check join code type         |
+| POST   | `/players/join-by-code`              | Public | Join session by code         |
+| GET    | `/players/status?token=xyz`          | Public | Get player status (guest)    |
+| GET    | `/players/guest/:id`                 | Public | Get player for guest confirm |
+| GET    | `/players/guest/:id/status?code=abc` | Public | Get player status by ID      |
+| GET    | `/players/pending-requests`          | 🔒     | Get pending requests (host)  |
+| GET    | `/players/me/sessions`               | 🔒     | Get user's sessions          |
+| POST   | `/players/link-account`              | 🔒     | Link player to account       |
+| GET    | `/players/:id`                       | 🔒     | Get player by ID             |
+| PUT    | `/players/:id`                       | 🔒     | Update player                |
+| DELETE | `/players/:id`                       | 🔒     | Remove player                |
+| POST   | `/players/:id/confirm`               | Public | Confirm player info (guest)  |
 
 ### Session Players (nested routes)
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/sessions/:id/players` | 🔒 | Add player to session |
-| POST | `/sessions/:id/players/bulk` | 🔒 | Bulk add players |
-| GET | `/sessions/:id/players/bulk` | 🔒 | Get bulk players info |
-| PATCH | `/sessions/:id/players/bulk-update` | 🔒 | Bulk update players |
-| POST | `/sessions/:id/players/register` | 🔒 | Register players |
-| PATCH | `/sessions/:id/players/toggle-inactive` | 🔒 | Toggle player inactive |
-| PATCH | `/sessions/:id/players/:playerId/status` | 🔒 | Approve/reject player |
-| PATCH | `/sessions/:id/players/:playerId` | 🔒 | Update player in session |
-| DELETE | `/sessions/:id/players/:playerId` | 🔒 | Remove from session |
-| GET | `/sessions/:id/players/statistics` | 🔒 | Get player statistics |
+| Method | Endpoint                                 | Auth | Description              |
+| ------ | ---------------------------------------- | ---- | ------------------------ |
+| POST   | `/sessions/:id/players`                  | 🔒   | Add player to session    |
+| POST   | `/sessions/:id/players/bulk`             | 🔒   | Bulk add players         |
+| GET    | `/sessions/:id/players/bulk`             | 🔒   | Get bulk players info    |
+| PATCH  | `/sessions/:id/players/bulk-update`      | 🔒   | Bulk update players      |
+| POST   | `/sessions/:id/players/register`         | 🔒   | Register players         |
+| PATCH  | `/sessions/:id/players/toggle-inactive`  | 🔒   | Toggle player inactive   |
+| PATCH  | `/sessions/:id/players/:playerId/status` | 🔒   | Approve/reject player    |
+| PATCH  | `/sessions/:id/players/:playerId`        | 🔒   | Update player in session |
+| DELETE | `/sessions/:id/players/:playerId`        | 🔒   | Remove from session      |
+| GET    | `/sessions/:id/players/statistics`       | 🔒   | Get player statistics    |
 
 ---
 
 ## Courts API
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/courts/:id` | 🔒 | Get court details |
-| PATCH | `/courts/:id` | 🔒 | Update court |
-| POST | `/courts/:id/select-players` | 🔒 | Select players for court |
-| POST | `/courts/:id/deselect-players` | 🔒 | Deselect players |
-| POST | `/courts/:id/start-match` | 🔒 | Start match on court |
-| POST | `/courts/:id/end-match` | 🔒 | End match on court |
-| GET | `/courts/:id/current-match` | 🔒 | Get current match |
-| POST | `/courts/:id/pre-select` | 🔒 | Pre-select players |
-| DELETE | `/courts/:id/pre-select` | 🔒 | Cancel pre-select |
-| GET | `/courts/:id/pre-select` | 🔒 | Get pre-selected players |
-| GET | `/courts/:id/suggested-players` | 🔒 | AI-suggested players |
+| Method | Endpoint                        | Auth | Description              |
+| ------ | ------------------------------- | ---- | ------------------------ |
+| GET    | `/courts/:id`                   | 🔒   | Get court details        |
+| PATCH  | `/courts/:id`                   | 🔒   | Update court             |
+| POST   | `/courts/:id/select-players`    | 🔒   | Select players for court |
+| POST   | `/courts/:id/deselect-players`  | 🔒   | Deselect players         |
+| POST   | `/courts/:id/start-match`       | 🔒   | Start match on court     |
+| POST   | `/courts/:id/end-match`         | 🔒   | End match on court       |
+| GET    | `/courts/:id/current-match`     | 🔒   | Get current match        |
+| POST   | `/courts/:id/pre-select`        | 🔒   | Pre-select players       |
+| DELETE | `/courts/:id/pre-select`        | 🔒   | Cancel pre-select        |
+| GET    | `/courts/:id/pre-select`        | 🔒   | Get pre-selected players |
+| GET    | `/courts/:id/suggested-players` | 🔒   | AI-suggested players     |
 
 ---
 
 ## Tournaments API
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/tournaments` | Public | List all tournaments |
-| GET | `/tournaments/:id` | Public | Get tournament details |
-| POST | `/tournaments` | 🔒 | Create tournament |
-| PUT | `/tournaments/:id` | 🔒 | Update tournament |
-| DELETE | `/tournaments/:id` | 🔒 | Delete tournament |
+| Method | Endpoint           | Auth   | Description            |
+| ------ | ------------------ | ------ | ---------------------- |
+| GET    | `/tournaments`     | Public | List all tournaments   |
+| GET    | `/tournaments/:id` | Public | Get tournament details |
+| POST   | `/tournaments`     | 🔒     | Create tournament      |
+| PUT    | `/tournaments/:id` | 🔒     | Update tournament      |
+| DELETE | `/tournaments/:id` | 🔒     | Delete tournament      |
 
 ---
 
 ## Users API
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/users` | 🔒 Admin/Host | List users |
-| GET | `/users/:id` | 🔒 | Get user by ID |
-| POST | `/users` | 🔒 Admin | Create user |
-| PUT | `/users/:id` | 🔒 | Update user |
-| DELETE | `/users/:id` | 🔒 Admin | Delete user |
+| Method | Endpoint     | Auth          | Description    |
+| ------ | ------------ | ------------- | -------------- |
+| GET    | `/users`     | 🔒 Admin/Host | List users     |
+| GET    | `/users/:id` | 🔒            | Get user by ID |
+| POST   | `/users`     | 🔒 Admin      | Create user    |
+| PUT    | `/users/:id` | 🔒            | Update user    |
+| DELETE | `/users/:id` | 🔒 Admin      | Delete user    |
 
 ---
 
 ## Enums
 
 ### User Roles
+
 - `HOST` - Session organizer
 - `PLAYER` - Regular player
 - `ADMIN` - System administrator
 
 ### Session Status
+
 - `PREPARING` - Not started
 - `IN_PROGRESS` - Currently active
 - `FINISHED` - Completed
 
 ### Player Status
+
 - `WAITING` - In waiting queue
 - `PLAYING` - Currently playing
 - `FINISHED` - Done playing
@@ -201,17 +219,20 @@ Authorization: Bearer <access_token>
 - `INACTIVE` - Temporarily inactive
 
 ### Court Status
+
 - `EMPTY` - Available
 - `IN_USE` - Match in progress
 - `READY` - Players selected
 
 ### Gender
+
 - `MALE`
 - `FEMALE`
 - `OTHER`
 - `PREFER_NOT_TO_SAY`
 
 ### Match Status
+
 - `SCHEDULED` - Not started
 - `IN_PROGRESS` - Currently playing
 - `FINISHED` - Completed
@@ -230,6 +251,7 @@ Authorization: Bearer <access_token>
 ```
 
 Common HTTP codes:
+
 - `200` - Success
 - `201` - Created
 - `400` - Bad Request

@@ -156,6 +156,7 @@ export class MatchesService {
       isDraw?: boolean;
       notes?: string;
       isExtra?: boolean;
+      shuttlecockCount?: number;
     } = {};
 
     if (updateMatchDto.score !== undefined) {
@@ -181,6 +182,10 @@ export class MatchesService {
 
     if (updateMatchDto.isExtra !== undefined) {
       updateData.isExtra = updateMatchDto.isExtra;
+    }
+
+    if (updateMatchDto.shuttlecockCount !== undefined) {
+      updateData.shuttlecockCount = updateMatchDto.shuttlecockCount;
     }
 
     const updatedMatch = await this.prisma.$transaction(async (tx) => {

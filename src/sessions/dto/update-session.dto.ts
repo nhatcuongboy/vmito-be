@@ -23,6 +23,10 @@ export class UpdateSessionDto {
 
   @IsString()
   @IsOptional()
+  notes?: string;
+
+  @IsString()
+  @IsOptional()
   location?: string;
 
   @IsString()
@@ -62,6 +66,10 @@ export class UpdateSessionDto {
   @IsBoolean()
   @IsOptional()
   allowNewPlayers?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  allowZaloContact?: boolean;
 
   @IsArray()
   @IsNumber({}, { each: true })

@@ -31,6 +31,7 @@ import { UpdateStatusDto } from './dto/update-status.dto';
 import { UpdateWaitTimesDto } from './dto/update-wait-times.dto';
 import { BulkSessionCreationDto } from './dto/bulk-session.dto';
 import { RecommendationResponseDto } from './dto/recommendation-response.dto';
+import { SessionSuggestionsQueryDto } from './dto/session-suggestions.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
@@ -156,22 +157,24 @@ export class SessionsController {
     });
   }
 
+  @ApiOperation({
+    summary: 'Get personalized session suggestions',
+    description:
+      'Returns rule-based personalized suggestions using level, distance, schedule history, familiar venues, favorite hosts, and available slots.',
+  })
+  @ApiQuery({
+    name: 'favoriteHostOnly',
+    required: false,
+    description:
+      'When true, only suggest sessions from hosts the user frequently joins.',
+    example: false,
+  })
   @Get('suggestions')
   getSuggestions(
     @CurrentUser() user: { userId: string; role: string },
-    @Query('lat') lat?: string,
-    @Query('lng') lng?: string,
-    @Query('radius') radius?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string
+    @Query() query: SessionSuggestionsQueryDto
   ) {
-    return this.sessionsService.getSuggestions(user.userId, {
-      lat: lat ? parseFloat(lat) : undefined,
-      lng: lng ? parseFloat(lng) : undefined,
-      radius: radius ? parseFloat(radius) : 15,
-      page: page ? parseInt(page, 10) : 1,
-      limit: limit ? parseInt(limit, 10) : 12,
-    });
+    return this.sessionsService.getSuggestions(user.userId, query);
   }
 
   @Public()

@@ -25,7 +25,12 @@ interface ScheduleSummaryCategory {
     round: string;
     scheduled: number;
     total: number;
-    byGroup?: { groupId: string; groupName: string; scheduled: number; total: number }[];
+    byGroup?: {
+      groupId: string;
+      groupName: string;
+      scheduled: number;
+      total: number;
+    }[];
   }[];
 }
 
@@ -197,7 +202,11 @@ export class ScheduleGeneratorService {
       }
     >();
 
-    const getOrCreateRound = (catId: string, round: string, catName: string): RoundData => {
+    const getOrCreateRound = (
+      catId: string,
+      round: string,
+      catName: string
+    ): RoundData => {
       if (!categoryMap.has(catId)) {
         categoryMap.set(catId, { name: catName, rounds: new Map() });
       }
@@ -209,13 +218,21 @@ export class ScheduleGeneratorService {
     };
 
     for (const m of matchesRaw) {
-      const roundData = getOrCreateRound(m.categoryId, m.round, m.category.name);
+      const roundData = getOrCreateRound(
+        m.categoryId,
+        m.round,
+        m.category.name
+      );
       roundData.total++;
 
       // Track per-group counts
       if (m.groupId && m.group) {
         if (!roundData.groups.has(m.groupId)) {
-          roundData.groups.set(m.groupId, { name: m.group.name || `Pool ${roundData.groups.size + 1}`, scheduled: 0, total: 0 });
+          roundData.groups.set(m.groupId, {
+            name: m.group.name || `Pool ${roundData.groups.size + 1}`,
+            scheduled: 0,
+            total: 0,
+          });
         }
         roundData.groups.get(m.groupId)!.total++;
       }
@@ -261,15 +278,21 @@ export class ScheduleGeneratorService {
       let catScheduled = 0;
       let catTotal = 0;
       for (const [round, data] of cat.rounds) {
-        const byGroup = data.groups.size > 0
-          ? Array.from(data.groups.entries()).map(([groupId, g]) => ({
-              groupId,
-              groupName: g.name,
-              scheduled: g.scheduled,
-              total: g.total,
-            }))
-          : undefined;
-        byRound.push({ round, scheduled: data.scheduled, total: data.total, byGroup });
+        const byGroup =
+          data.groups.size > 0
+            ? Array.from(data.groups.entries()).map(([groupId, g]) => ({
+                groupId,
+                groupName: g.name,
+                scheduled: g.scheduled,
+                total: g.total,
+              }))
+            : undefined;
+        byRound.push({
+          round,
+          scheduled: data.scheduled,
+          total: data.total,
+          byGroup,
+        });
         catScheduled += data.scheduled;
         catTotal += data.total;
       }
@@ -612,7 +635,9 @@ export class ScheduleGeneratorService {
    * This ensures the schedule generator includes all categories, not just those
    * where matches were already manually generated.
    */
-  private async autoGenerateMissingMatches(tournamentId: string): Promise<void> {
+  private async autoGenerateMissingMatches(
+    tournamentId: string
+  ): Promise<void> {
     // Find all groups in this tournament that have registrations
     const groups = await this.prisma.categoryGroup.findMany({
       where: {

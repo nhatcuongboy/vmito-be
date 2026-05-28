@@ -28,6 +28,11 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { ClubsModule } from './clubs/clubs.module';
 import { UserImagesModule } from './user-images/user-images.module';
 import { PostsModule } from './posts/posts.module';
+import { FeedbackModule } from './feedback/feedback.module';
+import { VenueRequestsModule } from './venue-requests/venue-requests.module';
+import { MailModule } from './mail/mail.module';
+import { LevelDescriptionsModule } from './level-descriptions/level-descriptions.module';
+import { ViewsModule } from './views/views.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import configuration from './config';
 
@@ -63,6 +68,11 @@ import configuration from './config';
     ClubsModule,
     UserImagesModule,
     PostsModule,
+    MailModule,
+    FeedbackModule,
+    VenueRequestsModule,
+    LevelDescriptionsModule,
+    ViewsModule,
   ],
   controllers: [AppController],
   providers: [

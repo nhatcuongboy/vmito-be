@@ -47,10 +47,7 @@ export class AiController {
       extracted.hostName = req.user.name;
     }
 
-    return {
-      success: true,
-      data: extracted,
-    };
+    return extracted;
   }
 
   /**
@@ -67,7 +64,8 @@ export class AiController {
     try {
       const stream = await this.geminiService.chatWithAssistant(
         dto.messages,
-        dto.pageContext
+        dto.pageContext,
+        dto.language
       );
 
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');

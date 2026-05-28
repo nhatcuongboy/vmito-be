@@ -135,6 +135,18 @@ export class CloudinaryService {
     });
   }
 
+  async uploadFeedbackImage(
+    file: Express.Multer.File
+  ): Promise<CloudinaryUploadResult> {
+    return this.uploadImage(file, 'feedback', {
+      transformation: [
+        { width: 1600, crop: 'limit' },
+        { quality: 'auto:good' },
+        { fetch_format: 'auto' },
+      ],
+    });
+  }
+
   async deleteImage(publicId: string): Promise<void> {
     try {
       await cloudinary.uploader.destroy(publicId);

@@ -758,6 +758,7 @@ export class SessionsService {
       requirePlayerInfo = true,
       allowGuestJoin = true,
       allowNewPlayers = true,
+      allowZaloContact = false,
       requiredLevels = [],
       startTime,
       endTime,
@@ -862,6 +863,7 @@ export class SessionsService {
         requirePlayerInfo,
         allowGuestJoin,
         allowNewPlayers,
+        allowZaloContact,
         requiredLevels: requiredLevels || [],
         searchTerms: sessionSearchTerms,
 
@@ -876,6 +878,7 @@ export class SessionsService {
 
         status: 'PREPARING',
         description,
+        notes: createSessionDto.notes ?? null,
         location: finalLocation,
         hostName,
         hostPhone,
@@ -1079,6 +1082,7 @@ export class SessionsService {
         requirePlayerInfo: updateSessionDto.requirePlayerInfo,
         allowGuestJoin: updateSessionDto.allowGuestJoin,
         allowNewPlayers: updateSessionDto.allowNewPlayers,
+        allowZaloContact: updateSessionDto.allowZaloContact,
         requiredLevels:
           updateSessionDto.requiredLevels !== undefined
             ? updateSessionDto.requiredLevels
@@ -1090,6 +1094,7 @@ export class SessionsService {
           ? new Date(updateSessionDto.endTime)
           : undefined,
         description: updateSessionDto.description,
+        notes: updateSessionDto.notes,
         location: updateSessionDto.location,
         hostName: updateSessionDto.hostName,
         searchTerms: updatedSearchTerms,
@@ -2646,6 +2651,7 @@ export class SessionsService {
       requirePlayerInfo = true,
       allowGuestJoin = true,
       allowNewPlayers = true,
+      allowZaloContact = false,
       requiredLevels = [],
       startTime,
       endTime,
@@ -2740,6 +2746,7 @@ export class SessionsService {
         requirePlayerInfo,
         allowGuestJoin,
         allowNewPlayers,
+        allowZaloContact,
         requiredLevels: requiredLevels || [],
         searchTerms: internalSearchTerms,
         startTime: startTime ? new Date(startTime) : new Date(),
@@ -2921,11 +2928,16 @@ export class SessionsService {
       radius?: number;
       page?: number;
       limit?: number;
+      favoriteHostOnly?: boolean;
     }
   ) {
     const radius = query.radius || 15;
     const page = query.page || 1;
     const limit = query.limit || 12;
+    const skip = (page - 1) * limit;
+    const lat = query.lat;
+    const lng = query.lng;
+    const hasLocation = lat !== undefined && lng !== undefined;
 
     // 1. Get user profile
     const user = await this.prisma.user.findUnique({
@@ -2934,7 +2946,7 @@ export class SessionsService {
     });
     if (!user) throw new NotFoundException('User not found');
 
-    // 2. Get user's play history (last 20 sessions)
+    // 2. Get user's play history (last 50 sessions)
     const recentPlayers = await this.prisma.player.findMany({
       where: {
         userId,
@@ -2943,15 +2955,16 @@ export class SessionsService {
       },
       include: {
         session: {
-          select: { venueId: true, startTime: true },
+          select: { venueId: true, hostId: true, startTime: true },
         },
       },
       orderBy: { joinedAt: 'desc' },
-      take: 20,
+      take: 50,
     });
 
     // Extract patterns from history
     const venueFrequency: Record<string, number> = {};
+    const hostFrequency: Record<string, number> = {};
     const dayFrequency: Record<number, number> = {};
     const hourFrequency: Record<number, number> = {};
 
@@ -2959,6 +2972,10 @@ export class SessionsService {
       if (p.session.venueId) {
         venueFrequency[p.session.venueId] =
           (venueFrequency[p.session.venueId] || 0) + 1;
+      }
+      if (p.session.hostId) {
+        hostFrequency[p.session.hostId] =
+          (hostFrequency[p.session.hostId] || 0) + 1;
       }
       if (p.session.startTime) {
         const day = p.session.startTime.getDay();
@@ -2973,21 +2990,51 @@ export class SessionsService {
       .slice(0, 3)
       .map(([id]) => id);
 
+    const topHostIds = Object.entries(hostFrequency)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([id]) => id);
+
     const maxDayFreq = Math.max(...Object.values(dayFrequency), 1);
     const maxHourFreq = Math.max(...Object.values(hourFrequency), 1);
+    const maxHostFreq = Math.max(...Object.values(hostFrequency), 1);
     const hasHistory = recentPlayers.length > 0;
 
     // 3. Get candidate sessions
     const now = new Date();
+    const where: Prisma.SessionWhereInput = {
+      status: 'PREPARING',
+      endTime: { gt: now },
+      allowNewPlayers: true,
+      NOT: {
+        players: {
+          some: {
+            userId,
+            registrationStatus: { in: ['PENDING', 'APPROVED'] },
+          },
+        },
+      },
+    };
+
+    if (query.favoriteHostOnly) {
+      if (topHostIds.length === 0) {
+        return {
+          data: [],
+          pagination: { page, limit, total: 0, totalPages: 0 },
+          meta: {
+            isPersonalized: hasHistory,
+            favoriteHostOnly: true,
+            favoriteHostIds: [],
+            reason: 'NO_FAVORITE_HOST_HISTORY',
+          },
+        };
+      }
+      where.hostId = { in: topHostIds };
+    }
+
     const candidates = await this.prisma.session.findMany({
       where: {
-        status: 'PREPARING',
-        endTime: { gt: now },
-        allowNewPlayers: true,
-        // Exclude sessions user already joined
-        NOT: {
-          players: { some: { userId } },
-        },
+        ...where,
       },
       include: {
         host: {
@@ -3005,14 +3052,21 @@ export class SessionsService {
           orderBy: { courtNumber: 'asc' },
         },
       },
+      orderBy: [{ startTime: 'asc' }, { createdAt: 'desc' }],
+      take: 200,
     });
 
     // 4. Score each session
-    const scored = candidates.map((session) => {
+    const scored = candidates.flatMap((session) => {
       const matchReasons: string[] = [];
       let totalScore = 0;
 
-      // Level match (weight: 0.30)
+      const maxPlayers = session.numberOfCourts * session.maxPlayersPerCourt;
+      const approvedPlayers = session._count?.players || 0;
+      const availableSlots = maxPlayers - approvedPlayers;
+      if (availableSlots <= 0) return [];
+
+      // Level match (weight: 0.25)
       let levelScore = 0.5;
       if (!session.requiredLevels || session.requiredLevels.length === 0) {
         levelScore = 1.0;
@@ -3028,31 +3082,27 @@ export class SessionsService {
       } else {
         levelScore = 0.0;
       }
-      totalScore += 0.3 * levelScore;
+      totalScore += 0.25 * levelScore;
 
-      // Distance (weight: 0.25)
+      // Distance (weight: 0.20)
       let distance: number | null = null;
-      let distanceScore = 0.5;
-      if (
-        query.lat !== undefined &&
-        query.lng !== undefined &&
-        session.venue?.lat &&
-        session.venue?.lng
-      ) {
+      let distanceScore = hasLocation ? 0 : 0.5;
+      if (hasLocation && session.venue?.lat && session.venue?.lng) {
         distance = this.calculateDistance(
-          query.lat,
-          query.lng,
+          lat,
+          lng,
           session.venue.lat,
           session.venue.lng
         );
+        if (distance > radius) return [];
         distanceScore = Math.max(0, 1 - distance / radius);
         if (distanceScore > 0.5) {
           matchReasons.push('nearby');
         }
       }
-      totalScore += 0.25 * distanceScore;
+      totalScore += 0.2 * distanceScore;
 
-      // Schedule match (weight: 0.20)
+      // Schedule match (weight: 0.15)
       let scheduleScore = hasHistory ? 0 : 0.5;
       if (hasHistory && session.startTime) {
         const sessionDay = session.startTime.getDay();
@@ -3064,7 +3114,7 @@ export class SessionsService {
           matchReasons.push('preferred_time');
         }
       }
-      totalScore += 0.2 * scheduleScore;
+      totalScore += 0.15 * scheduleScore;
 
       // Venue familiarity (weight: 0.15)
       let venueScore = hasHistory ? 0.3 : 0.5;
@@ -3074,10 +3124,15 @@ export class SessionsService {
       }
       totalScore += 0.15 * venueScore;
 
+      // Host familiarity (weight: 0.15)
+      const hostVisitCount = hostFrequency[session.hostId] || 0;
+      const hostScore = hasHistory ? hostVisitCount / maxHostFreq : 0.5;
+      if (hostVisitCount > 0) {
+        matchReasons.push('favorite_host');
+      }
+      totalScore += 0.15 * hostScore;
+
       // Available slots (weight: 0.10)
-      const maxPlayers = session.numberOfCourts * session.maxPlayersPerCourt;
-      const approvedPlayers = session._count?.players || 0;
-      const availableSlots = maxPlayers - approvedPlayers;
       const slotsScore = Math.min(1, availableSlots / 4);
       if (availableSlots > 0) {
         matchReasons.push('available_slots');
@@ -3087,6 +3142,18 @@ export class SessionsService {
       return {
         ...session,
         score: Math.round(totalScore * 100) / 100,
+        scoreComponents: {
+          level: Math.round(levelScore * 100) / 100,
+          distance: Math.round(distanceScore * 100) / 100,
+          schedule: Math.round(scheduleScore * 100) / 100,
+          venue: Math.round(venueScore * 100) / 100,
+          host: Math.round(hostScore * 100) / 100,
+          slots: Math.round(slotsScore * 100) / 100,
+        },
+        availableSlots,
+        maxPlayers,
+        hostAffinity: hostVisitCount,
+        isFavoriteHost: hostVisitCount > 0,
         distance,
         matchReasons,
       };
@@ -3095,11 +3162,16 @@ export class SessionsService {
     // 5. Sort by score descending, paginate
     scored.sort((a, b) => b.score - a.score);
     const total = scored.length;
-    const paginated = scored.slice((page - 1) * limit, page * limit);
+    const paginated = scored.slice(skip, skip + limit);
 
     return {
       data: paginated,
-      pagination: { page, limit, total },
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      meta: {
+        isPersonalized: hasHistory,
+        favoriteHostOnly: !!query.favoriteHostOnly,
+        favoriteHostIds: topHostIds,
+      },
     };
   }
 

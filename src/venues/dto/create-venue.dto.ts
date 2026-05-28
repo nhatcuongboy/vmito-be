@@ -11,9 +11,10 @@ import { ApiProperty } from '@nestjs/swagger';
 import { VenueStatus, ClosureStatus } from '@prisma/client';
 
 export class CreateVenueDto {
-  @ApiProperty()
+  @ApiProperty({ required: false })
+  @IsOptional()
   @IsString()
-  placeId!: string;
+  placeId?: string;
 
   @ApiProperty()
   @IsString()

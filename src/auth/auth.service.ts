@@ -10,10 +10,13 @@ import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { AdminResetPasswordDto } from './dto/admin-reset-password.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 
 // i18n error messages
@@ -36,6 +39,10 @@ const getErrorMessage = (key: string, locale?: string): string => {
   const lang = locale && ERROR_MESSAGES[locale] ? locale : 'en';
   return ERROR_MESSAGES[lang][key] || ERROR_MESSAGES['en'][key];
 };
+
+const PASSWORD_RESET_IDENTIFIER_PREFIX = 'password-reset:';
+const PASSWORD_RESET_SUCCESS_MESSAGE =
+  'If this email is valid, password reset instructions will be sent.';
 
 export interface GoogleProfile {
   googleId: string;
@@ -72,7 +79,8 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
-    private configService: ConfigService
+    private configService: ConfigService,
+    private mailService: MailService
   ) {}
 
   async validateUser(
@@ -247,7 +255,7 @@ export class AuthService {
     };
   }
 
-  async resetPassword(resetPasswordDto: ResetPasswordDto) {
+  async adminResetPassword(resetPasswordDto: AdminResetPasswordDto) {
     const { email, newPassword } = resetPasswordDto;
 
     // Admin authorization is now handled by the controller guard
@@ -275,6 +283,166 @@ export class AuthService {
       userId: user.id,
       email: user.email,
     };
+  }
+
+  async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
+    const email = forgotPasswordDto.email.trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true, email: true },
+    });
+
+    if (!user) {
+      return { message: PASSWORD_RESET_SUCCESS_MESSAGE };
+    }
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = this.hashPasswordResetToken(rawToken);
+    const expiresInMinutes = this.getPasswordResetTtlMinutes();
+    const expiresAt = this.getPasswordResetExpiry(expiresInMinutes);
+    const identifier = this.getPasswordResetIdentifier(email);
+
+    await this.prisma.verificationToken.deleteMany({
+      where: { identifier },
+    });
+
+    await this.prisma.verificationToken.create({
+      data: {
+        identifier,
+        token: tokenHash,
+        expires: expiresAt,
+      },
+    });
+
+    const resetUrl = this.buildPasswordResetUrl(
+      forgotPasswordDto.redirectUrl,
+      forgotPasswordDto.locale,
+      rawToken
+    );
+
+    try {
+      await this.mailService.sendPasswordResetEmail({
+        to: user.email,
+        resetUrl,
+        locale: forgotPasswordDto.locale,
+        expiresInMinutes,
+      });
+    } catch {
+      return { message: PASSWORD_RESET_SUCCESS_MESSAGE };
+    }
+
+    return { message: PASSWORD_RESET_SUCCESS_MESSAGE };
+  }
+
+  async resetPassword(resetPasswordDto: ResetPasswordDto) {
+    const tokenHash = this.hashPasswordResetToken(resetPasswordDto.token);
+    const resetToken = await this.prisma.verificationToken.findUnique({
+      where: { token: tokenHash },
+    });
+
+    if (
+      !resetToken ||
+      !resetToken.identifier.startsWith(PASSWORD_RESET_IDENTIFIER_PREFIX) ||
+      resetToken.expires < new Date()
+    ) {
+      if (resetToken) {
+        await this.prisma.verificationToken.deleteMany({
+          where: {
+            identifier: resetToken.identifier,
+            token: resetToken.token,
+          },
+        });
+      }
+      throw new BadRequestException('Invalid or expired password reset token');
+    }
+
+    const email = resetToken.identifier.slice(
+      PASSWORD_RESET_IDENTIFIER_PREFIX.length
+    );
+    const hashedPassword = await bcrypt.hash(resetPasswordDto.newPassword, 12);
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { email },
+        data: { password: hashedPassword },
+      }),
+      this.prisma.verificationToken.deleteMany({
+        where: { identifier: resetToken.identifier },
+      }),
+      this.prisma.refreshToken.updateMany({
+        where: { user: { email }, revoked: false },
+        data: { revoked: true },
+      }),
+    ]);
+
+    return { message: 'Password reset successfully' };
+  }
+
+  private getPasswordResetIdentifier(email: string): string {
+    return `${PASSWORD_RESET_IDENTIFIER_PREFIX}${email}`;
+  }
+
+  private hashPasswordResetToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  private getPasswordResetTtlMinutes(): number {
+    return (
+      Number(
+        this.configService.get<string>('PASSWORD_RESET_TOKEN_TTL_MINUTES')
+      ) || 60
+    );
+  }
+
+  private getPasswordResetExpiry(ttlMinutes: number): Date {
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + ttlMinutes);
+    return expiresAt;
+  }
+
+  private buildPasswordResetUrl(
+    redirectUrl: string,
+    locale: string | undefined,
+    token: string
+  ): string {
+    const frontendUrl =
+      this.configService.get<string>('frontendUrl') || 'http://localhost:3000';
+    const corsOrigin = this.configService.get<string[] | string>(
+      'app.cors.origin'
+    );
+    const configuredOrigins = Array.isArray(corsOrigin)
+      ? corsOrigin
+      : (corsOrigin || '')
+          .split(',')
+          .map((origin) => origin.trim())
+          .filter(Boolean);
+    const fallbackPath = `/${locale || 'vi'}/auth/reset-password`;
+    const fallbackUrl = new URL(fallbackPath, frontendUrl);
+    const allowedOrigins = new Set([
+      new URL(frontendUrl).origin,
+      ...configuredOrigins
+        .map((origin) => {
+          try {
+            return new URL(origin).origin;
+          } catch {
+            return '';
+          }
+        })
+        .filter(Boolean),
+    ]);
+
+    let url = fallbackUrl;
+    try {
+      const candidateUrl = new URL(redirectUrl);
+      if (allowedOrigins.has(candidateUrl.origin)) {
+        url = candidateUrl;
+      }
+    } catch {
+      url = fallbackUrl;
+    }
+
+    url.searchParams.set('token', token);
+    return url.toString();
   }
 
   /**

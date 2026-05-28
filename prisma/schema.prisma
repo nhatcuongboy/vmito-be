@@ -20,7 +20,7 @@ model User {
 
   // Player related information
   gender           Gender?
-  level            Int? // 1-7 (Beginner to Pro)
+  level            Int? // 1-8 (Beginner to Pro)
   levelDescription String?
   phone            String?
   searchTerms      String? // Normalized search string
@@ -51,6 +51,11 @@ model User {
 
   // Image gallery
   uploadedImages UserImage[] @relation("UserImages")
+
+  // Feedback
+  feedbacks              Feedback[]     @relation("UserFeedbacks")
+  submittedVenueRequests VenueRequest[] @relation("SubmittedVenueRequests")
+  reviewedVenueRequests  VenueRequest[] @relation("ReviewedVenueRequests")
 
   // Post relations
   posts        Post[]        @relation("UserPosts")
@@ -139,11 +144,22 @@ model VerificationToken {
   @@map("verification_tokens")
 }
 
+model LevelDescription {
+  id          String   @id @default(cuid())
+  level       Int      @unique
+  description String   @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("level_descriptions")
+}
+
 model Session {
   id                 String        @id @default(cuid())
   slug               String?       @unique
   name               String
   description        String?
+  notes              String?
   hostName           String?
   hostPhone          String?
   location           String? // Keeping for backward compatibility
@@ -173,8 +189,11 @@ model Session {
   allowGuestJoin  Boolean @default(true) // Allow joining without account
   allowNewPlayers Boolean @default(true) // Allow new players to join via session QR
 
+  // Contact settings
+  allowZaloContact Boolean @default(false) // Allow players to contact host via Zalo
+
   // Player level requirements (empty array = all levels allowed)
-  requiredLevels Int[] @default([]) // Array of level IDs (1-7)
+  requiredLevels Int[] @default([]) // Array of level IDs (1-8)
 
   courtColor         String    @default("#179a3b")
   defaultMatchType   MatchType @default(DOUBLES) // Default match type for courts in this session
@@ -202,10 +221,30 @@ model Session {
   @@map("sessions")
 }
 
+enum ViewTargetType {
+  VENUE
+  CLUB
+  SESSION
+}
+
+model ViewCount {
+  id         String         @id @default(cuid())
+  targetType ViewTargetType
+  targetId   String
+  count      Int            @default(0)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@unique([targetType, targetId])
+  @@index([targetType])
+  @@index([targetId])
+  @@map("view_counts")
+}
+
 model Venue {
   id               String            @id @default(cuid())
   slug             String?           @unique
-  placeId          String            @unique // Google Place ID
+  placeId          String?           @unique // Google Place ID
   name             String
   acronym          String? // Venue acronym
   description      String? // Venue description
@@ -232,6 +271,8 @@ model Venue {
   clubs            Club[]
   tournaments      Tournament[]
   tournamentVenues TournamentVenue[]
+  venueRequests    VenueRequest[]    @relation("RequestedVenue")
+  appliedRequests  VenueRequest[]    @relation("AppliedVenue")
 
   // Amenities
   hasCarParking Boolean?
@@ -268,6 +309,45 @@ enum ClosureStatus {
   OPERATING
   PERMANENTLY_CLOSED
   TEMPORARILY_CLOSED
+}
+
+enum VenueRequestType {
+  CREATE
+  UPDATE
+}
+
+enum VenueRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model VenueRequest {
+  id                String             @id @default(cuid())
+  type              VenueRequestType
+  status            VenueRequestStatus @default(PENDING)
+  submittedByUserId String
+  venueId           String?
+  appliedVenueId    String?
+  payload           Json
+  adminNote         String?
+  reviewedByUserId  String?
+  reviewedAt        DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  submittedBy  User   @relation("SubmittedVenueRequests", fields: [submittedByUserId], references: [id], onDelete: Cascade)
+  reviewedBy   User?  @relation("ReviewedVenueRequests", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  venue        Venue? @relation("RequestedVenue", fields: [venueId], references: [id], onDelete: SetNull)
+  appliedVenue Venue? @relation("AppliedVenue", fields: [appliedVenueId], references: [id], onDelete: SetNull)
+
+  @@index([submittedByUserId])
+  @@index([venueId])
+  @@index([appliedVenueId])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@map("venue_requests")
 }
 
 model Player {
@@ -358,10 +438,11 @@ model Match {
   session      Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   // Match result
-  score     String?
-  winnerIds String?
-  isDraw    Boolean? @default(false)
-  notes     String?
+  score            String?
+  winnerIds        String?
+  isDraw           Boolean? @default(false)
+  notes            String?
+  shuttlecockCount Float?
 
   @@map("matches")
 }
@@ -1310,4 +1391,39 @@ model GeneratedSchedule {
   @@index([tournamentId])
   @@index([expiresAt])
   @@map("generated_schedules")
+}
+
+// Feedback & Bug Report System
+enum FeedbackType {
+  CONTACT
+  BUG_REPORT
+}
+
+enum FeedbackStatus {
+  PENDING
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+model Feedback {
+  id            String         @id @default(cuid())
+  type          FeedbackType
+  userId        String
+  title         String
+  description   String         @db.Text
+  imageUrl      String? // Screenshot URL
+  imagePublicId String? // Cloudinary public ID
+  status        FeedbackStatus @default(PENDING)
+  adminNote     String?        @db.Text
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  user User @relation("UserFeedbacks", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+  @@map("feedbacks")
 }
