@@ -71,18 +71,30 @@ export class PostsService {
   }
 
   async create(userId: string, createPostDto: CreatePostDto) {
+    const images = createPostDto.images ?? [];
+
     return this.prisma.post.create({
       data: {
         content: createPostDto.content,
         videoUrl: createPostDto.videoUrl,
         location: createPostDto.location,
         authorId: userId,
+        images:
+          images.length > 0
+            ? {
+                create: images.map((image, index) => ({
+                  url: image.url,
+                  publicId: image.publicId,
+                  order: image.order ?? index,
+                })),
+              }
+            : undefined,
       },
       include: {
         author: {
           select: { id: true, name: true, image: true },
         },
-        images: true,
+        images: { orderBy: { order: 'asc' } },
         _count: {
           select: { likes: true, comments: true, shares: true },
         },
@@ -190,12 +202,25 @@ export class PostsService {
       throw new ForbiddenException('You can only delete your own posts');
     }
 
-    // Delete images from Cloudinary
+    // Delete post-only images from Cloudinary. Images selected from the user's
+    // shared gallery are owned by user_images and should remain reusable.
     if (post.images.length > 0) {
+      const reusableImages = await this.prisma.userImage.findMany({
+        where: {
+          publicId: { in: post.images.map((image) => image.publicId) },
+        },
+        select: { publicId: true },
+      });
+      const reusablePublicIds = new Set(
+        reusableImages.map((image) => image.publicId)
+      );
+
       await Promise.all(
-        post.images.map((img) =>
-          this.cloudinary.deleteImage(img.publicId).catch(() => {})
-        )
+        post.images
+          .filter((img) => !reusablePublicIds.has(img.publicId))
+          .map((img) =>
+            this.cloudinary.deleteImage(img.publicId).catch(() => {})
+          )
       );
     }
 
