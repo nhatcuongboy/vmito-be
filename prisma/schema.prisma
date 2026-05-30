@@ -202,6 +202,7 @@ model Session {
   images             String[]  @default([]) // Additional session images (max 5)
   imagePublicIds     String[]  @default([]) // Cloudinary public IDs for additional images
   shuttlecock        String?
+  referenceVideoUrl  String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

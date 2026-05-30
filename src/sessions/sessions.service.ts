@@ -46,6 +46,28 @@ export class SessionsService {
     FINISHED: 2,
   };
 
+  private normalizeReferenceVideoUrl(
+    value: string | null | undefined
+  ): string | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    try {
+      const url = new URL(trimmed);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new Error('Invalid protocol');
+      }
+      return trimmed;
+    } catch {
+      throw new BadRequestException(
+        'referenceVideoUrl must be a valid http or https URL'
+      );
+    }
+  }
+
   private buildOrderBy(
     sortBy?: string,
     sortOrder?: 'asc' | 'desc'
@@ -774,6 +796,7 @@ export class SessionsService {
       coverPhotoPublicId,
       images,
       imagePublicIds,
+      referenceVideoUrl,
       defaultMatchType,
     } = createSessionDto;
 
@@ -792,6 +815,8 @@ export class SessionsService {
         `Invalid level values: ${invalidLevels.join(', ')}. Valid levels are: ${validLevels.join(', ')}`
       );
     }
+    const normalizedReferenceVideoUrl =
+      this.normalizeReferenceVideoUrl(referenceVideoUrl);
 
     // Determine actual number of courts
     const finalNumberOfCourts =
@@ -890,6 +915,7 @@ export class SessionsService {
         coverPhotoPublicId,
         images: images || [],
         imagePublicIds: imagePublicIds || [],
+        referenceVideoUrl: normalizedReferenceVideoUrl,
       },
       include: {
         host: {
@@ -1071,6 +1097,9 @@ export class SessionsService {
         `${updatedName} ${updatedLocation || ''} ${updatedHostName || ''} ${venueNameAddress}`
       ).toLowerCase();
     }
+    const normalizedReferenceVideoUrl = this.normalizeReferenceVideoUrl(
+      updateSessionDto.referenceVideoUrl
+    );
 
     const session = await this.prisma.session.update({
       where: { id },
@@ -1106,6 +1135,7 @@ export class SessionsService {
         coverPhotoPublicId: updateSessionDto.coverPhotoPublicId,
         images: updateSessionDto.images,
         imagePublicIds: updateSessionDto.imagePublicIds,
+        referenceVideoUrl: normalizedReferenceVideoUrl,
         venue: updateSessionDto.venue
           ? {
               connectOrCreate: {
@@ -2667,6 +2697,7 @@ export class SessionsService {
       coverPhotoPublicId,
       images,
       imagePublicIds,
+      referenceVideoUrl,
       defaultMatchType,
     } = createSessionDto;
 
@@ -2685,6 +2716,8 @@ export class SessionsService {
         `Invalid level values: ${invalidLevels.join(', ')}. Valid levels are: ${validLevels.join(', ')}`
       );
     }
+    const normalizedReferenceVideoUrl =
+      this.normalizeReferenceVideoUrl(referenceVideoUrl);
 
     // Determine actual number of courts
     const finalNumberOfCourts =
@@ -2766,6 +2799,7 @@ export class SessionsService {
         coverPhotoPublicId,
         images: images || [],
         imagePublicIds: imagePublicIds || [],
+        referenceVideoUrl: normalizedReferenceVideoUrl,
       },
       include: {
         host: {

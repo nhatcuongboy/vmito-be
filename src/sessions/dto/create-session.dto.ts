@@ -6,8 +6,10 @@ import {
   IsArray,
   IsEnum,
   IsDateString,
+  IsUrl,
   Min,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { CourtDirection, FeeType, MatchType } from '@prisma/client';
 
 export class CourtConfigDto {
@@ -172,6 +174,13 @@ export class CreateSessionDto {
   @IsString()
   @IsOptional()
   shuttlecock?: string;
+
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() || null : value
+  )
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+  @IsOptional()
+  referenceVideoUrl?: string | null;
 
   @IsEnum(MatchType)
   @IsOptional()
