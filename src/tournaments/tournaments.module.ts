@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TournamentsController } from './tournaments.controller';
 import { TournamentPlayersController } from './tournament-players.controller';
+import { TournamentPairsController } from './tournament-pairs.controller';
 import { TournamentsService } from './tournaments.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { CategoriesModule } from '../categories/categories.module';
@@ -15,6 +16,7 @@ import { ScheduleService } from './services/schedule.service';
   controllers: [
     TournamentsController,
     TournamentPlayersController,
+    TournamentPairsController,
     ScheduleGeneratorController,
   ],
   providers: [

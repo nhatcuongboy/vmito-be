@@ -574,22 +574,24 @@ enum TournamentCourtStatus {
 }
 
 model Category {
-  id                     String         @id @default(cuid())
+  id                     String                   @id @default(cuid())
   tournamentId           String
   name                   String
   type                   CategoryType
-  format                 CategoryFormat @default(ROUND_ROBIN_TO_SE)
-  hasGroupStage          Boolean        @default(false)
+  registrationMode       CategoryRegistrationMode @default(TEAM)
+  teamSize               Int                      @default(2)
+  format                 CategoryFormat           @default(ROUND_ROBIN_TO_SE)
+  hasGroupStage          Boolean                  @default(false)
   averageMatchDuration   Int?
   groupCount             Int?
   winnersPerGroup        Int?
   playersPerGroup        Int?
-  matchFormat            MatchFormat    @default(BEST_OF_3)
+  matchFormat            MatchFormat              @default(BEST_OF_3)
   eliminationMatchFormat MatchFormat?
-  thirdPlaceMatch        Boolean        @default(false)
+  thirdPlaceMatch        Boolean                  @default(false)
   formatConfig           Json?
-  createdAt              DateTime       @default(now())
-  updatedAt              DateTime       @updatedAt
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
 
   // Relations
   tournament    Tournament             @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
@@ -619,6 +621,11 @@ enum CategoryType {
   WOMENS_DOUBLE
   MIXED_DOUBLE
   CUSTOM
+}
+
+enum CategoryRegistrationMode {
+  INDIVIDUAL
+  TEAM
 }
 
 model CategoryRegistration {

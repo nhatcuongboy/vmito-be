@@ -8,6 +8,7 @@ import {
 import {
   Prisma,
   CategoryType,
+  CategoryRegistrationMode,
   CategoryFormat,
   MatchFormat,
   MatchStatus,
@@ -16,6 +17,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateCategoryRegistrationDto } from './dto/create-category-registration.dto';
+import { ConvertLegacyRegistrationDto } from '../tournaments/dto/tournament-pair.dto';
 import { CreateCategoryMatchDto } from './dto/create-category-match.dto';
 import { EndCategoryMatchDto } from './dto/end-category-match.dto';
 import { UpdateMatchScoreDto } from './dto/update-match-score.dto';
@@ -42,6 +44,9 @@ import { MATCH_SCORING_INCLUDE } from './scoring/match-include';
 
 interface CategoryUpdateData {
   name?: string;
+  type?: CategoryType;
+  registrationMode?: CategoryRegistrationMode;
+  teamSize?: number;
   hasGroupStage?: boolean;
   averageMatchDuration?: number;
   groupCount?: number;
@@ -59,6 +64,25 @@ const DOUBLES_TYPES: CategoryType[] = [
   'WOMENS_DOUBLE',
   'MIXED_DOUBLE',
 ];
+
+const registrationConfigForType = (
+  type: CategoryType,
+  mode?: string,
+  teamSize?: number
+) => {
+  if (type === 'MENS_SINGLE' || type === 'WOMENS_SINGLE') {
+    return { registrationMode: 'INDIVIDUAL' as const, teamSize: 1 };
+  }
+  if (DOUBLES_TYPES.includes(type)) {
+    return { registrationMode: 'TEAM' as const, teamSize: 2 };
+  }
+  const registrationMode = (mode ?? 'TEAM') as CategoryRegistrationMode;
+  return {
+    registrationMode,
+    teamSize:
+      registrationMode === 'INDIVIDUAL' ? 1 : Math.max(2, teamSize ?? 2),
+  };
+};
 
 @Injectable()
 export class CategoriesService {
@@ -418,11 +442,19 @@ export class CategoriesService {
       throw new ForbiddenException('You can only manage your own tournaments');
     }
 
+    const type = dto.type as CategoryType;
+    const registrationConfig = registrationConfigForType(
+      type,
+      dto.registrationMode,
+      dto.teamSize
+    );
+
     return this.prisma.category.create({
       data: {
         tournamentId,
         name: dto.name,
-        type: dto.type as CategoryType,
+        type,
+        ...registrationConfig,
         ...(dto.format && {
           format: dto.format as CategoryFormat,
           hasGroupStage: dto.format !== 'SINGLE_ELIMINATION',
@@ -519,12 +551,39 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(id, userId, role);
+    const category = await this.getCategoryWithOwnership(id, userId, role);
 
     const updateData: CategoryUpdateData = {};
 
     if (dto.name !== undefined) {
       updateData.name = dto.name;
+    }
+    if (
+      dto.type !== undefined ||
+      dto.registrationMode !== undefined ||
+      dto.teamSize !== undefined
+    ) {
+      const type = (dto.type ?? category.type) as CategoryType;
+      const config = registrationConfigForType(
+        type,
+        dto.registrationMode ?? category.registrationMode,
+        dto.teamSize ?? category.teamSize
+      );
+      if (
+        (type !== category.type ||
+          config.registrationMode !== category.registrationMode ||
+          config.teamSize !== category.teamSize) &&
+        (await this.prisma.categoryRegistration.count({
+          where: { categoryId: id },
+        })) > 0
+      ) {
+        throw new BadRequestException(
+          'Cannot change registration mode or team size after registrations exist'
+        );
+      }
+      updateData.type = type;
+      updateData.registrationMode = config.registrationMode;
+      updateData.teamSize = config.teamSize;
     }
     if (dto.hasGroupStage !== undefined)
       updateData.hasGroupStage = dto.hasGroupStage;
@@ -612,13 +671,81 @@ export class CategoriesService {
     });
   }
 
+  async getRegistration(categoryId: string, registrationId: string) {
+    const registration = await this.prisma.categoryRegistration.findUnique({
+      where: { id: registrationId },
+      include: {
+        category: true,
+        player: true,
+        pair: {
+          include: {
+            members: {
+              include: { player: true },
+              orderBy: { position: 'asc' },
+            },
+          },
+        },
+      },
+    });
+    if (!registration || registration.categoryId !== categoryId) {
+      throw new NotFoundException('Registration not found in this category');
+    }
+    return registration;
+  }
+
+  async getRegistrationMatches(categoryId: string, registrationId: string) {
+    await this.getRegistration(categoryId, registrationId);
+    return this.prisma.categoryMatch.findMany({
+      where: {
+        categoryId,
+        participants: {
+          some: { categoryRegistrationId: registrationId },
+        },
+      },
+      include: MATCH_SCORING_INCLUDE,
+      orderBy: { matchNumber: 'asc' },
+    });
+  }
+
   async createRegistration(
     categoryId: string,
     dto: CreateCategoryRegistrationDto,
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    const category = await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role
+    );
+    if (
+      (category.registrationMode === 'TEAM' && !dto.tournamentPairId) ||
+      (category.registrationMode === 'INDIVIDUAL' && !dto.tournamentPlayerId)
+    ) {
+      throw new BadRequestException(
+        `Category requires a ${category.registrationMode.toLowerCase()} registration`
+      );
+    }
+    if (dto.tournamentPairId) {
+      const pair = await this.prisma.tournamentPair.findUnique({
+        where: { id: dto.tournamentPairId },
+      });
+      if (!pair || pair.tournamentId !== category.tournamentId) {
+        throw new BadRequestException(
+          'Pair must belong to the category tournament'
+        );
+      }
+    }
+    if (dto.tournamentPlayerId) {
+      const player = await this.prisma.tournamentPlayer.findUnique({
+        where: { id: dto.tournamentPlayerId },
+      });
+      if (!player || player.tournamentId !== category.tournamentId) {
+        throw new BadRequestException(
+          'Player must belong to the category tournament'
+        );
+      }
+    }
 
     // Check for duplicate registration
     const existing = await this.prisma.categoryRegistration.findFirst({
@@ -679,6 +806,106 @@ export class CategoriesService {
       where: { id: registrationId },
     });
     return { message: 'Registration removed successfully' };
+  }
+
+  async convertLegacyRegistrationToPair(
+    categoryId: string,
+    registrationId: string,
+    dto: ConvertLegacyRegistrationDto,
+    userId: string,
+    role?: string
+  ) {
+    const category = await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role
+    );
+    if (category.registrationMode !== 'TEAM') {
+      throw new BadRequestException('Only team registrations can be converted');
+    }
+    const registration = await this.prisma.categoryRegistration.findUnique({
+      where: { id: registrationId },
+    });
+    if (!registration || registration.categoryId !== categoryId) {
+      throw new NotFoundException('Registration not found in this category');
+    }
+    if (registration.tournamentPairId) {
+      throw new BadRequestException('Registration is already linked to a pair');
+    }
+    const players = await this.prisma.tournamentPlayer.findMany({
+      where: {
+        id: { in: dto.playerIds },
+        tournamentId: category.tournamentId,
+      },
+    });
+    if (players.length !== dto.playerIds.length) {
+      throw new BadRequestException(
+        'All pair members must belong to this tournament'
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const pair = await tx.tournamentPair.create({
+        data: {
+          tournamentId: category.tournamentId,
+          name: dto.name,
+          type: (dto.type ?? category.type) as CategoryType,
+          notes: dto.notes,
+          members: {
+            create: dto.playerIds.map((playerId, index) => ({
+              playerId,
+              position: index + 1,
+            })),
+          },
+        },
+      });
+      const updated = await tx.categoryRegistration.update({
+        where: { id: registrationId },
+        data: { tournamentPlayerId: null, tournamentPairId: pair.id },
+        include: {
+          player: true,
+          pair: {
+            include: {
+              members: {
+                include: { player: true },
+                orderBy: { position: 'asc' },
+              },
+            },
+          },
+        },
+      });
+      if (registration.tournamentPlayerId) {
+        const references = await tx.categoryRegistration.count({
+          where: { tournamentPlayerId: registration.tournamentPlayerId },
+        });
+        if (references === 0) {
+          await tx.tournamentPlayer.delete({
+            where: { id: registration.tournamentPlayerId },
+          });
+        }
+      }
+      return updated;
+    });
+  }
+
+  private async assertRegistrationReady(registrationId: string) {
+    const registration = await this.prisma.categoryRegistration.findUnique({
+      where: { id: registrationId },
+      include: {
+        category: true,
+        pair: { include: { members: true } },
+      },
+    });
+    if (!registration) throw new NotFoundException('Registration not found');
+    if (
+      registration.category.registrationMode === 'TEAM' &&
+      (!registration.pair ||
+        registration.pair.members.length < registration.category.teamSize)
+    ) {
+      throw new BadRequestException(
+        'Team roster is incomplete. Add all required members first.'
+      );
+    }
   }
 
   // ─── Phase 4: Group CRUD ──────────────────────────────────
@@ -823,6 +1050,8 @@ export class CategoriesService {
       throw new NotFoundException('Registration not found in this category');
     }
 
+    await this.assertRegistrationReady(categoryRegistrationId);
+
     // Check if already assigned to this group
     const existing = await this.prisma.categoryGroupRegistration.findFirst({
       where: { groupId, categoryRegistrationId },
@@ -868,6 +1097,10 @@ export class CategoriesService {
     if (!group || group.categoryId !== categoryId) {
       throw new NotFoundException('Group not found in this category');
     }
+
+    await Promise.all(
+      categoryRegistrationIds.map((id) => this.assertRegistrationReady(id))
+    );
 
     const results = await this.prisma.$transaction(async (tx) => {
       const created: Awaited<
@@ -929,6 +1162,7 @@ export class CategoriesService {
     });
 
     const regIds = registrations.map((r) => r.id);
+    await Promise.all(regIds.map((id) => this.assertRegistrationReady(id)));
 
     // Optional shuffle (Fisher-Yates)
     const shuffle = options.shuffle !== false; // default true
@@ -1081,6 +1315,7 @@ export class CategoriesService {
     }
 
     const regIds = groupRegs.map((gr) => gr.categoryRegistrationId);
+    await Promise.all(regIds.map((id) => this.assertRegistrationReady(id)));
 
     // Generate round-robin matches: n*(n-1)/2
     const matchPairs: { reg1: string; reg2: string; matchNumber: number }[] =
@@ -1220,6 +1455,11 @@ export class CategoriesService {
     role?: string
   ) {
     await this.getCategoryWithOwnership(categoryId, userId, role);
+    await Promise.all(
+      dto.participants.map((participant) =>
+        this.assertRegistrationReady(participant.categoryRegistrationId)
+      )
+    );
 
     return this.prisma.categoryMatch.create({
       data: {
@@ -1378,9 +1618,11 @@ export class CategoriesService {
   ) {
     const match = await this.getMatchForScoring(id, userId, role);
 
-    if (match.status !== 'IN_PROGRESS') {
+    // Allow recording a result directly from SCHEDULED (host manual entry) or
+    // from IN_PROGRESS (live scoring). A finished match cannot be re-ended.
+    if (match.status !== 'IN_PROGRESS' && match.status !== 'SCHEDULED') {
       throw new BadRequestException(
-        'Match can only be ended from IN_PROGRESS status'
+        'Match can only be ended from SCHEDULED or IN_PROGRESS status'
       );
     }
 
@@ -1405,6 +1647,7 @@ export class CategoriesService {
       where: { id },
       data: {
         status: 'FINISHED',
+        startTime: match.startTime ?? new Date(),
         endTime: new Date(),
         score: dto.score,
         sets: dto.sets
@@ -1978,6 +2221,9 @@ export class CategoriesService {
     categoryId: string,
     registrationIds: string[]
   ) {
+    await Promise.all(
+      registrationIds.map((id) => this.assertRegistrationReady(id))
+    );
     const category = await this.prisma.category.findUnique({
       where: { id: categoryId },
     });

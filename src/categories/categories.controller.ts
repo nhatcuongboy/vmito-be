@@ -12,6 +12,7 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { CategoriesService } from './categories.service';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CreateCategoryRegistrationDto } from './dto/create-category-registration.dto';
+import { ConvertLegacyRegistrationDto } from '../tournaments/dto/tournament-pair.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { AssignGroupRegistrationDto } from './dto/assign-group-registration.dto';
 import { BulkAssignGroupRegistrationDto } from './dto/bulk-assign-group-registration.dto';
@@ -85,6 +86,24 @@ export class CategoriesController {
     );
   }
 
+  @Public()
+  @Get(':id/registrations/:registrationId')
+  getRegistration(
+    @Param('id') id: string,
+    @Param('registrationId') registrationId: string
+  ) {
+    return this.categoriesService.getRegistration(id, registrationId);
+  }
+
+  @Public()
+  @Get(':id/registrations/:registrationId/matches')
+  getRegistrationMatches(
+    @Param('id') id: string,
+    @Param('registrationId') registrationId: string
+  ) {
+    return this.categoriesService.getRegistrationMatches(id, registrationId);
+  }
+
   @Delete(':id/registrations/:registrationId')
   deleteRegistration(
     @Param('id') id: string,
@@ -94,6 +113,22 @@ export class CategoriesController {
     return this.categoriesService.deleteRegistration(
       id,
       registrationId,
+      user.userId,
+      user.role
+    );
+  }
+
+  @Put(':id/registrations/:registrationId/convert-to-pair')
+  convertLegacyRegistrationToPair(
+    @Param('id') id: string,
+    @Param('registrationId') registrationId: string,
+    @Body() dto: ConvertLegacyRegistrationDto,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.convertLegacyRegistrationToPair(
+      id,
+      registrationId,
+      dto,
       user.userId,
       user.role
     );

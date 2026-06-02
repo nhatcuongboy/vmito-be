@@ -13,6 +13,7 @@ import {
   UpdateTournamentPlayerDto,
 } from './dto/create-tournament-player.dto';
 import { ScoreboardQueryDto } from './dto/scoreboard-query.dto';
+import { SaveTournamentPairDto } from './dto/tournament-pair.dto';
 import { TournamentStatus, ScheduleType, MatchStatus } from '@prisma/client';
 import { MATCH_SCORING_INCLUDE } from '../categories/scoring/match-include';
 import { normalizeMatchForBroadcast } from '../categories/scoring/normalize-match';
@@ -595,12 +596,191 @@ export class TournamentsService {
         participants: {
           some: {
             categoryRegistration: {
-              player: { id }, // matches where this player is participating directly
+              OR: [
+                { player: { id } },
+                { pair: { members: { some: { playerId: id } } } },
+              ],
             },
           },
         },
       },
-      include: { category: true },
+      include: {
+        category: true,
+        court: true,
+        participants: {
+          include: {
+            categoryRegistration: {
+              include: {
+                player: true,
+                pair: {
+                  include: {
+                    members: {
+                      include: { player: true },
+                      orderBy: { position: 'asc' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  private async assertTournamentOwnership(
+    tournamentId: string,
+    userId: string,
+    role?: string
+  ) {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId },
+    });
+    if (!tournament) throw new NotFoundException('Tournament not found');
+    if (tournament.hostId !== userId && role !== 'ADMIN') {
+      throw new ForbiddenException('You can only modify your own tournaments');
+    }
+    return tournament;
+  }
+
+  private async validatePairPlayers(tournamentId: string, playerIds: string[]) {
+    const players = await this.prisma.tournamentPlayer.findMany({
+      where: { id: { in: playerIds }, tournamentId },
+    });
+    if (players.length !== playerIds.length) {
+      throw new BadRequestException(
+        'All pair members must belong to this tournament'
+      );
+    }
+  }
+
+  async getPairs(tournamentId: string) {
+    return this.prisma.tournamentPair.findMany({
+      where: { tournamentId },
+      include: {
+        members: {
+          include: { player: true },
+          orderBy: { position: 'asc' },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createPair(
+    tournamentId: string,
+    dto: SaveTournamentPairDto,
+    userId: string,
+    role?: string
+  ) {
+    await this.assertTournamentOwnership(tournamentId, userId, role);
+    await this.validatePairPlayers(tournamentId, dto.playerIds);
+    return this.prisma.tournamentPair.create({
+      data: {
+        tournamentId,
+        name: dto.name,
+        type: dto.type as any,
+        notes: dto.notes,
+        members: {
+          create: dto.playerIds.map((playerId, index) => ({
+            playerId,
+            position: index + 1,
+          })),
+        },
+      },
+      include: {
+        members: {
+          include: { player: true },
+          orderBy: { position: 'asc' },
+        },
+      },
+    });
+  }
+
+  async getPair(id: string) {
+    const pair = await this.prisma.tournamentPair.findUnique({
+      where: { id },
+      include: {
+        members: {
+          include: { player: true },
+          orderBy: { position: 'asc' },
+        },
+      },
+    });
+    if (!pair) throw new NotFoundException('Pair not found');
+    return pair;
+  }
+
+  async updatePair(
+    id: string,
+    dto: SaveTournamentPairDto,
+    userId: string,
+    role?: string
+  ) {
+    const pair = await this.getPair(id);
+    await this.assertTournamentOwnership(pair.tournamentId, userId, role);
+    await this.validatePairPlayers(pair.tournamentId, dto.playerIds);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.tournamentPairMember.deleteMany({ where: { pairId: id } });
+      return tx.tournamentPair.update({
+        where: { id },
+        data: {
+          name: dto.name,
+          type: dto.type as any,
+          notes: dto.notes,
+          members: {
+            create: dto.playerIds.map((playerId, index) => ({
+              playerId,
+              position: index + 1,
+            })),
+          },
+        },
+        include: {
+          members: {
+            include: { player: true },
+            orderBy: { position: 'asc' },
+          },
+        },
+      });
+    });
+  }
+
+  async deletePair(id: string, userId: string, role?: string) {
+    const pair = await this.getPair(id);
+    await this.assertTournamentOwnership(pair.tournamentId, userId, role);
+    await this.prisma.tournamentPair.delete({ where: { id } });
+    return { message: 'Pair deleted successfully' };
+  }
+
+  async getPairMatches(id: string) {
+    await this.getPair(id);
+    return this.prisma.categoryMatch.findMany({
+      where: {
+        participants: {
+          some: { categoryRegistration: { tournamentPairId: id } },
+        },
+      },
+      include: {
+        category: true,
+        court: true,
+        participants: {
+          include: {
+            categoryRegistration: {
+              include: {
+                player: true,
+                pair: {
+                  include: {
+                    members: {
+                      include: { player: true },
+                      orderBy: { position: 'asc' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     });
   }
 

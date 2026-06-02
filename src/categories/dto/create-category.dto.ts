@@ -1,4 +1,4 @@
-import { IsString, IsIn, IsOptional } from 'class-validator';
+import { IsString, IsIn, IsOptional, IsInt, Min } from 'class-validator';
 
 export class CreateCategoryDto {
   @IsString()
@@ -17,4 +17,13 @@ export class CreateCategoryDto {
   @IsOptional()
   @IsIn(['ROUND_ROBIN', 'SINGLE_ELIMINATION', 'ROUND_ROBIN_TO_SE'])
   format?: string;
+
+  @IsOptional()
+  @IsIn(['INDIVIDUAL', 'TEAM'])
+  registrationMode?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  teamSize?: number;
 }
