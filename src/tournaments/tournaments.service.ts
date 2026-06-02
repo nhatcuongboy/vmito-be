@@ -225,6 +225,8 @@ export class TournamentsService {
       isPublished?: boolean;
       scheduleType?: ScheduleType;
       venueId?: string;
+      coverPhoto?: string;
+      coverPhotoPublicId?: string;
     } = {};
 
     if (dto.name !== undefined) {
@@ -263,6 +265,14 @@ export class TournamentsService {
       updateData.venueId = dto.venueId;
     }
 
+    if (dto.coverPhoto !== undefined) {
+      updateData.coverPhoto = dto.coverPhoto;
+    }
+
+    if (dto.coverPhotoPublicId !== undefined) {
+      updateData.coverPhotoPublicId = dto.coverPhotoPublicId;
+    }
+
     // Validate date range only when dates are being changed
     if (updateData.startDate || updateData.endDate) {
       const finalStartDate =
@@ -271,6 +281,12 @@ export class TournamentsService {
       if (finalStartDate >= finalEndDate) {
         throw new BadRequestException('End date must be after start date');
       }
+    }
+
+    // Require complete team rosters when publishing the tournament. Incomplete
+    // rosters are allowed while drafting; this is the gate before going public.
+    if (updateData.isPublished === true && !existingTournament.isPublished) {
+      await this.assertNoIncompleteTeamRegistrations(id);
     }
 
     const tournament = await this.prisma.tournament.update({
@@ -538,6 +554,33 @@ export class TournamentsService {
       where: { id: tournamentVenue.id },
     });
     return { success: true };
+  }
+
+  /**
+   * Throws if any TEAM-mode registration in the tournament has an incomplete
+   * roster (pair missing or fewer than teamSize members). Used as the gate
+   * before publishing a tournament.
+   */
+  private async assertNoIncompleteTeamRegistrations(tournamentId: string) {
+    const registrations = await this.prisma.categoryRegistration.findMany({
+      where: {
+        category: { tournamentId, registrationMode: 'TEAM' },
+      },
+      include: {
+        category: true,
+        pair: { include: { members: true } },
+      },
+    });
+    const incomplete = registrations.find(
+      (registration) =>
+        !registration.pair ||
+        registration.pair.members.length < registration.category.teamSize
+    );
+    if (incomplete) {
+      throw new BadRequestException(
+        'Team roster is incomplete. Add all required members before publishing the tournament.'
+      );
+    }
   }
 
   async getPlayers(tournamentId: string) {

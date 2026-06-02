@@ -34,4 +34,12 @@ export class UpdateTournamentDto {
   @IsOptional()
   @IsString()
   venueId?: string;
+
+  @IsOptional()
+  @IsString()
+  coverPhoto?: string;
+
+  @IsOptional()
+  @IsString()
+  coverPhotoPublicId?: string;
 }

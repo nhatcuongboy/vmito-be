@@ -888,6 +888,15 @@ export class CategoriesService {
     });
   }
 
+  /**
+   * Ensures a registration is ready for play: for TEAM categories the pair
+   * must have its full roster (>= teamSize members).
+   *
+   * Roster completeness is NOT enforced when building the tournament structure
+   * (assigning groups, generating group/bracket matches or the schedule) so
+   * organizers can draft brackets early and fill rosters later. It is enforced
+   * at play time (starting/ending a match) and before publishing.
+   */
   private async assertRegistrationReady(registrationId: string) {
     const registration = await this.prisma.categoryRegistration.findUnique({
       where: { id: registrationId },
@@ -906,6 +915,17 @@ export class CategoriesService {
         'Team roster is incomplete. Add all required members first.'
       );
     }
+  }
+
+  /** Ensures every participant of a match has a complete roster before play. */
+  private async assertMatchRostersReady(
+    participants: { categoryRegistrationId: string }[]
+  ) {
+    await Promise.all(
+      participants.map((participant) =>
+        this.assertRegistrationReady(participant.categoryRegistrationId)
+      )
+    );
   }
 
   // ─── Phase 4: Group CRUD ──────────────────────────────────
@@ -1050,8 +1070,6 @@ export class CategoriesService {
       throw new NotFoundException('Registration not found in this category');
     }
 
-    await this.assertRegistrationReady(categoryRegistrationId);
-
     // Check if already assigned to this group
     const existing = await this.prisma.categoryGroupRegistration.findFirst({
       where: { groupId, categoryRegistrationId },
@@ -1097,10 +1115,6 @@ export class CategoriesService {
     if (!group || group.categoryId !== categoryId) {
       throw new NotFoundException('Group not found in this category');
     }
-
-    await Promise.all(
-      categoryRegistrationIds.map((id) => this.assertRegistrationReady(id))
-    );
 
     const results = await this.prisma.$transaction(async (tx) => {
       const created: Awaited<
@@ -1162,7 +1176,6 @@ export class CategoriesService {
     });
 
     const regIds = registrations.map((r) => r.id);
-    await Promise.all(regIds.map((id) => this.assertRegistrationReady(id)));
 
     // Optional shuffle (Fisher-Yates)
     const shuffle = options.shuffle !== false; // default true
@@ -1315,7 +1328,6 @@ export class CategoriesService {
     }
 
     const regIds = groupRegs.map((gr) => gr.categoryRegistrationId);
-    await Promise.all(regIds.map((id) => this.assertRegistrationReady(id)));
 
     // Generate round-robin matches: n*(n-1)/2
     const matchPairs: { reg1: string; reg2: string; matchNumber: number }[] =
@@ -1455,11 +1467,6 @@ export class CategoriesService {
     role?: string
   ) {
     await this.getCategoryWithOwnership(categoryId, userId, role);
-    await Promise.all(
-      dto.participants.map((participant) =>
-        this.assertRegistrationReady(participant.categoryRegistrationId)
-      )
-    );
 
     return this.prisma.categoryMatch.create({
       data: {
@@ -1601,6 +1608,8 @@ export class CategoriesService {
       );
     }
 
+    await this.assertMatchRostersReady(match.participants);
+
     const updated = await this.prisma.categoryMatch.update({
       where: { id },
       data: { status: 'IN_PROGRESS', startTime: new Date() },
@@ -1625,6 +1634,8 @@ export class CategoriesService {
         'Match can only be ended from SCHEDULED or IN_PROGRESS status'
       );
     }
+
+    await this.assertMatchRostersReady(match.participants);
 
     // Auto-calculate total scores from sets if provided
     let { player1Score, player2Score, player3Score, player4Score } = dto;
@@ -2221,9 +2232,6 @@ export class CategoriesService {
     categoryId: string,
     registrationIds: string[]
   ) {
-    await Promise.all(
-      registrationIds.map((id) => this.assertRegistrationReady(id))
-    );
     const category = await this.prisma.category.findUnique({
       where: { id: categoryId },
     });

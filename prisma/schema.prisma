@@ -527,18 +527,20 @@ enum MatchStatus {
 // Tournament Management Models
 
 model Tournament {
-  id           String           @id @default(cuid())
-  slug         String           @unique
-  name         String
-  startDate    DateTime
-  endDate      DateTime
-  hostId       String
-  venueId      String?
-  status       TournamentStatus @default(PREPARING)
-  isPublished  Boolean          @default(false)
-  scheduleType ScheduleType?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  id                  String           @id @default(cuid())
+  slug                String           @unique
+  name                String
+  startDate           DateTime
+  endDate             DateTime
+  hostId              String
+  venueId             String?
+  status              TournamentStatus @default(PREPARING)
+  isPublished         Boolean          @default(false)
+  scheduleType        ScheduleType?
+  coverPhoto          String?
+  coverPhotoPublicId  String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
   // Relations
   host             User                      @relation("HostedTournaments", fields: [hostId], references: [id])

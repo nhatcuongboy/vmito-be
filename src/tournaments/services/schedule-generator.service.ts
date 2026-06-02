@@ -115,7 +115,10 @@ export class ScheduleGeneratorService {
   ): Promise<GenerateResponse> {
     // Verify tournament ownership
     await this.verifyTournamentOwnership(tournamentId, userId);
-    await this.assertNoIncompleteTeamRegistrations(tournamentId);
+
+    // Note: incomplete team rosters are allowed here so organizers can build
+    // the schedule early. Roster completeness is enforced at play time
+    // (starting/ending a match) and before publishing the tournament.
 
     // Auto-generate matches for categories/groups that have registrations but no matches
     await this.autoGenerateMissingMatches(tournamentId);
@@ -323,28 +326,6 @@ export class ScheduleGeneratorService {
       },
       conflicts: result.conflicts,
     };
-  }
-
-  private async assertNoIncompleteTeamRegistrations(tournamentId: string) {
-    const registrations = await this.prisma.categoryRegistration.findMany({
-      where: {
-        category: { tournamentId, registrationMode: 'TEAM' },
-      },
-      include: {
-        category: true,
-        pair: { include: { members: true } },
-      },
-    });
-    const incomplete = registrations.find(
-      (registration) =>
-        !registration.pair ||
-        registration.pair.members.length < registration.category.teamSize
-    );
-    if (incomplete) {
-      throw new BadRequestException(
-        'Team roster is incomplete. Add all required members before generating a schedule.'
-      );
-    }
   }
 
   /**
