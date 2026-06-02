@@ -14,6 +14,14 @@ import { ClosureStatus, VenueStatus } from '@prisma/client';
 export class SearchVenueDto {
   @ApiProperty({
     required: false,
+    description: 'Exact Google Place ID lookup',
+  })
+  @IsOptional()
+  @IsString()
+  placeId?: string;
+
+  @ApiProperty({
+    required: false,
     description: 'Search by venue name or address',
   })
   @IsOptional()

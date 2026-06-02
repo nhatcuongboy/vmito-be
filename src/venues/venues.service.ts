@@ -47,6 +47,7 @@ export class VenuesService {
 
   async searchVenues(filters: SearchVenueDto) {
     const {
+      placeId,
       keyword,
       city,
       district,
@@ -67,6 +68,10 @@ export class VenuesService {
 
     const skip = (page - 1) * limit;
     const andConditions: Prisma.VenueWhereInput[] = [];
+
+    if (placeId) {
+      andConditions.push({ placeId });
+    }
 
     // Keyword search (name OR address)
     if (keyword) {
@@ -139,13 +144,17 @@ export class VenuesService {
       }
     }
 
-    // Status filter - default to ACTIVE
-    andConditions.push({ status: status ?? VenueStatus.ACTIVE });
+    // Status filter - default to ACTIVE unless doing an exact placeId lookup
+    if (status || !placeId) {
+      andConditions.push({ status: status ?? VenueStatus.ACTIVE });
+    }
 
-    // Closure status filter - default to OPERATING
-    andConditions.push({
-      closureStatus: closureStatus ?? ClosureStatus.OPERATING,
-    });
+    // Closure status filter - default to OPERATING unless doing an exact placeId lookup
+    if (closureStatus || !placeId) {
+      andConditions.push({
+        closureStatus: closureStatus ?? ClosureStatus.OPERATING,
+      });
+    }
 
     // Verified filter
     if (isVerified !== undefined) {
@@ -291,6 +300,52 @@ export class VenuesService {
   }
 
   async create(createVenueDto: CreateVenueDto) {
+    // Check for duplicate placeId
+    if (createVenueDto.placeId) {
+      const existing = await this.findByPlaceId(createVenueDto.placeId);
+      if (existing) {
+        throw new ConflictException(
+          'A venue with this location already exists.'
+        );
+      }
+    }
+
+    return this.createVenueRecord(createVenueDto);
+  }
+
+  async findOrCreate(createVenueDto: CreateVenueDto) {
+    if (createVenueDto.placeId) {
+      const existing = await this.findByPlaceId(createVenueDto.placeId);
+      if (existing) {
+        return existing;
+      }
+    }
+
+    try {
+      return await this.createVenueRecord(createVenueDto);
+    } catch (error) {
+      if (
+        createVenueDto.placeId &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const existing = await this.findByPlaceId(createVenueDto.placeId);
+        if (existing) {
+          return existing;
+        }
+      }
+
+      throw error;
+    }
+  }
+
+  private findByPlaceId(placeId: string) {
+    return this.prisma.venue.findUnique({
+      where: { placeId },
+    });
+  }
+
+  private async createVenueRecord(createVenueDto: CreateVenueDto) {
     const district = createVenueDto.district
       ? this.normalizeAdminUnit(createVenueDto.district)
       : createVenueDto.district;
@@ -316,18 +371,6 @@ export class VenuesService {
     }
 
     const slug = await this.generateUniqueSlug(createVenueDto.name);
-
-    // Check for duplicate placeId
-    if (createVenueDto.placeId) {
-      const existing = await this.prisma.venue.findFirst({
-        where: { placeId: createVenueDto.placeId },
-      });
-      if (existing) {
-        throw new ConflictException(
-          'A venue with this location already exists.'
-        );
-      }
-    }
 
     return this.prisma.venue.create({
       data: {

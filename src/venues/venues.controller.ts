@@ -64,6 +64,11 @@ export class VenuesController {
     return this.venuesService.create(createVenueDto);
   }
 
+  @Post('find-or-create')
+  findOrCreate(@Body() createVenueDto: CreateVenueDto) {
+    return this.venuesService.findOrCreate(createVenueDto);
+  }
+
   @Post('bulk')
   @UseGuards(AdminGuard)
   createBulk(@Body() createBulkVenueDto: CreateBulkVenueDto) {
