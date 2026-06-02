@@ -2244,6 +2244,26 @@ export class CategoriesService {
     const bracketMatchFormat =
       category?.eliminationMatchFormat ?? category?.matchFormat;
 
+    // Optional per-round overrides stored in formatConfig.roundFormats, keyed by
+    // round label (F, SF, QF, R16, ..., 3RD). Falls back to bracketMatchFormat.
+    const VALID_MATCH_FORMATS = new Set([
+      'BEST_OF_1',
+      'BEST_OF_3',
+      'BEST_OF_5',
+    ]);
+    const formatConfig = category?.formatConfig as {
+      roundFormats?: Record<string, string>;
+    } | null;
+    const roundFormats = formatConfig?.roundFormats ?? {};
+    const formatForRound = (round: string): MatchFormat => {
+      const override = roundFormats[round];
+      const value =
+        override && VALID_MATCH_FORMATS.has(override)
+          ? override
+          : bracketMatchFormat;
+      return value as MatchFormat;
+    };
+
     // Standard seeding to separate top seeds
     const seedOrder = this.generateStandardSeeding(bracketSize);
 
@@ -2287,7 +2307,7 @@ export class CategoriesService {
             round: roundNames[0],
             matchNumber: globalMatchNumber++,
             status: 'SCHEDULED',
-            matchFormat: bracketMatchFormat,
+            matchFormat: formatForRound(roundNames[0]),
             participants: {
               create: [
                 { categoryRegistrationId: slot1, position: 1 },
@@ -2307,7 +2327,7 @@ export class CategoriesService {
             round: roundNames[0],
             matchNumber: globalMatchNumber++,
             status: 'FINISHED',
-            matchFormat: bracketMatchFormat,
+            matchFormat: formatForRound(roundNames[0]),
             winnerId: realPlayer,
             score: 'BYE',
             participants: {
@@ -2332,7 +2352,7 @@ export class CategoriesService {
             round: roundNames[round],
             matchNumber: globalMatchNumber++,
             status: 'SCHEDULED',
-            matchFormat: bracketMatchFormat,
+            matchFormat: formatForRound(roundNames[round]),
           },
           include: { participants: true, court: true },
         });
@@ -2348,7 +2368,7 @@ export class CategoriesService {
           round: '3RD',
           matchNumber: globalMatchNumber++,
           status: 'SCHEDULED',
-          matchFormat: bracketMatchFormat,
+          matchFormat: formatForRound('3RD'),
         },
         include: { participants: true, court: true },
       });

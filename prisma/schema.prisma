@@ -614,6 +614,7 @@ enum CategoryFormat {
 enum MatchFormat {
   BEST_OF_1
   BEST_OF_3
+  BEST_OF_5
 }
 
 enum CategoryType {

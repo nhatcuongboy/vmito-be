@@ -42,6 +42,6 @@ export class CreateCategoryMatchDto {
   startTime?: string;
 
   @IsOptional()
-  @IsIn(['BEST_OF_1', 'BEST_OF_3'])
+  @IsIn(['BEST_OF_1', 'BEST_OF_3', 'BEST_OF_5'])
   matchFormat?: string;
 }

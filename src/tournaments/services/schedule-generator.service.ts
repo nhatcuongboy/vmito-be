@@ -124,7 +124,7 @@ export class ScheduleGeneratorService {
     await this.autoGenerateMissingMatches(tournamentId);
 
     // Fetch all matches with participants
-    const matchesRaw = await this.prisma.categoryMatch.findMany({
+    const matchesRawAll = await this.prisma.categoryMatch.findMany({
       where: {
         category: { tournamentId },
         status: { in: [MatchStatus.SCHEDULED] },
@@ -141,6 +141,20 @@ export class ScheduleGeneratorService {
         },
       },
     });
+
+    // Skip placeholder matches that have no participants yet
+    // (e.g. elimination bracket subsequent rounds waiting for winners).
+    // Scheduling them would surface as "TBD vs TBD" in the generated schedule.
+    const matchesRaw = matchesRawAll.filter(
+      (m) => m.participants.length >= 2
+    );
+    const skippedPlaceholderCount =
+      matchesRawAll.length - matchesRaw.length;
+    if (skippedPlaceholderCount > 0) {
+      this.logger.log(
+        `Skipped ${skippedPlaceholderCount} placeholder match(es) without participants in tournament ${tournamentId}`
+      );
+    }
 
     // Get round types from matches
     const roundTypes = [...new Set(matchesRaw.map((m) => m.round))];
@@ -638,10 +652,22 @@ export class ScheduleGeneratorService {
    * Auto-generate round-robin matches for groups that have registrations but no matches yet.
    * This ensures the schedule generator includes all categories, not just those
    * where matches were already manually generated.
+   *
+   * Also handles two additional setup gaps that would otherwise hide a category
+   * from the generated schedule:
+   *   1. Group-stage categories that have registrations but no groups yet → create
+   *      default groups (using category.groupCount, falling back to 1).
+   *   2. Group-stage categories whose groups exist but have no registrations
+   *      assigned → bulk auto-assign all category registrations using a simple
+   *      round-robin distribution.
    */
   private async autoGenerateMissingMatches(
     tournamentId: string
   ): Promise<void> {
+    // Step 1: Ensure group-stage categories have groups with assigned registrations.
+    await this.ensureGroupsForCategories(tournamentId);
+
+    // Step 2: Generate round-robin matches for every group that still has none.
     // Find all groups in this tournament that have registrations
     const groups = await this.prisma.categoryGroup.findMany({
       where: {
@@ -695,6 +721,98 @@ export class ScheduleGeneratorService {
 
       this.logger.log(
         `Generated ${matchNumber - 1} match(es) for group ${group.id} in category ${group.categoryId}`
+      );
+    }
+  }
+
+  /**
+   * For every group-stage category in the tournament, make sure that:
+   *   - At least one group exists (creates default groups if none).
+   *   - Every registration is assigned to a group (round-robin distribution).
+   *
+   * Categories with format SINGLE_ELIMINATION (hasGroupStage === false) are
+   * skipped here; their bracket is generated through the dedicated
+   * completeGroupStage / generateEliminationBracket flow.
+   */
+  private async ensureGroupsForCategories(
+    tournamentId: string
+  ): Promise<void> {
+    const categories = await this.prisma.category.findMany({
+      where: { tournamentId, hasGroupStage: true },
+      include: {
+        registrations: { select: { id: true } },
+        groups: {
+          orderBy: { groupNumber: 'asc' },
+          include: {
+            registrations: { select: { categoryRegistrationId: true } },
+          },
+        },
+      },
+    });
+
+    const groupNames = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+    for (const category of categories) {
+      if (category.registrations.length === 0) continue;
+
+      // 1) Create groups if none exist yet.
+      let groups = category.groups;
+      if (groups.length === 0) {
+        const desiredCount = Math.max(1, category.groupCount ?? 1);
+        const data = Array.from({ length: desiredCount }, (_, i) => ({
+          categoryId: category.id,
+          groupNumber: i + 1,
+          name: `Group ${groupNames[i] || i + 1}`,
+        }));
+        await this.prisma.categoryGroup.createMany({ data });
+        groups = await this.prisma.categoryGroup.findMany({
+          where: { categoryId: category.id },
+          orderBy: { groupNumber: 'asc' },
+          include: {
+            registrations: { select: { categoryRegistrationId: true } },
+          },
+        });
+        this.logger.log(
+          `Auto-created ${desiredCount} group(s) for category ${category.id}`
+        );
+      }
+
+      // 2) Auto-assign registrations that are not in any group of this category.
+      const assignedIds = new Set<string>();
+      for (const g of groups) {
+        for (const r of g.registrations) {
+          assignedIds.add(r.categoryRegistrationId);
+        }
+      }
+      const unassigned = category.registrations
+        .map((r) => r.id)
+        .filter((id) => !assignedIds.has(id));
+      if (unassigned.length === 0) continue;
+
+      // Distribute round-robin into the group with the fewest current
+      // registrations to keep group sizes balanced.
+      const groupCounts = groups.map((g) => ({
+        id: g.id,
+        count: g.registrations.length,
+      }));
+      const assignments: { categoryRegistrationId: string; groupId: string }[] =
+        [];
+      for (const regId of unassigned) {
+        groupCounts.sort((a, b) => a.count - b.count);
+        const target = groupCounts[0];
+        assignments.push({
+          categoryRegistrationId: regId,
+          groupId: target.id,
+        });
+        target.count++;
+      }
+
+      await this.prisma.categoryGroupRegistration.createMany({
+        data: assignments,
+        skipDuplicates: true,
+      });
+      this.logger.log(
+        `Auto-assigned ${assignments.length} registration(s) to groups for category ${category.id}`
       );
     }
   }

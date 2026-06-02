@@ -2,7 +2,8 @@
  * Pure, stateless badminton scoring rules used by the live-scoring endpoints.
  *
  * Standard rules: rally to 21, must win by 2, hard cap at 30 (so 30-29 wins).
- * BEST_OF_1 = a single set decides the match; BEST_OF_3 = first to 2 sets.
+ * BEST_OF_1 = a single set decides the match; BEST_OF_3 = first to 2 sets;
+ * BEST_OF_5 = first to 3 sets.
  *
  * A doubles team shares one score, so we store the side score in
  * player1Score/player2Score and mirror it into player3Score/player4Score only
@@ -13,7 +14,7 @@ export const POINTS_TO_WIN_SET = 21;
 export const WIN_BY = 2;
 export const HARD_CAP = 30;
 
-export type MatchFormatValue = 'BEST_OF_1' | 'BEST_OF_3';
+export type MatchFormatValue = 'BEST_OF_1' | 'BEST_OF_3' | 'BEST_OF_5';
 export type Side = 1 | 2;
 
 export interface ScoringSet {
@@ -45,7 +46,9 @@ export function setWinnerSide(a: number, b: number): Side | null {
 
 /** Number of sets a side must win to take the match. */
 export function setsToWin(format: MatchFormatValue): number {
-  return format === 'BEST_OF_3' ? 2 : 1;
+  if (format === 'BEST_OF_5') return 3;
+  if (format === 'BEST_OF_3') return 2;
+  return 1;
 }
 
 /** Side scores for a set as a [side1, side2] tuple. */
