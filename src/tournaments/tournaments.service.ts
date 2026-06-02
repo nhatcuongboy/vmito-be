@@ -546,6 +546,7 @@ export class TournamentsService {
       orderBy: { createdAt: 'desc' },
       include: {
         user: { select: { id: true, name: true, image: true } },
+        _count: { select: { registrations: true, pairMembers: true } },
       },
     });
   }
