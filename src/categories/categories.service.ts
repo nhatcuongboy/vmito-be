@@ -3,12 +3,14 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
 import {
   Prisma,
   CategoryType,
   CategoryFormat,
   MatchFormat,
+  MatchStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateCategoryDto } from './dto/update-category.dto';
@@ -16,6 +18,27 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateCategoryRegistrationDto } from './dto/create-category-registration.dto';
 import { CreateCategoryMatchDto } from './dto/create-category-match.dto';
 import { EndCategoryMatchDto } from './dto/end-category-match.dto';
+import { UpdateMatchScoreDto } from './dto/update-match-score.dto';
+import {
+  TournamentsGateway,
+  TournamentEventType,
+} from '../tournaments/realtime/tournaments.gateway';
+import {
+  applyDelta,
+  rebuildFromLog,
+  buildScoreString,
+  totalsFromSets,
+  MatchAlreadyDecidedError,
+  ScoringSet,
+  PointLogEntry,
+  MatchFormatValue,
+  Side,
+} from './scoring/badminton-scoring';
+import {
+  normalizeMatchForBroadcast,
+  NormalizableMatch,
+} from './scoring/normalize-match';
+import { MATCH_SCORING_INCLUDE } from './scoring/match-include';
 
 interface CategoryUpdateData {
   name?: string;
@@ -31,9 +54,18 @@ interface CategoryUpdateData {
   thirdPlaceMatch?: boolean;
 }
 
+const DOUBLES_TYPES: CategoryType[] = [
+  'MENS_DOUBLE',
+  'WOMENS_DOUBLE',
+  'MIXED_DOUBLE',
+];
+
 @Injectable()
 export class CategoriesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private tournamentsGateway: TournamentsGateway
+  ) {}
 
   // ─── Helpers ───────────────────────────────────────────────
 
@@ -72,6 +104,290 @@ export class CategoriesService {
       throw new ForbiddenException('You can only manage your own tournaments');
     }
     return match;
+  }
+
+  // ─── Live scoring helpers ─────────────────────────────────
+
+  /**
+   * Like getMatchWithOwnership, but also authorizes the referee assigned to the
+   * match (a TournamentUmpire linked to the requesting user). Used for
+   * start/score/undo/end. Destructive/schedule ops keep getMatchWithOwnership.
+   */
+  private async getMatchForScoring(
+    matchId: string,
+    userId: string,
+    role?: string
+  ) {
+    const match = await this.prisma.categoryMatch.findUnique({
+      where: { id: matchId },
+      include: MATCH_SCORING_INCLUDE,
+    });
+    if (!match) throw new NotFoundException('Match not found');
+    const isHost = match.category.tournament.hostId === userId;
+    const isAdmin = role === 'ADMIN';
+    const isAssignedReferee =
+      !!match.referee?.userId && match.referee.userId === userId;
+    if (!isHost && !isAdmin && !isAssignedReferee) {
+      throw new ForbiddenException(
+        'You are not authorized to score this match'
+      );
+    }
+    return match;
+  }
+
+  private isDoublesMatch(match: {
+    category: { type: CategoryType };
+    participants: Array<{
+      categoryRegistration?: { pair?: unknown } | null;
+    }>;
+  }): boolean {
+    if (DOUBLES_TYPES.includes(match.category.type)) return true;
+    return match.participants.some((p) => p.categoryRegistration?.pair != null);
+  }
+
+  private matchFormatOf(match: {
+    matchFormat: MatchFormat | null;
+    category: { matchFormat: MatchFormat | null };
+  }): MatchFormatValue {
+    return (match.matchFormat ??
+      match.category.matchFormat ??
+      'BEST_OF_1') as MatchFormatValue;
+  }
+
+  private parseSets(raw: Prisma.JsonValue | undefined): ScoringSet[] {
+    if (!Array.isArray(raw)) return [];
+    const result: ScoringSet[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const s = item as Record<string, unknown>;
+      const set: ScoringSet = {
+        setNumber: Number(s.setNumber) || 0,
+        player1Score: Number(s.player1Score) || 0,
+        player2Score: Number(s.player2Score) || 0,
+      };
+      if (s.player3Score !== undefined) {
+        set.player3Score = Number(s.player3Score) || 0;
+      }
+      if (s.player4Score !== undefined) {
+        set.player4Score = Number(s.player4Score) || 0;
+      }
+      result.push(set);
+    }
+    return result;
+  }
+
+  private parsePointLog(raw: Prisma.JsonValue | undefined): PointLogEntry[] {
+    if (!Array.isArray(raw)) return [];
+    const result: PointLogEntry[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const e = item as Record<string, unknown>;
+      if (e.side !== 1 && e.side !== 2) continue;
+      result.push({
+        side: e.side as Side,
+        setNumber: Number(e.setNumber) || 1,
+      });
+    }
+    return result;
+  }
+
+  /**
+   * Persist a recomputed score with an optimistic-lock guard (scoreVersion),
+   * then broadcast the normalized match to the tournament room.
+   */
+  private async persistAndBroadcastScore(
+    match: { id: string; scoreVersion: number },
+    newSets: ScoringSet[],
+    newLog: PointLogEntry[],
+    isDoubles: boolean,
+    eventType: TournamentEventType,
+    echo?: { clientId?: string; seq?: number }
+  ) {
+    const totals = totalsFromSets(newSets, isDoubles);
+    const scoreStr = buildScoreString(newSets);
+
+    const result = await this.prisma.categoryMatch.updateMany({
+      where: { id: match.id, scoreVersion: match.scoreVersion },
+      data: {
+        sets: newSets as unknown as Prisma.InputJsonValue,
+        pointLog: newLog as unknown as Prisma.InputJsonValue,
+        score: scoreStr,
+        player1Score: totals.player1Score,
+        player2Score: totals.player2Score,
+        player3Score: totals.player3Score ?? null,
+        player4Score: totals.player4Score ?? null,
+        scoreVersion: { increment: 1 },
+      },
+    });
+    if (result.count === 0) {
+      throw new ConflictException('Score changed concurrently, please retry');
+    }
+
+    const updated = await this.prisma.categoryMatch.findUnique({
+      where: { id: match.id },
+      include: MATCH_SCORING_INCLUDE,
+    });
+    if (updated) this.broadcastMatch(updated, eventType, echo);
+    return updated;
+  }
+
+  private broadcastMatch(
+    match: NormalizableMatch,
+    eventType: TournamentEventType,
+    echo?: { clientId?: string; seq?: number }
+  ) {
+    const payload = normalizeMatchForBroadcast(match);
+    if (!payload.tournamentId) return;
+    this.tournamentsGateway.notifyTournamentEvent(
+      payload.tournamentId,
+      eventType,
+      { match: payload, ...(echo ?? {}) }
+    );
+  }
+
+  /** Point-by-point live score update (+1 / -1) by host/admin/assigned referee. */
+  async updateMatchScore(
+    id: string,
+    dto: UpdateMatchScoreDto,
+    userId: string,
+    role?: string
+  ) {
+    const match = await this.getMatchForScoring(id, userId, role);
+    if (match.status !== 'IN_PROGRESS') {
+      throw new BadRequestException(
+        'Score can only be updated while the match is in progress'
+      );
+    }
+
+    const isDoubles = this.isDoublesMatch(match);
+    const format = this.matchFormatOf(match);
+    const sets = this.parseSets(match.sets);
+    const log = this.parsePointLog(match.pointLog);
+
+    let newLog: PointLogEntry[];
+    if (dto.delta === 1) {
+      // Validate the point is allowed (throws if the match is already decided).
+      try {
+        applyDelta(sets, dto.side, 1, format, isDoubles);
+      } catch (e) {
+        if (e instanceof MatchAlreadyDecidedError) {
+          throw new BadRequestException(
+            'Match is already decided. End the match or undo a point.'
+          );
+        }
+        throw e;
+      }
+      const landingSetNumber =
+        sets.length > 0 ? sets[sets.length - 1].setNumber : 1;
+      newLog = [...log, { side: dto.side, setNumber: landingSetNumber }];
+    } else {
+      // Correction: drop the most recent point scored by that side.
+      newLog = [...log];
+      for (let i = newLog.length - 1; i >= 0; i--) {
+        if (newLog[i].side === dto.side) {
+          newLog.splice(i, 1);
+          break;
+        }
+      }
+    }
+
+    const newSets = rebuildFromLog(newLog, format, isDoubles);
+    return this.persistAndBroadcastScore(
+      match,
+      newSets,
+      newLog,
+      isDoubles,
+      TournamentEventType.TOURNAMENT_MATCH_SCORE_UPDATED,
+      { clientId: dto.clientId, seq: dto.seq }
+    );
+  }
+
+  /** Undo the most recent point (any side) by host/admin/assigned referee. */
+  async undoLastPoint(id: string, userId: string, role?: string) {
+    const match = await this.getMatchForScoring(id, userId, role);
+    if (match.status !== 'IN_PROGRESS') {
+      throw new BadRequestException(
+        'Score can only be updated while the match is in progress'
+      );
+    }
+    const isDoubles = this.isDoublesMatch(match);
+    const format = this.matchFormatOf(match);
+    const log = this.parsePointLog(match.pointLog);
+    if (log.length === 0) return match;
+
+    const newLog = log.slice(0, -1);
+    const newSets = rebuildFromLog(newLog, format, isDoubles);
+    return this.persistAndBroadcastScore(
+      match,
+      newSets,
+      newLog,
+      isDoubles,
+      TournamentEventType.TOURNAMENT_MATCH_SCORE_UPDATED
+    );
+  }
+
+  /** Assign a tournament umpire as the referee for a match (host/admin only). */
+  async assignReferee(
+    matchId: string,
+    refereeId: string,
+    userId: string,
+    role?: string
+  ) {
+    const match = await this.getMatchWithOwnership(matchId, userId, role);
+    const umpire = await this.prisma.tournamentUmpire.findUnique({
+      where: { id: refereeId },
+      select: { id: true, tournamentId: true },
+    });
+    if (!umpire) throw new NotFoundException('Referee not found');
+    if (umpire.tournamentId !== match.category.tournamentId) {
+      throw new BadRequestException(
+        'Referee belongs to a different tournament'
+      );
+    }
+    const updated = await this.prisma.categoryMatch.update({
+      where: { id: matchId },
+      data: { refereeId },
+      include: MATCH_SCORING_INCLUDE,
+    });
+    this.broadcastMatch(
+      updated,
+      TournamentEventType.TOURNAMENT_MATCH_REFEREE_ASSIGNED
+    );
+    return updated;
+  }
+
+  async unassignReferee(matchId: string, userId: string, role?: string) {
+    await this.getMatchWithOwnership(matchId, userId, role);
+    const updated = await this.prisma.categoryMatch.update({
+      where: { id: matchId },
+      data: { refereeId: null },
+      include: MATCH_SCORING_INCLUDE,
+    });
+    this.broadcastMatch(
+      updated,
+      TournamentEventType.TOURNAMENT_MATCH_REFEREE_ASSIGNED
+    );
+    return updated;
+  }
+
+  /** Matches assigned to the requesting user (resolved via referee.userId). */
+  async getMyAssignments(
+    userId: string,
+    filters: { tournamentId?: string; status?: string }
+  ) {
+    return this.prisma.categoryMatch.findMany({
+      where: {
+        referee: { userId },
+        ...(filters.tournamentId && {
+          category: { tournamentId: filters.tournamentId },
+        }),
+        ...(filters.status && {
+          status: filters.status as MatchStatus,
+        }),
+      },
+      include: MATCH_SCORING_INCLUDE,
+      orderBy: [{ status: 'asc' }, { matchNumber: 'asc' }],
+    });
   }
 
   // ─── Phase 2: Category CRUD under Tournament ──────────────
@@ -1037,7 +1353,7 @@ export class CategoriesService {
   }
 
   async startMatch(id: string, userId: string, role?: string) {
-    const match = await this.getMatchWithOwnership(id, userId, role);
+    const match = await this.getMatchForScoring(id, userId, role);
 
     if (match.status !== 'SCHEDULED') {
       throw new BadRequestException(
@@ -1045,31 +1361,13 @@ export class CategoriesService {
       );
     }
 
-    return this.prisma.categoryMatch.update({
+    const updated = await this.prisma.categoryMatch.update({
       where: { id },
       data: { status: 'IN_PROGRESS', startTime: new Date() },
-      include: {
-        participants: {
-          include: {
-            categoryRegistration: {
-              include: {
-                player: true,
-                pair: {
-                  include: {
-                    members: {
-                      include: { player: true },
-                      orderBy: { position: 'asc' },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-        court: true,
-        group: true,
-      },
+      include: MATCH_SCORING_INCLUDE,
     });
+    this.broadcastMatch(updated, TournamentEventType.TOURNAMENT_MATCH_STARTED);
+    return updated;
   }
 
   async endMatch(
@@ -1078,7 +1376,7 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    const match = await this.getMatchWithOwnership(id, userId, role);
+    const match = await this.getMatchForScoring(id, userId, role);
 
     if (match.status !== 'IN_PROGRESS') {
       throw new BadRequestException(
@@ -1120,28 +1418,7 @@ export class CategoriesService {
         player4Score,
         notes: dto.notes,
       },
-      include: {
-        participants: {
-          include: {
-            categoryRegistration: {
-              include: {
-                player: true,
-                pair: {
-                  include: {
-                    members: {
-                      include: { player: true },
-                      orderBy: { position: 'asc' },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-        court: true,
-        group: true,
-        category: true,
-      },
+      include: MATCH_SCORING_INCLUDE,
     });
 
     // Auto-advance winner in elimination rounds
@@ -1159,6 +1436,10 @@ export class CategoriesService {
       });
     }
 
+    this.broadcastMatch(
+      updatedMatch,
+      TournamentEventType.TOURNAMENT_MATCH_ENDED
+    );
     return updatedMatch;
   }
 

@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
@@ -16,6 +17,7 @@ import { UpdateTournamentDto } from './dto/update-tournament.dto';
 import { CreateCategoryDto } from '../categories/dto/create-category.dto';
 import { CreateTournamentPlayerDto } from './dto/create-tournament-player.dto';
 import { AddTournamentVenueDto } from './dto/add-tournament-venue.dto';
+import { ScoreboardQueryDto } from './dto/scoreboard-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
@@ -87,6 +89,12 @@ export class TournamentsController {
   @Get(':id/all-matches')
   getAllMatches(@Param('id') id: string) {
     return this.tournamentsService.getAllMatches(id);
+  }
+
+  @Public()
+  @Get(':id/scoreboard')
+  getScoreboard(@Param('id') id: string, @Query() query: ScoreboardQueryDto) {
+    return this.tournamentsService.getScoreboard(id, query);
   }
 
   @Public()

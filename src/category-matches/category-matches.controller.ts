@@ -2,15 +2,19 @@ import {
   Controller,
   Get,
   Put,
+  Patch,
   Delete,
   Post,
   Body,
   Param,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { CategoriesService } from '../categories/categories.service';
 import { EndCategoryMatchDto } from '../categories/dto/end-category-match.dto';
+import { UpdateMatchScoreDto } from '../categories/dto/update-match-score.dto';
+import { AssignRefereeDto } from '../categories/dto/assign-referee.dto';
 import { BulkScheduleDto } from './dto/bulk-schedule.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -38,6 +42,18 @@ export class CategoryMatchesController {
       user.userId,
       user.role
     );
+  }
+
+  @Get('my-assignments')
+  getMyAssignments(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('tournamentId') tournamentId?: string,
+    @Query('status') status?: string
+  ) {
+    return this.categoriesService.getMyAssignments(user.userId, {
+      tournamentId,
+      status,
+    });
   }
 
   @Public()
@@ -87,5 +103,51 @@ export class CategoryMatchesController {
     @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.endMatch(id, dto, user.userId, user.role);
+  }
+
+  // ─── Live scoring (host / admin / assigned referee) ───
+  @Patch(':id/score')
+  updateScore(
+    @Param('id') id: string,
+    @Body() dto: UpdateMatchScoreDto,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.updateMatchScore(
+      id,
+      dto,
+      user.userId,
+      user.role
+    );
+  }
+
+  @Patch(':id/score/undo')
+  undoLastPoint(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.undoLastPoint(id, user.userId, user.role);
+  }
+
+  // ─── Referee assignment (host / admin) ───
+  @Patch(':id/referee')
+  assignReferee(
+    @Param('id') id: string,
+    @Body() dto: AssignRefereeDto,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.assignReferee(
+      id,
+      dto.refereeId,
+      user.userId,
+      user.role
+    );
+  }
+
+  @Delete(':id/referee')
+  unassignReferee(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.unassignReferee(id, user.userId, user.role);
   }
 }

@@ -52,6 +52,9 @@ model User {
   // Image gallery
   uploadedImages UserImage[] @relation("UserImages")
 
+  // Tournament referee (umpire accounts linked to this user)
+  refereeUmpires TournamentUmpire[] @relation("RefereeUmpires")
+
   // Feedback
   feedbacks              Feedback[]     @relation("UserFeedbacks")
   submittedVenueRequests VenueRequest[] @relation("SubmittedVenueRequests")
@@ -465,6 +468,7 @@ enum Role {
   HOST
   PLAYER
   ADMIN
+  REFEREE
 }
 
 enum SessionStatus {
@@ -688,6 +692,11 @@ model CategoryMatch {
   matchFormat  MatchFormat? // Match format for this specific match/round
   notes        String?
 
+  // Live scoring fields
+  refereeId    String? // Assigned referee (TournamentUmpire) for live scoring
+  scoreVersion Int     @default(0) // Optimistic lock guard for rapid live updates
+  pointLog     Json? // Ordered point history for exact undo (array of { side, setNumber })
+
   // Schedule management fields
   queueOrder        Int? // Priority order in queue for Next Available Court mode
   isQueued          Boolean   @default(false) // Whether match is waiting for court assignment
@@ -704,8 +713,10 @@ model CategoryMatch {
   group             CategoryGroup?             @relation(fields: [groupId], references: [id], onDelete: Cascade)
   court             TournamentCourt?           @relation("CourtMatches", fields: [courtId], references: [id])
   currentCourtMatch TournamentCourt?           @relation("CurrentCourtMatch")
+  referee           TournamentUmpire?          @relation("MatchReferee", fields: [refereeId], references: [id], onDelete: SetNull)
   participants      CategoryMatchParticipant[]
 
+  @@index([refereeId])
   @@map("category_matches")
 }
 
@@ -732,12 +743,17 @@ model TournamentUmpire {
   email        String?
   phone        String?
   notes        String?
+  userId       String? // Linked user account (makes this umpire a login-able referee)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   // Relations
-  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  tournament Tournament      @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User?           @relation("RefereeUmpires", fields: [userId], references: [id], onDelete: SetNull)
+  matches    CategoryMatch[] @relation("MatchReferee")
 
+  @@index([tournamentId])
+  @@index([userId])
   @@map("tournament_umpires")
 }
 

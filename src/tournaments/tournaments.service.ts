@@ -12,7 +12,10 @@ import {
   CreateTournamentPlayerDto,
   UpdateTournamentPlayerDto,
 } from './dto/create-tournament-player.dto';
-import { TournamentStatus, ScheduleType } from '@prisma/client';
+import { ScoreboardQueryDto } from './dto/scoreboard-query.dto';
+import { TournamentStatus, ScheduleType, MatchStatus } from '@prisma/client';
+import { MATCH_SCORING_INCLUDE } from '../categories/scoring/match-include';
+import { normalizeMatchForBroadcast } from '../categories/scoring/normalize-match';
 
 @Injectable()
 export class TournamentsService {
@@ -349,6 +352,71 @@ export class TournamentsService {
       },
       orderBy: [{ category: { createdAt: 'asc' } }, { matchNumber: 'asc' }],
     });
+  }
+
+  // --- Public live scoreboard ---
+  async getScoreboard(idOrSlug: string, query: ScoreboardQueryDto) {
+    const tournament = await this.prisma.tournament.findFirst({
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
+      select: { id: true, name: true, slug: true },
+    });
+    if (!tournament) throw new NotFoundException('Tournament not found');
+    const tournamentId = tournament.id;
+
+    const status = (query.status ?? 'IN_PROGRESS') as MatchStatus;
+    const includeFinished = query.includeFinished === 'true';
+    const courtIds = query.courtIds
+      ? query.courtIds
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+
+    const matches = await this.prisma.categoryMatch.findMany({
+      where: {
+        category: { tournamentId },
+        status: includeFinished
+          ? { in: [status, MatchStatus.FINISHED] }
+          : status,
+        ...(courtIds.length > 0 && { courtId: { in: courtIds } }),
+      },
+      include: MATCH_SCORING_INCLUDE,
+      orderBy: [{ courtId: 'asc' }, { matchNumber: 'asc' }],
+    });
+
+    const normalized = matches.map((m) => normalizeMatchForBroadcast(m));
+
+    // Group by court for the grid layout; matches without a court go to `ungrouped`.
+    const courtMap = new Map<
+      string,
+      {
+        court: (typeof normalized)[number]['court'];
+        matches: typeof normalized;
+      }
+    >();
+    const ungrouped: typeof normalized = [];
+    for (const match of normalized) {
+      if (!match.court) {
+        ungrouped.push(match);
+        continue;
+      }
+      const key = match.court.id;
+      if (!courtMap.has(key)) {
+        courtMap.set(key, { court: match.court, matches: [] });
+      }
+      courtMap.get(key)!.matches.push(match);
+    }
+
+    const courts = Array.from(courtMap.values()).sort(
+      (a, b) => (a.court?.courtNumber ?? 0) - (b.court?.courtNumber ?? 0)
+    );
+
+    return {
+      tournament,
+      matches: normalized,
+      courts,
+      ungrouped,
+    };
   }
 
   // --- Courts ---
