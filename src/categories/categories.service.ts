@@ -52,6 +52,20 @@ import {
   ManageScope,
 } from '../common/tournament-access/tournament-access.service';
 
+type TScoringStage = 'GROUP' | 'KNOCKOUT' | 'FINAL';
+
+/**
+ * Map a CategoryMatch.round label to its scoring stage.
+ * - 'GROUP' (round-robin pool) → GROUP
+ * - 'F' (final) → FINAL
+ * - everything else (R128/R64/R32/R16/QF/SF/3RD) → KNOCKOUT
+ */
+const stageOfRound = (round: string): TScoringStage => {
+  if (round === 'GROUP') return 'GROUP';
+  if (round === 'F') return 'FINAL';
+  return 'KNOCKOUT';
+};
+
 interface CategoryUpdateData {
   name?: string;
   type?: CategoryType;
@@ -70,6 +84,12 @@ interface CategoryUpdateData {
   pointsToWin?: number;
   winByTwo?: boolean;
   pointCap?: number | null;
+  knockoutPointsToWin?: number | null;
+  knockoutWinByTwo?: boolean | null;
+  knockoutPointCap?: number | null;
+  finalPointsToWin?: number | null;
+  finalWinByTwo?: boolean | null;
+  finalPointCap?: number | null;
 }
 
 const DOUBLES_TYPES: CategoryType[] = [
@@ -214,10 +234,12 @@ export class CategoriesService {
 
   /**
    * Resolve the per-set scoring rules for a match. Match-level overrides win
-   * over the category-level config (which itself defaults to BWF rules at the
-   * column level).
+   * first; otherwise the category's per-stage override for the match's round
+   * applies (final → knockout → base), with the base column as the ultimate
+   * fallback (which itself defaults to BWF rules at the column level).
    */
   private scoringRulesOf(match: {
+    round: string;
     pointsToWin: number | null;
     winByTwo: boolean | null;
     pointCap: number | null;
@@ -225,15 +247,60 @@ export class CategoriesService {
       pointsToWin: number;
       winByTwo: boolean;
       pointCap: number | null;
+      knockoutPointsToWin: number | null;
+      knockoutWinByTwo: boolean | null;
+      knockoutPointCap: number | null;
+      finalPointsToWin: number | null;
+      finalWinByTwo: boolean | null;
+      finalPointCap: number | null;
     };
   }): ScoringRules {
+    const stage = stageOfRound(match.round);
+    const cat = match.category;
+
+    const resolvePoints = (): number => {
+      if (stage === 'FINAL') {
+        return (
+          cat.finalPointsToWin ?? cat.knockoutPointsToWin ?? cat.pointsToWin
+        );
+      }
+      if (stage === 'KNOCKOUT') {
+        return cat.knockoutPointsToWin ?? cat.pointsToWin;
+      }
+      return cat.pointsToWin;
+    };
+
+    const resolveWinByTwo = (): boolean => {
+      if (stage === 'FINAL') {
+        return cat.finalWinByTwo ?? cat.knockoutWinByTwo ?? cat.winByTwo;
+      }
+      if (stage === 'KNOCKOUT') {
+        return cat.knockoutWinByTwo ?? cat.winByTwo;
+      }
+      return cat.winByTwo;
+    };
+
+    const resolveCap = (): number | null => {
+      if (stage === 'FINAL') {
+        if (cat.finalPointCap !== null) return cat.finalPointCap;
+        if (cat.knockoutPointCap !== null) return cat.knockoutPointCap;
+        return cat.pointCap;
+      }
+      if (stage === 'KNOCKOUT') {
+        return cat.knockoutPointCap !== null
+          ? cat.knockoutPointCap
+          : cat.pointCap;
+      }
+      return cat.pointCap;
+    };
+
     return {
-      pointsToWin: match.pointsToWin ?? match.category.pointsToWin,
-      winByTwo: match.winByTwo ?? match.category.winByTwo,
+      pointsToWin: match.pointsToWin ?? resolvePoints(),
+      winByTwo: match.winByTwo ?? resolveWinByTwo(),
       pointCap:
         match.pointCap !== null && match.pointCap !== undefined
           ? match.pointCap
-          : match.category.pointCap,
+          : resolveCap(),
     };
   }
 
@@ -532,6 +599,24 @@ export class CategoriesService {
         ...(dto.pointsToWin !== undefined && { pointsToWin: dto.pointsToWin }),
         ...(dto.winByTwo !== undefined && { winByTwo: dto.winByTwo }),
         ...(dto.pointCap !== undefined && { pointCap: dto.pointCap }),
+        ...(dto.knockoutPointsToWin !== undefined && {
+          knockoutPointsToWin: dto.knockoutPointsToWin,
+        }),
+        ...(dto.knockoutWinByTwo !== undefined && {
+          knockoutWinByTwo: dto.knockoutWinByTwo,
+        }),
+        ...(dto.knockoutPointCap !== undefined && {
+          knockoutPointCap: dto.knockoutPointCap,
+        }),
+        ...(dto.finalPointsToWin !== undefined && {
+          finalPointsToWin: dto.finalPointsToWin,
+        }),
+        ...(dto.finalWinByTwo !== undefined && {
+          finalWinByTwo: dto.finalWinByTwo,
+        }),
+        ...(dto.finalPointCap !== undefined && {
+          finalPointCap: dto.finalPointCap,
+        }),
       },
       include: {
         _count: {
@@ -719,6 +804,44 @@ export class CategoriesService {
         throw new BadRequestException('pointCap must be at least 1 or null');
       }
       updateData.pointCap = dto.pointCap;
+    }
+    if (dto.knockoutPointsToWin !== undefined) {
+      if (dto.knockoutPointsToWin !== null && dto.knockoutPointsToWin < 1) {
+        throw new BadRequestException(
+          'knockoutPointsToWin must be at least 1 or null'
+        );
+      }
+      updateData.knockoutPointsToWin = dto.knockoutPointsToWin;
+    }
+    if (dto.knockoutWinByTwo !== undefined) {
+      updateData.knockoutWinByTwo = dto.knockoutWinByTwo;
+    }
+    if (dto.knockoutPointCap !== undefined) {
+      if (dto.knockoutPointCap !== null && dto.knockoutPointCap < 1) {
+        throw new BadRequestException(
+          'knockoutPointCap must be at least 1 or null'
+        );
+      }
+      updateData.knockoutPointCap = dto.knockoutPointCap;
+    }
+    if (dto.finalPointsToWin !== undefined) {
+      if (dto.finalPointsToWin !== null && dto.finalPointsToWin < 1) {
+        throw new BadRequestException(
+          'finalPointsToWin must be at least 1 or null'
+        );
+      }
+      updateData.finalPointsToWin = dto.finalPointsToWin;
+    }
+    if (dto.finalWinByTwo !== undefined) {
+      updateData.finalWinByTwo = dto.finalWinByTwo;
+    }
+    if (dto.finalPointCap !== undefined) {
+      if (dto.finalPointCap !== null && dto.finalPointCap < 1) {
+        throw new BadRequestException(
+          'finalPointCap must be at least 1 or null'
+        );
+      }
+      updateData.finalPointCap = dto.finalPointCap;
     }
 
     return this.prisma.category.update({
@@ -2233,12 +2356,18 @@ export class CategoriesService {
     // Standard seeding to separate top seeds
     const seedOrder = this.generateStandardSeeding(bracketSize);
 
-    // Place registrations into seeded slots (null = BYE)
+    // Place registrations into seeded slots (null = BYE).
+    // seedOrder[pos] is the seed (1-based) that belongs at bracket position
+    // `pos`, so the registration carrying that seed is placed there. This
+    // spreads the top seeds across the bracket — e.g. group winners collected
+    // as [1st A, 1st B, 2nd A, 2nd B] produce the cross-pool matchups
+    // (1st A vs 2nd B) and (1st B vs 2nd A) instead of same-pool ones.
     const slots: (string | null)[] = (
       new Array(bracketSize) as (string | null)[]
     ).fill(null);
-    for (let i = 0; i < n; i++) {
-      slots[seedOrder[i] - 1] = registrationIds[i];
+    for (let pos = 0; pos < bracketSize; pos++) {
+      const seed = seedOrder[pos];
+      slots[pos] = seed <= n ? registrationIds[seed - 1] : null;
     }
 
     // Determine round names

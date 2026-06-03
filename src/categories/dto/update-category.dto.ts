@@ -73,6 +73,41 @@ export class UpdateCategoryDto {
   @Max(99)
   pointCap?: number | null;
 
+  // ─── Per-stage scoring overrides (null = inherit) ──────────────────
+  /** Knockout-stage override for pointsToWin. Null = inherit from base. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  knockoutPointsToWin?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  knockoutWinByTwo?: boolean | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  knockoutPointCap?: number | null;
+
+  /** Final-stage override for pointsToWin. Null = inherit (knockout → base). */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  finalPointsToWin?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  finalWinByTwo?: boolean | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  finalPointCap?: number | null;
+
   @IsOptional()
   @IsIn([
     'MENS_SINGLE',

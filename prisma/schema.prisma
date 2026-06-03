@@ -622,9 +622,18 @@ model Category {
   thirdPlaceMatch        Boolean                  @default(false)
   // Per-set scoring rules. Defaults to BWF (rally to 21, win-by-2, cap 30).
   // pointCap = null means no hard cap (set ends only on winBy gap).
+  // Base fields apply to GROUP stage and as fallback for stages without overrides.
   pointsToWin            Int                      @default(21)
   winByTwo               Boolean                  @default(true)
   pointCap               Int?                     @default(30)
+  // Per-stage scoring overrides. Null = inherit (knockout falls back to base;
+  // final falls back to knockout, then base).
+  knockoutPointsToWin    Int?
+  knockoutWinByTwo       Boolean?
+  knockoutPointCap       Int?
+  finalPointsToWin       Int?
+  finalWinByTwo          Boolean?
+  finalPointCap          Int?
   formatConfig           Json?
   createdAt              DateTime                 @default(now())
   updatedAt              DateTime                 @updatedAt
