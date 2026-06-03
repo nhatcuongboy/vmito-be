@@ -46,6 +46,10 @@ import {
   resolveStandingsConfig,
   StandingsMatchInput,
 } from './scoring/standings';
+import {
+  TournamentAccessService,
+  ManageScope,
+} from '../common/tournament-access/tournament-access.service';
 
 interface CategoryUpdateData {
   name?: string;
@@ -93,7 +97,8 @@ const registrationConfigForType = (
 export class CategoriesService {
   constructor(
     private prisma: PrismaService,
-    private tournamentsGateway: TournamentsGateway
+    private tournamentsGateway: TournamentsGateway,
+    private access: TournamentAccessService
   ) {}
 
   // ─── Helpers ───────────────────────────────────────────────
@@ -101,23 +106,29 @@ export class CategoriesService {
   private async getCategoryWithOwnership(
     categoryId: string,
     userId: string,
-    role?: string
+    role: string | undefined,
+    scope: ManageScope
   ) {
     const category = await this.prisma.category.findUnique({
       where: { id: categoryId },
       include: { tournament: { select: { hostId: true } } },
     });
     if (!category) throw new NotFoundException('Category not found');
-    if (category.tournament.hostId !== userId && role !== 'ADMIN') {
-      throw new ForbiddenException('You can only manage your own tournaments');
-    }
+    await this.access.assertManageAccess({
+      tournamentId: category.tournamentId,
+      hostId: category.tournament.hostId,
+      userId,
+      role,
+      scope,
+    });
     return category;
   }
 
   private async getMatchWithOwnership(
     matchId: string,
     userId: string,
-    role?: string
+    role: string | undefined,
+    scope: ManageScope
   ) {
     const match = await this.prisma.categoryMatch.findUnique({
       where: { id: matchId },
@@ -129,9 +140,13 @@ export class CategoriesService {
       },
     });
     if (!match) throw new NotFoundException('Match not found');
-    if (match.category.tournament.hostId !== userId && role !== 'ADMIN') {
-      throw new ForbiddenException('You can only manage your own tournaments');
-    }
+    await this.access.assertManageAccess({
+      tournamentId: match.category.tournamentId,
+      hostId: match.category.tournament.hostId,
+      userId,
+      role,
+      scope,
+    });
     return match;
   }
 
@@ -156,7 +171,17 @@ export class CategoriesService {
     const isAdmin = role === 'ADMIN';
     const isAssignedReferee =
       !!match.referee?.userId && match.referee.userId === userId;
-    if (!isHost && !isAdmin && !isAssignedReferee) {
+    const isManager =
+      isHost || isAdmin || isAssignedReferee
+        ? false
+        : await this.access.hasManageAccess({
+            tournamentId: match.category.tournamentId,
+            hostId: match.category.tournament.hostId,
+            userId,
+            role,
+            scope: 'RESULTS',
+          });
+    if (!isHost && !isAdmin && !isAssignedReferee && !isManager) {
       throw new ForbiddenException(
         'You are not authorized to score this match'
       );
@@ -362,7 +387,12 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    const match = await this.getMatchWithOwnership(matchId, userId, role);
+    const match = await this.getMatchWithOwnership(
+      matchId,
+      userId,
+      role,
+      'SCHEDULE'
+    );
     const umpire = await this.prisma.tournamentUmpire.findUnique({
       where: { id: refereeId },
       select: { id: true, tournamentId: true },
@@ -386,7 +416,7 @@ export class CategoriesService {
   }
 
   async unassignReferee(matchId: string, userId: string, role?: string) {
-    await this.getMatchWithOwnership(matchId, userId, role);
+    await this.getMatchWithOwnership(matchId, userId, role, 'SCHEDULE');
     const updated = await this.prisma.categoryMatch.update({
       where: { id: matchId },
       data: { refereeId: null },
@@ -443,9 +473,13 @@ export class CategoriesService {
       where: { id: tournamentId },
     });
     if (!tournament) throw new NotFoundException('Tournament not found');
-    if (tournament.hostId !== userId && role !== 'ADMIN') {
-      throw new ForbiddenException('You can only manage your own tournaments');
-    }
+    await this.access.assertManageAccess({
+      tournamentId,
+      hostId: tournament.hostId,
+      userId,
+      role,
+      scope: 'STRUCTURE',
+    });
 
     const type = dto.type as CategoryType;
     const registrationConfig = registrationConfigForType(
@@ -556,7 +590,12 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    const category = await this.getCategoryWithOwnership(id, userId, role);
+    const category = await this.getCategoryWithOwnership(
+      id,
+      userId,
+      role,
+      'STRUCTURE'
+    );
 
     const updateData: CategoryUpdateData = {};
 
@@ -646,7 +685,7 @@ export class CategoriesService {
   }
 
   async remove(id: string, userId: string, role?: string) {
-    await this.getCategoryWithOwnership(id, userId, role);
+    await this.getCategoryWithOwnership(id, userId, role, 'STRUCTURE');
     await this.prisma.category.delete({ where: { id } });
     return { message: 'Category deleted successfully' };
   }
@@ -721,7 +760,8 @@ export class CategoriesService {
     const category = await this.getCategoryWithOwnership(
       categoryId,
       userId,
-      role
+      role,
+      'PARTICIPANTS'
     );
     if (
       (category.registrationMode === 'TEAM' && !dto.tournamentPairId) ||
@@ -793,7 +833,12 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
 
     const registration = await this.prisma.categoryRegistration.findUnique({
       where: { id: registrationId },
@@ -823,7 +868,8 @@ export class CategoriesService {
     const category = await this.getCategoryWithOwnership(
       categoryId,
       userId,
-      role
+      role,
+      'PARTICIPANTS'
     );
     if (category.registrationMode !== 'TEAM') {
       throw new BadRequestException('Only team registrations can be converted');
@@ -971,7 +1017,8 @@ export class CategoriesService {
     const category = await this.getCategoryWithOwnership(
       categoryId,
       userId,
-      role
+      role,
+      'STRUCTURE'
     );
 
     const groupCount = category.groupCount;
@@ -1013,7 +1060,7 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(categoryId, userId, role, 'STRUCTURE');
 
     const group = await this.prisma.categoryGroup.findUnique({
       where: { id: groupId },
@@ -1037,7 +1084,7 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(categoryId, userId, role, 'STRUCTURE');
 
     const group = await this.prisma.categoryGroup.findUnique({
       where: { id: groupId },
@@ -1059,7 +1106,12 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
 
     const group = await this.prisma.categoryGroup.findUnique({
       where: { id: groupId },
@@ -1112,7 +1164,12 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
 
     const group = await this.prisma.categoryGroup.findUnique({
       where: { id: groupId },
@@ -1158,7 +1215,12 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
 
     const registrations = await this.prisma.categoryRegistration.findMany({
       where: { categoryId },
@@ -1275,7 +1337,12 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
 
     const groupReg = await this.prisma.categoryGroupRegistration.findFirst({
       where: { groupId, categoryRegistrationId: registrationId },
@@ -1301,7 +1368,8 @@ export class CategoriesService {
     const category = await this.getCategoryWithOwnership(
       categoryId,
       userId,
-      role
+      role,
+      'STRUCTURE'
     );
 
     const group = await this.prisma.categoryGroup.findUnique({
@@ -1471,7 +1539,7 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(categoryId, userId, role, 'STRUCTURE');
 
     return this.prisma.categoryMatch.create({
       data: {
@@ -1556,7 +1624,7 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getMatchWithOwnership(id, userId, role);
+    await this.getMatchWithOwnership(id, userId, role, 'SCHEDULE');
 
     return this.prisma.categoryMatch.update({
       where: { id },
@@ -1599,7 +1667,7 @@ export class CategoriesService {
   }
 
   async deleteMatch(id: string, userId: string, role?: string) {
-    await this.getMatchWithOwnership(id, userId, role);
+    await this.getMatchWithOwnership(id, userId, role, 'STRUCTURE');
     await this.prisma.categoryMatch.delete({ where: { id } });
     return { message: 'Match deleted successfully' };
   }
@@ -1904,7 +1972,7 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(categoryId, userId, role, 'RESULTS');
     return this.getGroupStandings(categoryId, groupId);
   }
 
@@ -1945,7 +2013,7 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(categoryId, userId, role, 'STRUCTURE');
 
     const groups = await this.prisma.categoryGroup.findMany({
       where: { categoryId },
@@ -2010,7 +2078,8 @@ export class CategoriesService {
     const category = await this.getCategoryWithOwnership(
       categoryId,
       userId,
-      role
+      role,
+      'STRUCTURE'
     );
 
     if (category.hasGroupStage) {
@@ -2302,9 +2371,14 @@ export class CategoriesService {
       },
     });
     if (!firstMatch) throw new NotFoundException('Match not found');
-    if (firstMatch.category.tournament.hostId !== userId && role !== 'ADMIN') {
-      throw new ForbiddenException('You can only manage your own tournaments');
-    }
+    await this.access.assertManageAccess({
+      tournamentId: (firstMatch.category as { tournamentId: string })
+        .tournamentId,
+      hostId: firstMatch.category.tournament.hostId,
+      userId,
+      role,
+      scope: 'SCHEDULE',
+    });
 
     const tournamentId = (firstMatch.category as { tournamentId: string })
       .tournamentId;

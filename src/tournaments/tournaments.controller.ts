@@ -44,6 +44,14 @@ export class TournamentsController {
     return this.tournamentsService.findMyTournaments(user.userId);
   }
 
+  @Get(':id/my-access')
+  getMyAccess(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    return this.tournamentsService.getMyAccess(id, user.userId, user.role);
+  }
+
   @Public()
   @Get(':id')
   findOne(@Param('id') id: string) {

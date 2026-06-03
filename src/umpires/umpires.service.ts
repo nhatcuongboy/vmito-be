@@ -1,13 +1,16 @@
 import {
   Injectable,
   NotFoundException,
-  ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUmpireDto } from './dto/create-umpire.dto';
 import { UpdateUmpireDto } from './dto/update-umpire.dto';
 import { LinkUmpireAccountDto } from './dto/link-umpire-account.dto';
+import {
+  TournamentAccessService,
+  ManageScope,
+} from '../common/tournament-access/tournament-access.service';
 
 const umpireInclude = {
   user: { select: { id: true, name: true, email: true, image: true } },
@@ -15,37 +18,50 @@ const umpireInclude = {
 
 @Injectable()
 export class UmpiresService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private access: TournamentAccessService
+  ) {}
 
   private async ensureTournamentHost(
     tournamentId: string,
     userId: string,
-    role?: string
+    role: string | undefined,
+    scope: ManageScope
   ) {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: tournamentId },
       select: { id: true, hostId: true },
     });
     if (!tournament) throw new NotFoundException('Tournament not found');
-    if (tournament.hostId !== userId && role !== 'ADMIN') {
-      throw new ForbiddenException('You can only manage your own tournaments');
-    }
+    await this.access.assertManageAccess({
+      tournamentId,
+      hostId: tournament.hostId,
+      userId,
+      role,
+      scope,
+    });
     return tournament;
   }
 
   private async getUmpireWithOwnership(
     umpireId: string,
     userId: string,
-    role?: string
+    role: string | undefined,
+    scope: ManageScope
   ) {
     const umpire = await this.prisma.tournamentUmpire.findUnique({
       where: { id: umpireId },
       include: { tournament: { select: { hostId: true } } },
     });
     if (!umpire) throw new NotFoundException('Umpire not found');
-    if (umpire.tournament.hostId !== userId && role !== 'ADMIN') {
-      throw new ForbiddenException('You can only manage your own tournaments');
-    }
+    await this.access.assertManageAccess({
+      tournamentId: umpire.tournamentId,
+      hostId: umpire.tournament.hostId,
+      userId,
+      role,
+      scope,
+    });
     return umpire;
   }
 
@@ -73,7 +89,7 @@ export class UmpiresService {
   }
 
   async list(tournamentId: string, userId: string, role?: string) {
-    await this.ensureTournamentHost(tournamentId, userId, role);
+    await this.ensureTournamentHost(tournamentId, userId, role, 'SCHEDULE');
     return this.prisma.tournamentUmpire.findMany({
       where: { tournamentId },
       include: umpireInclude,
@@ -87,7 +103,7 @@ export class UmpiresService {
     userId: string,
     role?: string
   ) {
-    await this.ensureTournamentHost(tournamentId, userId, role);
+    await this.ensureTournamentHost(tournamentId, userId, role, 'SCHEDULE');
     const linkedUserId = await this.resolveAndPromoteUser(dto.email);
     return this.prisma.tournamentUmpire.create({
       data: {
@@ -108,7 +124,12 @@ export class UmpiresService {
     userId: string,
     role?: string
   ) {
-    const umpire = await this.getUmpireWithOwnership(umpireId, userId, role);
+    const umpire = await this.getUmpireWithOwnership(
+      umpireId,
+      userId,
+      role,
+      'SCHEDULE'
+    );
     // Re-resolve the linked account only when the email actually changes.
     let userIdUpdate: string | null | undefined = undefined;
     if (dto.email !== undefined && dto.email !== umpire.email) {
@@ -128,7 +149,7 @@ export class UmpiresService {
   }
 
   async remove(umpireId: string, userId: string, role?: string) {
-    await this.getUmpireWithOwnership(umpireId, userId, role);
+    await this.getUmpireWithOwnership(umpireId, userId, role, 'SCHEDULE');
     await this.prisma.tournamentUmpire.delete({ where: { id: umpireId } });
     return { id: umpireId };
   }
@@ -139,7 +160,7 @@ export class UmpiresService {
     userId: string,
     role?: string
   ) {
-    await this.getUmpireWithOwnership(umpireId, userId, role);
+    await this.getUmpireWithOwnership(umpireId, userId, role, 'SCHEDULE');
     const linkedUserId = await this.resolveAndPromoteUser(dto.email);
     if (!linkedUserId) {
       throw new BadRequestException(
@@ -154,7 +175,7 @@ export class UmpiresService {
   }
 
   async unlinkAccount(umpireId: string, userId: string, role?: string) {
-    await this.getUmpireWithOwnership(umpireId, userId, role);
+    await this.getUmpireWithOwnership(umpireId, userId, role, 'SCHEDULE');
     return this.prisma.tournamentUmpire.update({
       where: { id: umpireId },
       data: { userId: null },

@@ -14,13 +14,25 @@ import {
 } from './dto/create-tournament-player.dto';
 import { ScoreboardQueryDto } from './dto/scoreboard-query.dto';
 import { SaveTournamentPairDto } from './dto/tournament-pair.dto';
-import { TournamentStatus, ScheduleType, MatchStatus } from '@prisma/client';
+import {
+  TournamentStatus,
+  ScheduleType,
+  MatchStatus,
+  TournamentPermission,
+} from '@prisma/client';
 import { MATCH_SCORING_INCLUDE } from '../categories/scoring/match-include';
 import { normalizeMatchForBroadcast } from '../categories/scoring/normalize-match';
+import {
+  TournamentAccessService,
+  ManageScope,
+} from '../common/tournament-access/tournament-access.service';
 
 @Injectable()
 export class TournamentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private access: TournamentAccessService
+  ) {}
 
   private generateSlug(name: string): string {
     return name
@@ -42,16 +54,53 @@ export class TournamentsService {
     return slug;
   }
 
-  async findMyTournaments(hostId: string) {
+  async findMyTournaments(userId: string) {
+    // Tournaments the user hosts OR has been assigned to manage. The filtered
+    // `managers` relation lets the client read the caller's granted permissions
+    // (empty for hosted tournaments, where the host has every permission).
     return this.prisma.tournament.findMany({
-      where: { hostId },
+      where: {
+        OR: [{ hostId: userId }, { managers: { some: { userId } } }],
+      },
       include: {
+        managers: {
+          where: { userId },
+          select: { permissions: true },
+        },
         _count: {
           select: { categories: true, players: true, pairs: true },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  /**
+   * The requesting user's management access to a tournament: whether they are
+   * the host or a system admin (both implicitly have every permission), and the
+   * scopes granted to them as a manager. Used by the client to gate the manage UI.
+   */
+  async getMyAccess(idOrSlug: string, userId: string, role?: string) {
+    const tournament = await this.prisma.tournament.findFirst({
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
+      select: { id: true, hostId: true },
+    });
+    if (!tournament) throw new NotFoundException('Tournament not found');
+
+    const isHost = tournament.hostId === userId;
+    const isAdmin = role === 'ADMIN';
+    let permissions: TournamentPermission[] = [];
+    if (!isHost && !isAdmin) {
+      const manager = await this.prisma.tournamentManager.findUnique({
+        where: {
+          tournamentId_userId: { tournamentId: tournament.id, userId },
+        },
+        select: { permissions: true },
+      });
+      permissions = manager?.permissions ?? [];
+    }
+
+    return { tournamentId: tournament.id, isHost, isAdmin, permissions };
   }
 
   async findAll() {
@@ -604,9 +653,13 @@ export class TournamentsService {
       where: { id: tournamentId },
     });
     if (!tournament) throw new NotFoundException('Tournament not found');
-    if (tournament.hostId !== userId && role !== 'ADMIN') {
-      throw new ForbiddenException('You can only modify your own tournaments');
-    }
+    await this.access.assertManageAccess({
+      tournamentId,
+      hostId: tournament.hostId,
+      userId,
+      role,
+      scope: 'PARTICIPANTS',
+    });
 
     if (!dto.name || dto.name.trim() === '') {
       throw new BadRequestException('Player name is required');
@@ -675,15 +728,20 @@ export class TournamentsService {
   private async assertTournamentOwnership(
     tournamentId: string,
     userId: string,
-    role?: string
+    role: string | undefined,
+    scope: ManageScope
   ) {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: tournamentId },
     });
     if (!tournament) throw new NotFoundException('Tournament not found');
-    if (tournament.hostId !== userId && role !== 'ADMIN') {
-      throw new ForbiddenException('You can only modify your own tournaments');
-    }
+    await this.access.assertManageAccess({
+      tournamentId,
+      hostId: tournament.hostId,
+      userId,
+      role,
+      scope,
+    });
     return tournament;
   }
 
@@ -717,7 +775,12 @@ export class TournamentsService {
     userId: string,
     role?: string
   ) {
-    await this.assertTournamentOwnership(tournamentId, userId, role);
+    await this.assertTournamentOwnership(
+      tournamentId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
     await this.validatePairPlayers(tournamentId, dto.playerIds);
     return this.prisma.tournamentPair.create({
       data: {
@@ -762,7 +825,12 @@ export class TournamentsService {
     role?: string
   ) {
     const pair = await this.getPair(id);
-    await this.assertTournamentOwnership(pair.tournamentId, userId, role);
+    await this.assertTournamentOwnership(
+      pair.tournamentId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
     await this.validatePairPlayers(pair.tournamentId, dto.playerIds);
     return this.prisma.$transaction(async (tx) => {
       await tx.tournamentPairMember.deleteMany({ where: { pairId: id } });
@@ -791,7 +859,12 @@ export class TournamentsService {
 
   async deletePair(id: string, userId: string, role?: string) {
     const pair = await this.getPair(id);
-    await this.assertTournamentOwnership(pair.tournamentId, userId, role);
+    await this.assertTournamentOwnership(
+      pair.tournamentId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
     await this.prisma.tournamentPair.delete({ where: { id } });
     return { message: 'Pair deleted successfully' };
   }
@@ -838,9 +911,14 @@ export class TournamentsService {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: player.tournamentId },
     });
-    if (tournament?.hostId !== userId && role !== 'ADMIN') {
-      throw new ForbiddenException('You can only modify your own tournaments');
-    }
+    if (!tournament) throw new NotFoundException('Tournament not found');
+    await this.access.assertManageAccess({
+      tournamentId: player.tournamentId,
+      hostId: tournament.hostId,
+      userId,
+      role,
+      scope: 'PARTICIPANTS',
+    });
 
     return this.prisma.tournamentPlayer.update({
       where: { id },
@@ -853,9 +931,14 @@ export class TournamentsService {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: player.tournamentId },
     });
-    if (tournament?.hostId !== userId && role !== 'ADMIN') {
-      throw new ForbiddenException('You can only modify your own tournaments');
-    }
+    if (!tournament) throw new NotFoundException('Tournament not found');
+    await this.access.assertManageAccess({
+      tournamentId: player.tournamentId,
+      hostId: tournament.hostId,
+      userId,
+      role,
+      scope: 'PARTICIPANTS',
+    });
 
     await this.prisma.tournamentPlayer.delete({ where: { id } });
     return { message: 'Player deleted successfully' };

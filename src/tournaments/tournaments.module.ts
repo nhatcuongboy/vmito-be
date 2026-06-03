@@ -5,6 +5,7 @@ import { TournamentPairsController } from './tournament-pairs.controller';
 import { TournamentsService } from './tournaments.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { CategoriesModule } from '../categories/categories.module';
+import { TournamentAccessModule } from '../common/tournament-access/tournament-access.module';
 import { ScheduleGeneratorController } from './controllers/schedule.controller';
 import { ScheduleGeneratorService } from './services/schedule-generator.service';
 import { ScheduleValidationService } from './services/schedule-validation.service';
@@ -12,7 +13,7 @@ import { ScheduleAlgorithmService } from './services/schedule-algorithm.service'
 import { ScheduleService } from './services/schedule.service';
 
 @Module({
-  imports: [PrismaModule, CategoriesModule],
+  imports: [PrismaModule, CategoriesModule, TournamentAccessModule],
   controllers: [
     TournamentsController,
     TournamentPlayersController,

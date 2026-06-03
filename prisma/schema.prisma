@@ -34,6 +34,7 @@ model User {
   accounts           Account[]
   sessions           AuthSession[]
   hostedTournaments  Tournament[]          @relation("HostedTournaments")
+  managedTournaments TournamentManager[]   @relation("ManagedTournaments")
   tournamentPlayers  TournamentPlayer[]    @relation("TournamentPlayers")
   refreshTokens      RefreshToken[]
   paymentSettings    HostPaymentSettings[]
@@ -546,6 +547,7 @@ model Tournament {
   host             User                      @relation("HostedTournaments", fields: [hostId], references: [id])
   venue            Venue?                    @relation(fields: [venueId], references: [id])
   categories       Category[]
+  managers         TournamentManager[]
   umpires          TournamentUmpire[]
   scoringDevices   TournamentScoringDevice[]
   courts           TournamentCourt[]
@@ -562,6 +564,33 @@ enum TournamentStatus {
   IN_PROGRESS
   FINISHED
   CANCELLED
+}
+
+// Per-tournament permission scopes that a host can grant to a manager.
+enum TournamentPermission {
+  RESULTS // Record results, live scoring, start/end matches, recalc standings
+  SCHEDULE // Scheduling, court & referee assignment, umpire management
+  PARTICIPANTS // Players, pairs, registrations, group assignment
+  STRUCTURE // Categories, format, group creation, generate matches/brackets
+}
+
+// A user (other than the host) granted scoped management rights over a tournament.
+model TournamentManager {
+  id           String                 @id @default(cuid())
+  tournamentId String
+  userId       String
+  permissions  TournamentPermission[]
+  addedById    String? // User who granted the access (host or system admin)
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  // Relations
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User       @relation("ManagedTournaments", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, userId])
+  @@index([userId])
+  @@map("tournament_managers")
 }
 
 enum ScheduleType {
