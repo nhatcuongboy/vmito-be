@@ -104,4 +104,15 @@ export class ScheduleGeneratorController {
       user.userId
     );
   }
+
+  @Delete('matches/unscheduled')
+  async deleteUnscheduledMatches(
+    @Param('tournamentId') tournamentId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<unknown> {
+    return await this.scheduleGeneratorService.deleteUnscheduledMatches(
+      tournamentId,
+      user.userId
+    );
+  }
 }

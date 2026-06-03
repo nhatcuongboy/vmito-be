@@ -14,6 +14,7 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { CategoriesService } from '../categories/categories.service';
 import { EndCategoryMatchDto } from '../categories/dto/end-category-match.dto';
 import { UpdateMatchScoreDto } from '../categories/dto/update-match-score.dto';
+import { UpdateSetScoreDto } from '../categories/dto/update-set-score.dto';
 import { AssignRefereeDto } from '../categories/dto/assign-referee.dto';
 import { BulkScheduleDto } from './dto/bulk-schedule.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -126,6 +127,23 @@ export class CategoryMatchesController {
     @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.undoLastPoint(id, user.userId, user.role);
+  }
+
+  // Overwrite an individual set's final score (host / admin / assigned referee).
+  @Patch(':id/sets/:setNumber/score')
+  updateSetScore(
+    @Param('id') id: string,
+    @Param('setNumber') setNumber: string,
+    @Body() dto: UpdateSetScoreDto,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.updateSetScore(
+      id,
+      Number(setNumber),
+      dto,
+      user.userId,
+      user.role
+    );
   }
 
   // ─── Referee assignment (host / admin) ───

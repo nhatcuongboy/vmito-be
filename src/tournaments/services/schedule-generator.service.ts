@@ -554,6 +554,30 @@ export class ScheduleGeneratorService {
   }
 
   /**
+   * Delete all matches in the tournament that have NOT been scheduled yet
+   * (status = SCHEDULED and no courtId / startTime assigned). Safety guard:
+   * matches that are IN_PROGRESS or FINISHED are never deleted. Matches that
+   * are scheduled (have court+time) are also preserved.
+   */
+  async deleteUnscheduledMatches(
+    tournamentId: string,
+    userId: string
+  ): Promise<{ success: boolean; deletedCount: number }> {
+    await this.verifyTournamentOwnership(tournamentId, userId);
+
+    const result = await this.prisma.categoryMatch.deleteMany({
+      where: {
+        category: { tournamentId },
+        status: 'SCHEDULED',
+        courtId: null,
+        startTime: null,
+      },
+    });
+
+    return { success: true, deletedCount: result.count };
+  }
+
+  /**
    * Save generated schedule to database
    */
   async saveSchedule(

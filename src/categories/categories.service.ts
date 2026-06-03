@@ -21,6 +21,7 @@ import { ConvertLegacyRegistrationDto } from '../tournaments/dto/tournament-pair
 import { CreateCategoryMatchDto } from './dto/create-category-match.dto';
 import { EndCategoryMatchDto } from './dto/end-category-match.dto';
 import { UpdateMatchScoreDto } from './dto/update-match-score.dto';
+import { UpdateSetScoreDto } from './dto/update-set-score.dto';
 import {
   TournamentsGateway,
   TournamentEventType,
@@ -36,6 +37,7 @@ import {
   PointLogEntry,
   MatchFormatValue,
   Side,
+  isSetComplete,
 } from './scoring/badminton-scoring';
 import {
   normalizeMatchForBroadcast,
@@ -475,6 +477,124 @@ export class CategoriesService {
       newLog,
       isDoubles,
       TournamentEventType.TOURNAMENT_MATCH_SCORE_UPDATED
+    );
+  }
+
+  /**
+   * Overwrite a single set's score by rewriting the point log. Preserves all
+   * entries from earlier sets, synthesises an interleaved sequence for the
+   * target set (alternating points so the set never auto-completes early),
+   * and discards every entry that belonged to later sets.
+   *
+   * Only available while the match is IN_PROGRESS so the referee can correct
+   * a misclick without ending/restarting the match. Already-finished matches
+   * must be edited through the match end/result workflow instead.
+   */
+  async updateSetScore(
+    id: string,
+    setNumber: number,
+    dto: UpdateSetScoreDto,
+    userId: string,
+    role?: string
+  ) {
+    const match = await this.getMatchForScoring(id, userId, role);
+    if (match.status !== 'IN_PROGRESS') {
+      throw new BadRequestException(
+        'Score can only be updated while the match is in progress'
+      );
+    }
+
+    const isDoubles = this.isDoublesMatch(match);
+    const format = this.matchFormatOf(match);
+    const rules = this.scoringRulesOf(match);
+    const sets = this.parseSets(match.sets);
+    if (sets.length === 0) {
+      throw new BadRequestException('Match has no sets yet');
+    }
+    const latestSetNumber = sets[sets.length - 1].setNumber;
+    if (
+      !Number.isInteger(setNumber) ||
+      setNumber < 1 ||
+      setNumber > latestSetNumber
+    ) {
+      throw new BadRequestException(
+        `setNumber must be between 1 and ${latestSetNumber}`
+      );
+    }
+
+    const { player1Score, player2Score } = dto;
+    if (!Number.isInteger(player1Score) || !Number.isInteger(player2Score)) {
+      throw new BadRequestException('Scores must be integers');
+    }
+    if (player1Score < 0 || player2Score < 0) {
+      throw new BadRequestException('Scores cannot be negative');
+    }
+    const maxScore = Math.max(player1Score, player2Score);
+    const cap = rules.pointCap ?? Math.max(rules.pointsToWin, maxScore);
+    if (player1Score > cap || player2Score > cap) {
+      throw new BadRequestException(`Scores cannot exceed cap (${cap})`);
+    }
+    // Reject impossible cap-cap (both sides win — not a valid set state).
+    if (
+      rules.pointCap != null &&
+      player1Score === rules.pointCap &&
+      player2Score === rules.pointCap
+    ) {
+      throw new BadRequestException('Both sides cannot reach the cap');
+    }
+    // Past sets must end with a winner; the current (in-progress) set may be
+    // any valid score (including 0-0 to reset).
+    if (
+      setNumber < latestSetNumber &&
+      !isSetComplete(player1Score, player2Score, rules)
+    ) {
+      throw new BadRequestException(
+        `Set ${setNumber} is not the current set and must be a completed set score`
+      );
+    }
+
+    // Preserve entries for sets BEFORE the target, discard the rest.
+    const log = this.parsePointLog(match.pointLog);
+    const preserved = log.filter((entry) => entry.setNumber < setNumber);
+
+    // Synthesise points for the target set by interleaving so the set never
+    // auto-completes mid-fill (e.g. 21-19 becomes 19 pairs then 2× side1).
+    const synthesised: PointLogEntry[] = [];
+    const pairs = Math.min(player1Score, player2Score);
+    for (let i = 0; i < pairs; i++) {
+      synthesised.push({ side: 1, setNumber });
+      synthesised.push({ side: 2, setNumber });
+    }
+    if (player1Score > player2Score) {
+      for (let i = 0; i < player1Score - player2Score; i++) {
+        synthesised.push({ side: 1, setNumber });
+      }
+    } else if (player2Score > player1Score) {
+      for (let i = 0; i < player2Score - player1Score; i++) {
+        synthesised.push({ side: 2, setNumber });
+      }
+    }
+
+    const newLog = [...preserved, ...synthesised];
+    const newSets = rebuildFromLog(newLog, format, isDoubles, rules);
+
+    // Defensive: rebuild should land on the requested score for the target set.
+    const rebuiltTarget = newSets.find((s) => s.setNumber === setNumber);
+    if (
+      !rebuiltTarget ||
+      rebuiltTarget.player1Score !== player1Score ||
+      rebuiltTarget.player2Score !== player2Score
+    ) {
+      throw new BadRequestException('Score combination is not reachable');
+    }
+
+    return this.persistAndBroadcastScore(
+      match,
+      newSets,
+      newLog,
+      isDoubles,
+      TournamentEventType.TOURNAMENT_MATCH_SCORE_UPDATED,
+      { clientId: dto.clientId, seq: dto.seq }
     );
   }
 
