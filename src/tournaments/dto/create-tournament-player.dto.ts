@@ -37,6 +37,14 @@ export class CreateTournamentPlayerDto {
 
   @IsOptional()
   @IsString()
+  image?: string;
+
+  @IsOptional()
+  @IsString()
+  imagePublicId?: string;
+
+  @IsOptional()
+  @IsString()
   userId?: string;
 }
 
@@ -70,6 +78,14 @@ export class UpdateTournamentPlayerDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  image?: string;
+
+  @IsOptional()
+  @IsString()
+  imagePublicId?: string;
 
   @IsOptional()
   @IsString()

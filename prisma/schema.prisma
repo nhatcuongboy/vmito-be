@@ -881,6 +881,8 @@ model TournamentPlayer {
   level            Int?
   levelDescription String?
   notes            String?
+  image            String? // Cloudinary URL for avatar
+  imagePublicId    String? // Cloudinary public ID for avatar
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
