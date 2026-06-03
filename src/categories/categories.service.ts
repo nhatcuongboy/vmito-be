@@ -2638,14 +2638,15 @@ export class CategoriesService {
   }
 
   private determineRoundNames(totalRounds: number): string[] {
-    // Work backwards from Final
+    // Ordered first round → Final, so names[0] is the earliest round (most
+    // matches, where the advancing teams play) and names[last] is the Final.
     const names: string[] = [];
     for (let i = totalRounds - 1; i >= 0; i--) {
       const matchesInRound = Math.pow(2, i);
-      if (matchesInRound === 1) names.unshift('F');
-      else if (matchesInRound === 2) names.unshift('SF');
-      else if (matchesInRound === 4) names.unshift('QF');
-      else names.unshift(`R${matchesInRound * 2}`);
+      if (matchesInRound === 1) names.push('F');
+      else if (matchesInRound === 2) names.push('SF');
+      else if (matchesInRound === 4) names.push('QF');
+      else names.push(`R${matchesInRound * 2}`);
     }
     return names;
   }
