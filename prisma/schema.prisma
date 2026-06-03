@@ -730,6 +730,7 @@ model CategoryMatch {
   groupId      String?
   round        String
   matchNumber  Int
+  matchCode    String? // Optional human-readable code (e.g. "M01", "XD-VB01")
   status       MatchStatus  @default(SCHEDULED)
   startTime    DateTime?
   endTime      DateTime?

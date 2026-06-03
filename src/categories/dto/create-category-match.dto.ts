@@ -28,6 +28,10 @@ export class CreateCategoryMatchDto {
   @IsNumber()
   matchNumber: number;
 
+  @IsOptional()
+  @IsString()
+  matchCode?: string;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => MatchParticipantDto)

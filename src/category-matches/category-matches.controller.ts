@@ -75,6 +75,7 @@ export class CategoryMatchesController {
         courtId?: string;
         round?: string;
         matchNumber?: number;
+        matchCode?: string;
         startTime?: string;
         matchFormat?: string;
         groupId?: string;

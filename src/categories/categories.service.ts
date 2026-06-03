@@ -1839,6 +1839,7 @@ export class CategoriesService {
         groupId: dto.groupId,
         round: dto.round,
         matchNumber: dto.matchNumber,
+        matchCode: dto.matchCode,
         status: 'SCHEDULED',
         courtId: dto.courtId,
         startTime: dto.startTime ? new Date(dto.startTime) : undefined,
@@ -1909,6 +1910,7 @@ export class CategoriesService {
       courtId?: string;
       round?: string;
       matchNumber?: number;
+      matchCode?: string;
       startTime?: string;
       matchFormat?: string;
       groupId?: string;
@@ -1926,6 +1928,7 @@ export class CategoriesService {
         ...(data.matchNumber !== undefined && {
           matchNumber: data.matchNumber,
         }),
+        ...(data.matchCode !== undefined && { matchCode: data.matchCode }),
         ...(data.startTime !== undefined && {
           startTime: new Date(data.startTime),
         }),
