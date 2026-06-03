@@ -522,6 +522,38 @@ export class ScheduleGeneratorService {
   }
 
   /**
+   * Clear scheduling info (courtId, startTime, scheduledDuration, estimatedEndTime)
+   * for every match in the tournament. Does not delete matches themselves.
+   */
+  async clearSchedule(
+    tournamentId: string,
+    userId: string
+  ): Promise<{ success: boolean; clearedCount: number }> {
+    await this.verifyTournamentOwnership(tournamentId, userId);
+
+    const result = await this.prisma.categoryMatch.updateMany({
+      where: {
+        category: { tournamentId },
+        OR: [
+          { courtId: { not: null } },
+          { startTime: { not: null } },
+          { estimatedEndTime: { not: null } },
+          { scheduledDuration: { not: null } },
+        ],
+      },
+      data: {
+        courtId: null,
+        startTime: null,
+        estimatedEndTime: null,
+        scheduledDuration: null,
+        assignedBy: null,
+      },
+    });
+
+    return { success: true, clearedCount: result.count };
+  }
+
+  /**
    * Save generated schedule to database
    */
   async saveSchedule(

@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Put,
+  Delete,
   Param,
   Body,
   UseGuards,
@@ -89,6 +90,17 @@ export class ScheduleGeneratorController {
     return this.scheduleGeneratorService.validateConfig(
       tournamentId,
       dto,
+      user.userId
+    );
+  }
+
+  @Delete('clear')
+  async clearSchedule(
+    @Param('tournamentId') tournamentId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<unknown> {
+    return await this.scheduleGeneratorService.clearSchedule(
+      tournamentId,
       user.userId
     );
   }
