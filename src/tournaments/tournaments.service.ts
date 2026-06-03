@@ -379,12 +379,14 @@ export class TournamentsService {
             venueMap.set(tv.id, ntv.id);
           }
           for (const court of source.courts) {
+            // Skip orphan courts (no venue link) so cloned tournaments don't
+            // inherit dangling rows from messy source data.
+            if (!court.tournamentVenueId) continue;
             const nc = await db.tournamentCourt.create({
               data: {
                 tournamentId: newTournament.id,
-                tournamentVenueId: court.tournamentVenueId
-                  ? (venueMap.get(court.tournamentVenueId) ?? null)
-                  : null,
+                tournamentVenueId:
+                  venueMap.get(court.tournamentVenueId) ?? null,
                 courtNumber: court.courtNumber,
                 courtName: court.courtName,
                 status: 'AVAILABLE',
@@ -962,8 +964,13 @@ export class TournamentsService {
     if (!tournamentVenue)
       throw new NotFoundException('Venue not linked to this tournament');
 
-    // Courts with this venueId get tournamentVenueId set to null (SET NULL cascade)
-    // Then delete the junction record
+    // Hard-delete the courts that belonged to this venue so we don't leave
+    // dangling "orphan" rows (tournamentVenueId = NULL). Match.courtId is
+    // optional and will be set to NULL automatically by Prisma.
+    await this.prisma.tournamentCourt.deleteMany({
+      where: { tournamentVenueId: tournamentVenue.id },
+    });
+
     await (this.prisma as any).tournamentVenue.delete({
       where: { id: tournamentVenue.id },
     });
