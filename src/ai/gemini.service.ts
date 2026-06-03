@@ -7,6 +7,7 @@ import {
   ExtractedSessionDto,
   ExtractedVenue,
 } from './dto/extract-session.dto';
+import { ExtractedScheduleEntry } from './dto/extract-schedule.dto';
 import { Language, DEFAULT_LANGUAGE } from '../common/constants/language.enum';
 import { PrismaService } from '../prisma/prisma.service';
 import { removeVietnameseTones } from '../common/utils/string.utils';
@@ -202,6 +203,57 @@ const SESSION_EXTRACTION_SCHEMA = {
     'defaultMatchType',
     'feeConfig',
   ],
+};
+
+const SCHEDULE_EXTRACTION_SCHEMA = {
+  type: GenAIType.OBJECT,
+  properties: {
+    entries: {
+      type: GenAIType.ARRAY,
+      items: {
+        type: GenAIType.OBJECT,
+        properties: {
+          categoryName: nullableStringSchema,
+          matchNumber: nullableIntegerSchema,
+          courtName: nullableStringSchema,
+          date: nullableStringSchema,
+          startTime: nullableStringSchema,
+          durationMinutes: nullableIntegerSchema,
+          rawLine: nullableStringSchema,
+        },
+        required: [
+          'categoryName',
+          'matchNumber',
+          'courtName',
+          'date',
+          'startTime',
+          'durationMinutes',
+          'rawLine',
+        ],
+        propertyOrdering: [
+          'categoryName',
+          'matchNumber',
+          'courtName',
+          'date',
+          'startTime',
+          'durationMinutes',
+          'rawLine',
+        ],
+      },
+    },
+  },
+  required: ['entries'],
+  propertyOrdering: ['entries'],
+};
+
+type RawExtractedScheduleEntry = {
+  categoryName?: string | null;
+  matchNumber?: number | string | null;
+  courtName?: string | null;
+  date?: string | null;
+  startTime?: string | null;
+  durationMinutes?: number | string | null;
+  rawLine?: string | null;
 };
 
 /**
@@ -918,6 +970,217 @@ Important rules:
     }
 
     return extracted;
+  }
+
+  async extractScheduleFromText(
+    tournamentId: string,
+    text: string,
+    language: Language = DEFAULT_LANGUAGE
+  ): Promise<ExtractedScheduleEntry[]> {
+    if (!this.ai) throw new Error('Gemini API key is missing.');
+
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId },
+      select: {
+        id: true,
+        name: true,
+        startDate: true,
+        endDate: true,
+      },
+    });
+    if (!tournament) {
+      throw new Error('Tournament not found.');
+    }
+
+    const [categories, courts] = await Promise.all([
+      this.prisma.category.findMany({
+        where: { tournamentId },
+        select: { id: true, name: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.tournamentCourt.findMany({
+        where: { tournamentId },
+        select: { id: true, courtNumber: true, courtName: true },
+        orderBy: { courtNumber: 'asc' },
+      }),
+    ]);
+
+    const categoryHint = categories.map((c) => `- ${c.name}`).join('\n');
+    const courtHint = courts
+      .map((c) => {
+        const label = c.courtName?.trim()
+          ? c.courtName
+          : `Sân ${c.courtNumber}`;
+        return `- ${label} (#${c.courtNumber})`;
+      })
+      .join('\n');
+
+    const currentDate = getDatePartsInVietnam();
+    const languageInstruction = this.getLanguageInstruction(language);
+    const fallbackYear = (() => {
+      const start = tournament.startDate
+        ? new Date(tournament.startDate)
+        : null;
+      const year =
+        start && !Number.isNaN(start.getTime())
+          ? start.getUTCFullYear()
+          : Number.parseInt(currentDate.year, 10);
+      return Number.isFinite(year) ? year : new Date().getUTCFullYear();
+    })();
+
+    const prompt = `You extract a badminton tournament schedule from a free-form text/spreadsheet pasted by a tournament host for Vmito.
+
+${languageInstruction}
+
+Tournament: "${tournament.name}".
+Available categories (use the exact name):
+${categoryHint || '(none)'}
+
+Available courts (host may reference any of these names or the court number):
+${courtHint || '(none)'}
+
+Today (Vietnam timezone): ${currentDate.date}. If the input mentions a date without a year, assume year ${fallbackYear}.
+
+Input the host pasted (may be a table, CSV-like rows, or a plain text list):
+"""
+${text}
+"""
+
+For every match assignment that you can clearly identify, return one entry with:
+- categoryName: must match one of the listed categories above (copy the exact spelling).
+- matchNumber: integer — the "Trận N" / "Match N" number within that category. If only a global match index is mentioned, treat it as the matchNumber.
+- courtName: the court label exactly as the host wrote it (e.g. "Sân 1", "Court A"). Keep it short.
+- date: ISO date string YYYY-MM-DD.
+- startTime: 24-hour clock HH:mm (zero-padded). Convert "9h", "9:00 AM", "09h00" to 09:00. Convert "2 PM" to 14:00.
+- durationMinutes: integer minutes (e.g. 60). If only an end time is given, compute duration from start/end. If nothing is mentioned, use 60.
+- rawLine: copy the source line/row text verbatim so the host can debug.
+
+Strict rules:
+- Return JSON only matching the provided schema.
+- If a row is a header, a divider, an empty line, or clearly not a match, skip it (do not include it).
+- Do not invent matchNumber, court, or categoryName. If a field is missing in the source, set it to null.
+- Do not include matches that are missing BOTH startTime and date.
+- Preserve the source language for any text values.`;
+
+    const response = await this.withRetry(
+      () =>
+        this.ai!.models.generateContent({
+          model: MODEL,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: SCHEDULE_EXTRACTION_SCHEMA,
+            temperature: 0.1,
+          },
+        }),
+      'extract-schedule'
+    );
+
+    const responseText = response.text ?? '';
+    let parsed: { entries?: RawExtractedScheduleEntry[] };
+    try {
+      parsed = JSON.parse(responseText) as {
+        entries?: RawExtractedScheduleEntry[];
+      };
+    } catch (error) {
+      console.error('[AI] Failed to parse extract-schedule JSON:', {
+        error: error instanceof Error ? error.message : String(error),
+        text: responseText,
+      });
+      throw new Error('AI returned invalid schedule extraction JSON.');
+    }
+
+    const rawEntries = Array.isArray(parsed.entries) ? parsed.entries : [];
+    return rawEntries
+      .map((entry) => this.normalizeScheduleEntry(entry, fallbackYear))
+      .filter((entry): entry is ExtractedScheduleEntry => entry !== null);
+  }
+
+  private normalizeScheduleEntry(
+    raw: RawExtractedScheduleEntry,
+    fallbackYear: number
+  ): ExtractedScheduleEntry | null {
+    const categoryName = this.normalizeTextValue(raw.categoryName);
+    const matchNumber = this.normalizeInteger(raw.matchNumber);
+    const courtName = this.normalizeTextValue(raw.courtName);
+    const date = this.normalizeIsoDate(raw.date, fallbackYear);
+    const startTime = this.normalizeClockTime(raw.startTime);
+    const durationMinutes =
+      this.normalizeInteger(raw.durationMinutes) ?? undefined;
+    const rawLine = this.normalizeTextValue(raw.rawLine);
+
+    // Drop entries that have nothing actionable.
+    if (!categoryName && !matchNumber && !startTime && !date) return null;
+
+    return {
+      categoryName,
+      matchNumber,
+      courtName,
+      date,
+      startTime,
+      durationMinutes,
+      rawLine,
+    };
+  }
+
+  private normalizeClockTime(value: unknown): string | undefined {
+    const raw = this.normalizeTextValue(value);
+    if (!raw) return undefined;
+    const match = raw.match(
+      /^(\d{1,2})\s*(?:[:hH]\s*(\d{1,2}))?\s*(am|pm|AM|PM)?$/
+    );
+    if (!match) return undefined;
+    let hour = Number.parseInt(match[1], 10);
+    const minute = match[2] ? Number.parseInt(match[2], 10) : 0;
+    const meridiem = match[3]?.toLowerCase();
+    if (meridiem === 'pm' && hour < 12) hour += 12;
+    if (meridiem === 'am' && hour === 12) hour = 0;
+    if (
+      !Number.isFinite(hour) ||
+      !Number.isFinite(minute) ||
+      hour < 0 ||
+      hour > 23 ||
+      minute < 0 ||
+      minute > 59
+    ) {
+      return undefined;
+    }
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  }
+
+  private normalizeIsoDate(
+    value: unknown,
+    fallbackYear: number
+  ): string | undefined {
+    const raw = this.normalizeTextValue(value);
+    if (!raw) return undefined;
+
+    // Already ISO yyyy-mm-dd
+    const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+    // dd/mm/yyyy or dd-mm-yyyy or dd/mm (without year)
+    const dmy = raw.match(/^(\d{1,2})[/\-.](\d{1,2})(?:[/\-.](\d{2,4}))?$/);
+    if (dmy) {
+      const day = Number.parseInt(dmy[1], 10);
+      const month = Number.parseInt(dmy[2], 10);
+      let year = dmy[3] ? Number.parseInt(dmy[3], 10) : fallbackYear;
+      if (year < 100) year += 2000;
+      if (
+        !Number.isFinite(day) ||
+        !Number.isFinite(month) ||
+        !Number.isFinite(year) ||
+        day < 1 ||
+        day > 31 ||
+        month < 1 ||
+        month > 12
+      ) {
+        return undefined;
+      }
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+
+    return undefined;
   }
 
   async chatWithAssistant(
