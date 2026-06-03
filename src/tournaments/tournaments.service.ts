@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any */
 import {
   Injectable,
   NotFoundException,
@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
+import { DuplicateTournamentDto } from './dto/duplicate-tournament.dto';
 import {
   CreateTournamentPlayerDto,
   UpdateTournamentPlayerDto,
@@ -246,6 +247,370 @@ export class TournamentsService {
     });
 
     return tournament;
+  }
+
+  /**
+   * Deep-copies a tournament into a brand-new one owned by the same host.
+   *
+   * `format` (categories + their format config) is always copied. Everything
+   * else is gated by the `copy` flags, with these dependencies:
+   *   - group assignments & match participants require `teams`
+   *   - per-match court assignments & court time slots require `venues`
+   *
+   * Per product decision, a duplicate always starts UNPLAYED: match structure
+   * (groups, matches, brackets) is recreated by `schedule`, but scores, winners
+   * and statuses are reset. The `matchResults` flag is therefore accepted for
+   * API compatibility but never carries results over.
+   *
+   * Runs in a single transaction so a failure never leaves a half-built copy.
+   */
+  async duplicateTournament(
+    id: string,
+    dto: DuplicateTournamentDto,
+    userId: string,
+    role: string
+  ) {
+    const start = new Date(dto.startDate);
+    const end = new Date(dto.endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      throw new BadRequestException('Invalid date format');
+    }
+    if (start > end) {
+      throw new BadRequestException('End date must not be before start date');
+    }
+
+    const source = await this.prisma.tournament.findUnique({
+      where: { id },
+      include: {
+        categories: {
+          include: {
+            registrations: true,
+            groups: { include: { registrations: true } },
+            matches: { include: { participants: true } },
+          },
+        },
+        tournamentVenues: true,
+        courts: true,
+        players: true,
+        pairs: { include: { members: true } },
+        scheduleConfig: {
+          include: { timeSlots: { include: { courtSlots: true } } },
+        },
+      },
+    });
+
+    if (!source) {
+      throw new NotFoundException('Tournament not found');
+    }
+
+    // Only the owner (or an admin) may duplicate a tournament.
+    this.access.assertHostOrAdmin(source.hostId, userId, role);
+
+    const copy = dto.copy || {};
+    const copyVenues = copy.venues === true;
+    const copyTeams = copy.teams === true;
+    const copySchedule = copy.schedule === true;
+    const copyHomePage = copy.customHomePage === true;
+
+    const slug = await this.uniqueSlug(dto.name);
+
+    // Old id -> new id maps, populated as we recreate each layer.
+    const catMap = new Map<string, string>();
+    const venueMap = new Map<string, string>();
+    const courtMap = new Map<string, string>();
+    const playerMap = new Map<string, string>();
+    const pairMap = new Map<string, string>();
+    const regMap = new Map<string, string>();
+    const groupMap = new Map<string, string>();
+
+    const newId = await this.prisma.$transaction(
+      async (tx) => {
+        // `as any` mirrors this service's existing Prisma access style and
+        // sidesteps Json-field typing friction across the many models below.
+        const db = tx as any;
+
+        // 1) The new tournament shell.
+        const newTournament = await db.tournament.create({
+          data: {
+            name: dto.name,
+            slug,
+            startDate: start,
+            endDate: end,
+            hostId: source.hostId,
+            venueId: dto.venueId || null,
+            status: 'PREPARING',
+            isPublished: false,
+            scheduleType: source.scheduleType ?? null,
+            coverPhoto: copyHomePage ? source.coverPhoto : null,
+            coverPhotoPublicId: copyHomePage ? source.coverPhotoPublicId : null,
+          },
+        });
+
+        // 2) Categories + format config (always).
+        for (const c of source.categories) {
+          const nc = await db.category.create({
+            data: {
+              tournamentId: newTournament.id,
+              name: c.name,
+              type: c.type,
+              registrationMode: c.registrationMode,
+              teamSize: c.teamSize,
+              format: c.format,
+              hasGroupStage: c.hasGroupStage,
+              averageMatchDuration: c.averageMatchDuration,
+              groupCount: c.groupCount,
+              winnersPerGroup: c.winnersPerGroup,
+              playersPerGroup: c.playersPerGroup,
+              matchFormat: c.matchFormat,
+              eliminationMatchFormat: c.eliminationMatchFormat,
+              thirdPlaceMatch: c.thirdPlaceMatch,
+              formatConfig: c.formatConfig ?? undefined,
+            },
+          });
+          catMap.set(c.id, nc.id);
+        }
+
+        // 3) Venues + courts.
+        if (copyVenues) {
+          for (const tv of source.tournamentVenues) {
+            const ntv = await db.tournamentVenue.create({
+              data: { tournamentId: newTournament.id, venueId: tv.venueId },
+            });
+            venueMap.set(tv.id, ntv.id);
+          }
+          for (const court of source.courts) {
+            const nc = await db.tournamentCourt.create({
+              data: {
+                tournamentId: newTournament.id,
+                tournamentVenueId: court.tournamentVenueId
+                  ? (venueMap.get(court.tournamentVenueId) ?? null)
+                  : null,
+                courtNumber: court.courtNumber,
+                courtName: court.courtName,
+                status: 'AVAILABLE',
+                notes: court.notes,
+              },
+            });
+            courtMap.set(court.id, nc.id);
+          }
+        }
+
+        // 4) Players, pairs, registrations.
+        if (copyTeams) {
+          for (const p of source.players) {
+            const np = await db.tournamentPlayer.create({
+              data: {
+                tournamentId: newTournament.id,
+                name: p.name,
+                email: p.email,
+                phone: p.phone,
+                gender: p.gender,
+                level: p.level,
+                levelDescription: p.levelDescription,
+                notes: p.notes,
+                userId: p.userId,
+              },
+            });
+            playerMap.set(p.id, np.id);
+          }
+          for (const pr of source.pairs) {
+            const npr = await db.tournamentPair.create({
+              data: {
+                tournamentId: newTournament.id,
+                name: pr.name,
+                type: pr.type,
+                notes: pr.notes,
+              },
+            });
+            pairMap.set(pr.id, npr.id);
+            const members = pr.members
+              .filter((m) => playerMap.has(m.playerId))
+              .map((m) => ({
+                pairId: npr.id,
+                playerId: playerMap.get(m.playerId)!,
+                position: m.position,
+              }));
+            if (members.length) {
+              await db.tournamentPairMember.createMany({ data: members });
+            }
+          }
+          for (const c of source.categories) {
+            for (const reg of c.registrations) {
+              const nr = await db.categoryRegistration.create({
+                data: {
+                  categoryId: catMap.get(c.id)!,
+                  tournamentPlayerId: reg.tournamentPlayerId
+                    ? (playerMap.get(reg.tournamentPlayerId) ?? null)
+                    : null,
+                  tournamentPairId: reg.tournamentPairId
+                    ? (pairMap.get(reg.tournamentPairId) ?? null)
+                    : null,
+                },
+              });
+              regMap.set(reg.id, nr.id);
+            }
+          }
+        }
+
+        // 5) Match structure (groups, matches, participants) + schedule config.
+        //    Results are intentionally reset — the copy starts unplayed.
+        if (copySchedule) {
+          for (const c of source.categories) {
+            for (const g of c.groups) {
+              const ng = await db.categoryGroup.create({
+                data: {
+                  categoryId: catMap.get(c.id)!,
+                  groupNumber: g.groupNumber,
+                  name: g.name,
+                },
+              });
+              groupMap.set(g.id, ng.id);
+              if (copyTeams) {
+                const groupRegs = g.registrations
+                  .filter((gr) => regMap.has(gr.categoryRegistrationId))
+                  .map((gr) => ({
+                    groupId: ng.id,
+                    categoryRegistrationId: regMap.get(
+                      gr.categoryRegistrationId
+                    )!,
+                  }));
+                if (groupRegs.length) {
+                  await db.categoryGroupRegistration.createMany({
+                    data: groupRegs,
+                  });
+                }
+              }
+            }
+          }
+
+          for (const c of source.categories) {
+            for (const m of c.matches) {
+              const nm = await db.categoryMatch.create({
+                data: {
+                  categoryId: catMap.get(c.id)!,
+                  groupId: m.groupId ? (groupMap.get(m.groupId) ?? null) : null,
+                  round: m.round,
+                  matchNumber: m.matchNumber,
+                  status: 'SCHEDULED',
+                  startTime: m.startTime,
+                  estimatedEndTime: m.estimatedEndTime,
+                  scheduledDuration: m.scheduledDuration,
+                  queueOrder: m.queueOrder,
+                  isQueued: m.isQueued,
+                  matchFormat: m.matchFormat,
+                  notes: m.notes,
+                  // Court assignment only survives when venues were copied.
+                  courtId:
+                    copyVenues && m.courtId
+                      ? (courtMap.get(m.courtId) ?? null)
+                      : null,
+                  // Everything below is deliberately left at defaults (no
+                  // score, no winner, unplayed) so the duplicate is fresh.
+                },
+              });
+              if (copyTeams) {
+                const participants = m.participants
+                  .filter((p) => regMap.has(p.categoryRegistrationId))
+                  .map((p) => ({
+                    matchId: nm.id,
+                    categoryRegistrationId: regMap.get(
+                      p.categoryRegistrationId
+                    )!,
+                    position: p.position,
+                  }));
+                if (participants.length) {
+                  await db.categoryMatchParticipant.createMany({
+                    data: participants,
+                  });
+                }
+              }
+            }
+          }
+
+          if (source.scheduleConfig) {
+            const sc = source.scheduleConfig;
+            const priorities = Array.isArray(sc.categoryPriorities)
+              ? (sc.categoryPriorities as string[])
+                  .map((cid) => catMap.get(cid))
+                  .filter((x): x is string => !!x)
+              : sc.categoryPriorities;
+            const nsc = await db.scheduleConfiguration.create({
+              data: {
+                tournamentId: newTournament.id,
+                categoryPriorities: priorities,
+                matchDurations: sc.matchDurations,
+                keepScheduledMatches: sc.keepScheduledMatches,
+              },
+            });
+            for (const ts of sc.timeSlots) {
+              const nts = await db.scheduleTimeSlot.create({
+                data: {
+                  configId: nsc.id,
+                  date: ts.date,
+                  startTime: ts.startTime,
+                  endTime: ts.endTime,
+                  timeBuffer: ts.timeBuffer,
+                },
+              });
+              // Court time slots only make sense once courts exist.
+              if (copyVenues) {
+                const courtSlots = ts.courtSlots
+                  .filter((cs) => courtMap.has(cs.courtId))
+                  .map((cs) => ({
+                    timeSlotId: nts.id,
+                    courtId: courtMap.get(cs.courtId)!,
+                    constraints: this.remapSlotConstraints(
+                      cs.constraints,
+                      catMap,
+                      groupMap
+                    ),
+                  }));
+                if (courtSlots.length) {
+                  await db.courtTimeSlot.createMany({ data: courtSlots });
+                }
+              }
+            }
+          }
+        }
+
+        return newTournament.id as string;
+      },
+      { maxWait: 20000, timeout: 120000 }
+    );
+
+    return this.findOne(newId);
+  }
+
+  /**
+   * Court-slot constraints store category and group IDs; remap them to the new
+   * tournament's IDs and drop any that weren't copied. Round names pass through.
+   */
+  private remapSlotConstraints(
+    constraints: unknown,
+    catMap: Map<string, string>,
+    groupMap: Map<string, string>
+  ): unknown {
+    if (!constraints || typeof constraints !== 'object') {
+      return constraints ?? null;
+    }
+    const c = constraints as {
+      categories?: string[];
+      rounds?: string[];
+      groups?: string[];
+    };
+    const out: { categories?: string[]; rounds?: string[]; groups?: string[] } =
+      { ...c };
+    if (Array.isArray(c.categories)) {
+      out.categories = c.categories
+        .map((cid) => catMap.get(cid))
+        .filter((x): x is string => !!x);
+    }
+    if (Array.isArray(c.groups)) {
+      out.groups = c.groups
+        .map((gid) => groupMap.get(gid))
+        .filter((x): x is string => !!x);
+    }
+    return out;
   }
 
   async update(

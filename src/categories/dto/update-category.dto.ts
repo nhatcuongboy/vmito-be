@@ -7,6 +7,7 @@ import {
   IsString,
   IsInt,
   Min,
+  Max,
 } from 'class-validator';
 
 export class UpdateCategoryDto {
@@ -53,6 +54,24 @@ export class UpdateCategoryDto {
   @IsOptional()
   @IsBoolean()
   thirdPlaceMatch?: boolean;
+
+  // ─── Per-set scoring rules (preset or custom override) ──────────────
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  pointsToWin?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  winByTwo?: boolean;
+
+  /** Null to disable the hard cap; integer to enforce it. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  pointCap?: number | null;
 
   @IsOptional()
   @IsIn([

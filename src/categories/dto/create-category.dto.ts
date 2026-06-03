@@ -1,4 +1,12 @@
-import { IsString, IsIn, IsOptional, IsInt, Min } from 'class-validator';
+import {
+  IsString,
+  IsIn,
+  IsOptional,
+  IsInt,
+  IsBoolean,
+  Min,
+  Max,
+} from 'class-validator';
 
 export class CreateCategoryDto {
   @IsString()
@@ -26,4 +34,22 @@ export class CreateCategoryDto {
   @IsInt()
   @Min(1)
   teamSize?: number;
+
+  // ─── Per-set scoring rules (optional; defaults to BWF 21 / win-by-2 / cap 30) ──
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  pointsToWin?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  winByTwo?: boolean;
+
+  /** Null = no hard cap. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  pointCap?: number | null;
 }

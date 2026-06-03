@@ -32,6 +32,7 @@ import {
   totalsFromSets,
   MatchAlreadyDecidedError,
   ScoringSet,
+  ScoringRules,
   PointLogEntry,
   MatchFormatValue,
   Side,
@@ -66,6 +67,9 @@ interface CategoryUpdateData {
   formatConfig?: object;
   eliminationMatchFormat?: MatchFormat;
   thirdPlaceMatch?: boolean;
+  pointsToWin?: number;
+  winByTwo?: boolean;
+  pointCap?: number | null;
 }
 
 const DOUBLES_TYPES: CategoryType[] = [
@@ -208,6 +212,31 @@ export class CategoriesService {
       'BEST_OF_1') as MatchFormatValue;
   }
 
+  /**
+   * Resolve the per-set scoring rules for a match. Match-level overrides win
+   * over the category-level config (which itself defaults to BWF rules at the
+   * column level).
+   */
+  private scoringRulesOf(match: {
+    pointsToWin: number | null;
+    winByTwo: boolean | null;
+    pointCap: number | null;
+    category: {
+      pointsToWin: number;
+      winByTwo: boolean;
+      pointCap: number | null;
+    };
+  }): ScoringRules {
+    return {
+      pointsToWin: match.pointsToWin ?? match.category.pointsToWin,
+      winByTwo: match.winByTwo ?? match.category.winByTwo,
+      pointCap:
+        match.pointCap !== null && match.pointCap !== undefined
+          ? match.pointCap
+          : match.category.pointCap,
+    };
+  }
+
   private parseSets(raw: Prisma.JsonValue | undefined): ScoringSet[] {
     if (!Array.isArray(raw)) return [];
     const result: ScoringSet[] = [];
@@ -315,6 +344,7 @@ export class CategoriesService {
 
     const isDoubles = this.isDoublesMatch(match);
     const format = this.matchFormatOf(match);
+    const rules = this.scoringRulesOf(match);
     const sets = this.parseSets(match.sets);
     const log = this.parsePointLog(match.pointLog);
 
@@ -322,7 +352,7 @@ export class CategoriesService {
     if (dto.delta === 1) {
       // Validate the point is allowed (throws if the match is already decided).
       try {
-        applyDelta(sets, dto.side, 1, format, isDoubles);
+        applyDelta(sets, dto.side, 1, format, isDoubles, rules);
       } catch (e) {
         if (e instanceof MatchAlreadyDecidedError) {
           throw new BadRequestException(
@@ -345,7 +375,7 @@ export class CategoriesService {
       }
     }
 
-    const newSets = rebuildFromLog(newLog, format, isDoubles);
+    const newSets = rebuildFromLog(newLog, format, isDoubles, rules);
     return this.persistAndBroadcastScore(
       match,
       newSets,
@@ -366,11 +396,12 @@ export class CategoriesService {
     }
     const isDoubles = this.isDoublesMatch(match);
     const format = this.matchFormatOf(match);
+    const rules = this.scoringRulesOf(match);
     const log = this.parsePointLog(match.pointLog);
     if (log.length === 0) return match;
 
     const newLog = log.slice(0, -1);
-    const newSets = rebuildFromLog(newLog, format, isDoubles);
+    const newSets = rebuildFromLog(newLog, format, isDoubles, rules);
     return this.persistAndBroadcastScore(
       match,
       newSets,
@@ -498,6 +529,9 @@ export class CategoriesService {
           format: dto.format as CategoryFormat,
           hasGroupStage: dto.format !== 'SINGLE_ELIMINATION',
         }),
+        ...(dto.pointsToWin !== undefined && { pointsToWin: dto.pointsToWin }),
+        ...(dto.winByTwo !== undefined && { winByTwo: dto.winByTwo }),
+        ...(dto.pointCap !== undefined && { pointCap: dto.pointCap }),
       },
       include: {
         _count: {
@@ -670,6 +704,21 @@ export class CategoriesService {
     }
     if (dto.thirdPlaceMatch !== undefined) {
       updateData.thirdPlaceMatch = dto.thirdPlaceMatch;
+    }
+    if (dto.pointsToWin !== undefined) {
+      if (dto.pointsToWin < 1) {
+        throw new BadRequestException('pointsToWin must be at least 1');
+      }
+      updateData.pointsToWin = dto.pointsToWin;
+    }
+    if (dto.winByTwo !== undefined) {
+      updateData.winByTwo = dto.winByTwo;
+    }
+    if (dto.pointCap !== undefined) {
+      if (dto.pointCap !== null && dto.pointCap < 1) {
+        throw new BadRequestException('pointCap must be at least 1 or null');
+      }
+      updateData.pointCap = dto.pointCap;
     }
 
     return this.prisma.category.update({

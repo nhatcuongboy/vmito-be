@@ -1,18 +1,40 @@
 /**
  * Pure, stateless badminton scoring rules used by the live-scoring endpoints.
  *
- * Standard rules: rally to 21, must win by 2, hard cap at 30 (so 30-29 wins).
+ * Default rules: rally to 21, must win by 2, hard cap at 30 (so 30-29 wins).
  * BEST_OF_1 = a single set decides the match; BEST_OF_3 = first to 2 sets;
  * BEST_OF_5 = first to 3 sets.
+ *
+ * Set scoring is fully customisable via {@link ScoringRules} — host can pick a
+ * preset (BWF 21, classic 15, rally 15, short 11, …) or fine-tune `pointsToWin`,
+ * `winByTwo` and `pointCap` per category (or per match, as an override).
  *
  * A doubles team shares one score, so we store the side score in
  * player1Score/player2Score and mirror it into player3Score/player4Score only
  * when the match is doubles (to keep the existing `sets` JSON shape consistent).
  */
 
-export const POINTS_TO_WIN_SET = 21;
-export const WIN_BY = 2;
-export const HARD_CAP = 30;
+export const DEFAULT_POINTS_TO_WIN = 21;
+export const DEFAULT_WIN_BY_TWO = true;
+export const DEFAULT_POINT_CAP: number | null = 30;
+
+export interface ScoringRules {
+  /** Points needed to win a set (≥ 1). */
+  pointsToWin: number;
+  /** Must win the set by a 2-point margin (after reaching pointsToWin). */
+  winByTwo: boolean;
+  /**
+   * Hard cap; first side to reach this wins immediately (e.g. 30-29 under BWF).
+   * Null = no cap; the set continues until the winBy margin is reached.
+   */
+  pointCap: number | null;
+}
+
+export const DEFAULT_RULES: ScoringRules = {
+  pointsToWin: DEFAULT_POINTS_TO_WIN,
+  winByTwo: DEFAULT_WIN_BY_TWO,
+  pointCap: DEFAULT_POINT_CAP,
+};
 
 export type MatchFormatValue = 'BEST_OF_1' | 'BEST_OF_3' | 'BEST_OF_5';
 export type Side = 1 | 2;
@@ -30,17 +52,27 @@ export interface PointLogEntry {
   setNumber: number;
 }
 
-/** True when a set with scores (a, b) is complete under standard rules. */
-export function isSetComplete(a: number, b: number): boolean {
+/** True when a set with scores (a, b) is complete under the given rules. */
+export function isSetComplete(
+  a: number,
+  b: number,
+  rules: ScoringRules = DEFAULT_RULES
+): boolean {
   const hi = Math.max(a, b);
   const lo = Math.min(a, b);
-  if (hi >= HARD_CAP) return true; // 30 caps the set (e.g. 30-29)
-  return hi >= POINTS_TO_WIN_SET && hi - lo >= WIN_BY;
+  if (rules.pointCap != null && hi >= rules.pointCap) return true;
+  if (hi < rules.pointsToWin) return false;
+  const requiredGap = rules.winByTwo ? 2 : 1;
+  return hi - lo >= requiredGap;
 }
 
 /** Returns the winning side of a set, or null if it is not yet complete. */
-export function setWinnerSide(a: number, b: number): Side | null {
-  if (!isSetComplete(a, b)) return null;
+export function setWinnerSide(
+  a: number,
+  b: number,
+  rules: ScoringRules = DEFAULT_RULES
+): Side | null {
+  if (!isSetComplete(a, b, rules)) return null;
   return a > b ? 1 : 2;
 }
 
@@ -62,13 +94,14 @@ function sideScores(set: ScoringSet): [number, number] {
  */
 export function matchWinnerSide(
   sets: ScoringSet[],
-  format: MatchFormatValue
+  format: MatchFormatValue,
+  rules: ScoringRules = DEFAULT_RULES
 ): Side | null {
   let side1Wins = 0;
   let side2Wins = 0;
   for (const set of sets) {
     const [a, b] = sideScores(set);
-    const winner = setWinnerSide(a, b);
+    const winner = setWinnerSide(a, b, rules);
     if (winner === 1) side1Wins++;
     else if (winner === 2) side2Wins++;
   }
@@ -79,11 +112,14 @@ export function matchWinnerSide(
 }
 
 /** Count of completed sets won by each side. */
-export function setWins(sets: ScoringSet[]): { side1: number; side2: number } {
+export function setWins(
+  sets: ScoringSet[],
+  rules: ScoringRules = DEFAULT_RULES
+): { side1: number; side2: number } {
   let side1 = 0;
   let side2 = 0;
   for (const set of sets) {
-    const winner = setWinnerSide(set.player1Score, set.player2Score);
+    const winner = setWinnerSide(set.player1Score, set.player2Score, rules);
     if (winner === 1) side1++;
     else if (winner === 2) side2++;
   }
@@ -129,12 +165,13 @@ export function applyDelta(
   side: Side,
   delta: 1 | -1,
   format: MatchFormatValue,
-  isDoubles: boolean
+  isDoubles: boolean,
+  rules: ScoringRules = DEFAULT_RULES
 ): ScoringSet[] {
   const working = ensureSets(sets, isDoubles);
 
   // Reject scoring once the match is decided (referee must undo to correct).
-  if (matchWinnerSide(working, format) !== null) {
+  if (matchWinnerSide(working, format, rules) !== null) {
     throw new MatchAlreadyDecidedError();
   }
 
@@ -147,8 +184,12 @@ export function applyDelta(
   working[working.length - 1] = mirrored;
 
   // If this set just completed and the match isn't over, open the next set.
-  const setDone = isSetComplete(mirrored.player1Score, mirrored.player2Score);
-  const matchDone = matchWinnerSide(working, format) !== null;
+  const setDone = isSetComplete(
+    mirrored.player1Score,
+    mirrored.player2Score,
+    rules
+  );
+  const matchDone = matchWinnerSide(working, format, rules) !== null;
   if (setDone && !matchDone && delta === 1) {
     working.push(newSet(current.setNumber + 1, isDoubles));
   }
@@ -171,11 +212,12 @@ export class MatchAlreadyDecidedError extends Error {
 export function rebuildFromLog(
   log: PointLogEntry[],
   format: MatchFormatValue,
-  isDoubles: boolean
+  isDoubles: boolean,
+  rules: ScoringRules = DEFAULT_RULES
 ): ScoringSet[] {
   let sets: ScoringSet[] = [newSet(1, isDoubles)];
   for (const entry of log) {
-    sets = applyDelta(sets, entry.side, 1, format, isDoubles);
+    sets = applyDelta(sets, entry.side, 1, format, isDoubles, rules);
   }
   return sets;
 }

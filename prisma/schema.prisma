@@ -620,6 +620,11 @@ model Category {
   matchFormat            MatchFormat              @default(BEST_OF_3)
   eliminationMatchFormat MatchFormat?
   thirdPlaceMatch        Boolean                  @default(false)
+  // Per-set scoring rules. Defaults to BWF (rally to 21, win-by-2, cap 30).
+  // pointCap = null means no hard cap (set ends only on winBy gap).
+  pointsToWin            Int                      @default(21)
+  winByTwo               Boolean                  @default(true)
+  pointCap               Int?                     @default(30)
   formatConfig           Json?
   createdAt              DateTime                 @default(now())
   updatedAt              DateTime                 @updatedAt
@@ -732,6 +737,10 @@ model CategoryMatch {
   player1Points Int? // Manually-assigned standings points for side 1 (pointsEarning = 'manual')
   player2Points Int? // Manually-assigned standings points for side 2 (pointsEarning = 'manual')
   matchFormat  MatchFormat? // Match format for this specific match/round
+  // Per-match overrides for set scoring rules. Null = inherit from category.
+  pointsToWin  Int?
+  winByTwo     Boolean?
+  pointCap     Int?
   notes        String?
 
   // Live scoring fields

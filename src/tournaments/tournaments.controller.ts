@@ -14,6 +14,7 @@ import { TournamentsService } from './tournaments.service';
 import { CategoriesService } from '../categories/categories.service';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
+import { DuplicateTournamentDto } from './dto/duplicate-tournament.dto';
 import { CreateCategoryDto } from '../categories/dto/create-category.dto';
 import { CreateTournamentPlayerDto } from './dto/create-tournament-player.dto';
 import { AddTournamentVenueDto } from './dto/add-tournament-venue.dto';
@@ -75,6 +76,20 @@ export class TournamentsController {
     return this.tournamentsService.update(
       id,
       updateTournamentDto,
+      user.userId,
+      user.role
+    );
+  }
+
+  @Post(':id/duplicate')
+  duplicate(
+    @Param('id') id: string,
+    @Body() duplicateTournamentDto: DuplicateTournamentDto,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    return this.tournamentsService.duplicateTournament(
+      id,
+      duplicateTournamentDto,
       user.userId,
       user.role
     );
