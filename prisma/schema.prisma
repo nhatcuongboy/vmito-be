@@ -695,10 +695,13 @@ model CategoryMatch {
   sets         Json?
   winnerId     String?
   isDraw       Boolean      @default(false)
+  isForfeit    Boolean      @default(false) // Decided by forfeit/walkover; winnerId wins, the other side forfeited
   player1Score Int?
   player2Score Int?
   player3Score Int?
   player4Score Int?
+  player1Points Int? // Manually-assigned standings points for side 1 (pointsEarning = 'manual')
+  player2Points Int? // Manually-assigned standings points for side 2 (pointsEarning = 'manual')
   matchFormat  MatchFormat? // Match format for this specific match/round
   notes        String?
 

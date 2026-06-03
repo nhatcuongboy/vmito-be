@@ -41,6 +41,11 @@ import {
   NormalizableMatch,
 } from './scoring/normalize-match';
 import { MATCH_SCORING_INCLUDE } from './scoring/match-include';
+import {
+  computeStandings,
+  resolveStandingsConfig,
+  StandingsMatchInput,
+} from './scoring/standings';
 
 interface CategoryUpdateData {
   name?: string;
@@ -1666,10 +1671,13 @@ export class CategoriesService {
           : undefined,
         winnerId: dto.winnerId,
         isDraw: dto.isDraw || false,
+        isForfeit: dto.isForfeit || false,
         player1Score,
         player2Score,
         player3Score,
         player4Score,
+        player1Points: dto.player1Points,
+        player2Points: dto.player2Points,
         notes: dto.notes,
       },
       include: MATCH_SCORING_INCLUDE,
@@ -1817,42 +1825,15 @@ export class CategoriesService {
       throw new NotFoundException('Group not found in this category');
     }
 
-    // Extract point values from formatConfig (supports both RR and RR→SE configs)
-    const config = category.formatConfig as Record<string, unknown> | null;
-    const rrConfig = (config?.roundRobin as Record<string, unknown>) ?? config;
-    const pointsEarning =
-      (rrConfig?.pointsEarning as string) ?? 'match_results';
+    // Point values + tiebreaker config (supports both RR and RR→SE configs).
+    const standingsConfig = resolveStandingsConfig(
+      category.formatConfig as Record<string, unknown> | null
+    );
 
-    // When tiebreakers_only mode, all point values are 0
-    const isTiebreakersOnly = pointsEarning === 'tiebreakers_only';
-    const winPoints = isTiebreakersOnly
-      ? 0
-      : ((rrConfig?.winPoints as number) ?? 2);
-    const tiePoints = isTiebreakersOnly
-      ? 0
-      : ((rrConfig?.tiePoints as number) ?? 1);
-    const lossPoints = isTiebreakersOnly
-      ? 0
-      : ((rrConfig?.lossPoints as number) ?? 0);
-    const gameWinPoints = isTiebreakersOnly
-      ? 0
-      : ((rrConfig?.gameWinPoints as number) ?? 0);
-    const gameLossPoints = isTiebreakersOnly
-      ? 0
-      : ((rrConfig?.gameLossPoints as number) ?? 0);
-
-    // Configurable tiebreaker order
-    const tiebreakerOrder = (rrConfig?.tiebreakers as Array<{
-      id: string;
-    }>) ?? [
-      { id: 'total_points' },
-      { id: 'game_differential' },
-      { id: 'total_wins' },
-      { id: 'point_differential' },
-    ];
-
+    // Ordered by createdAt so the deterministic seed (entrant index) is stable.
     const groupRegs = await this.prisma.categoryGroupRegistration.findMany({
       where: { groupId },
+      orderBy: { createdAt: 'asc' },
       include: {
         categoryRegistration: {
           include: {
@@ -1870,184 +1851,51 @@ export class CategoriesService {
       },
     });
 
-    const finishedMatches = await this.prisma.categoryMatch.findMany({
-      where: { groupId, status: 'FINISHED' },
+    // Cancelled matches are pulled in too so cancelledMatchPoints can apply.
+    const settledMatches = await this.prisma.categoryMatch.findMany({
+      where: { groupId, status: { in: ['FINISHED', 'CANCELLED'] } },
       include: { participants: true },
     });
 
-    // Build standings map
-    const standingsMap = new Map<
-      string,
-      {
-        categoryRegistrationId: string;
-        registration: (typeof groupRegs)[0]['categoryRegistration'];
-        matchesPlayed: number;
-        matchesWon: number;
-        matchesLost: number;
-        matchesDrawn: number;
-        points: number;
-        pointsFor: number;
-        pointsAgainst: number;
-        pointDifference: number;
-        gamesWon: number;
-        gamesLost: number;
-        gameDifference: number;
-        rank: number;
-      }
-    >();
+    const matchInputs: StandingsMatchInput[] = settledMatches.map((m) => ({
+      participants: m.participants.map((p) => ({
+        categoryRegistrationId: p.categoryRegistrationId,
+        position: p.position,
+      })),
+      player1Score: m.player1Score,
+      player2Score: m.player2Score,
+      player1Points: m.player1Points,
+      player2Points: m.player2Points,
+      sets: Array.isArray(m.sets)
+        ? (m.sets as Array<{ player1Score?: number; player2Score?: number }>)
+        : null,
+      winnerId: m.winnerId,
+      isDraw: m.isDraw,
+      isForfeit: m.isForfeit,
+      isCancelled: m.status === 'CANCELLED',
+    }));
 
-    for (const gr of groupRegs) {
-      standingsMap.set(gr.categoryRegistrationId, {
+    const rows = computeStandings(
+      groupRegs.map((gr) => ({
         categoryRegistrationId: gr.categoryRegistrationId,
-        registration: gr.categoryRegistration,
-        matchesPlayed: 0,
-        matchesWon: 0,
-        matchesLost: 0,
-        matchesDrawn: 0,
-        points: 0,
-        pointsFor: 0,
-        pointsAgainst: 0,
-        pointDifference: 0,
-        gamesWon: 0,
-        gamesLost: 0,
-        gameDifference: 0,
-        rank: 0,
-      });
-    }
+      })),
+      matchInputs,
+      standingsConfig
+    );
 
-    // Process matches
-    for (const match of finishedMatches) {
-      const p1 = match.participants.find((p) => p.position === 1);
-      const p2 = match.participants.find((p) => p.position === 2);
-      if (!p1 || !p2) continue;
-
-      const s1 = standingsMap.get(p1.categoryRegistrationId);
-      const s2 = standingsMap.get(p2.categoryRegistrationId);
-      if (!s1 || !s2) continue;
-
-      s1.matchesPlayed++;
-      s2.matchesPlayed++;
-
-      s1.pointsFor += match.player1Score || 0;
-      s1.pointsAgainst += match.player2Score || 0;
-      s2.pointsFor += match.player2Score || 0;
-      s2.pointsAgainst += match.player1Score || 0;
-
-      // Count games from sets data
-      if (match.sets && Array.isArray(match.sets)) {
-        for (const set of match.sets as Array<{
-          player1Score?: number;
-          player2Score?: number;
-        }>) {
-          const p1Score = set.player1Score ?? 0;
-          const p2Score = set.player2Score ?? 0;
-          if (p1Score > p2Score) {
-            s1.gamesWon++;
-            s2.gamesLost++;
-          } else if (p2Score > p1Score) {
-            s2.gamesWon++;
-            s1.gamesLost++;
-          }
-        }
-        // Add game-level points
-        s1.points +=
-          s1.gamesWon * gameWinPoints + s1.gamesLost * gameLossPoints;
-        s2.points +=
-          s2.gamesWon * gameWinPoints + s2.gamesLost * gameLossPoints;
-      }
-
-      if (match.isDraw) {
-        s1.matchesDrawn++;
-        s2.matchesDrawn++;
-        s1.points += tiePoints;
-        s2.points += tiePoints;
-      } else if (match.winnerId === p1.categoryRegistrationId) {
-        s1.matchesWon++;
-        s2.matchesLost++;
-        s1.points += winPoints;
-        s2.points += lossPoints;
-      } else if (match.winnerId === p2.categoryRegistrationId) {
-        s2.matchesWon++;
-        s1.matchesLost++;
-        s2.points += winPoints;
-        s1.points += lossPoints;
-      }
-    }
-
-    // Calculate differences and sort
-    const standings = Array.from(standingsMap.values());
-    standings.forEach((s) => {
-      s.pointDifference = s.pointsFor - s.pointsAgainst;
-      s.gameDifference = s.gamesWon - s.gamesLost;
-    });
-
-    // Dynamic tiebreaker sort based on configured order
-    standings.sort((a, b) => {
-      for (const tb of tiebreakerOrder) {
-        let result = 0;
-        switch (tb.id) {
-          case 'total_points':
-            result = b.points - a.points;
-            break;
-          case 'total_wins':
-            result = b.matchesWon - a.matchesWon;
-            break;
-          case 'head_to_head':
-            result = this.compareHeadToHead(a, b, finishedMatches);
-            break;
-          case 'game_differential':
-            result = b.gameDifference - a.gameDifference;
-            break;
-          case 'point_differential':
-            result = b.pointDifference - a.pointDifference;
-            break;
-          case 'points_for':
-            result = b.pointsFor - a.pointsFor;
-            break;
-          case 'points_against':
-            result = a.pointsAgainst - b.pointsAgainst;
-            break;
-        }
-        if (result !== 0) return result;
-      }
-      return 0;
-    });
-
-    standings.forEach((s, i) => (s.rank = i + 1));
+    // Re-attach the registration objects expected by the API response.
+    const registrationById = new Map(
+      groupRegs.map((gr) => [
+        gr.categoryRegistrationId,
+        gr.categoryRegistration,
+      ])
+    );
+    const standings = rows.map((row) => ({
+      ...row,
+      registration: registrationById.get(row.categoryRegistrationId) ?? null,
+    }));
 
     return { group, standings };
-  }
-
-  private compareHeadToHead(
-    a: { categoryRegistrationId: string },
-    b: { categoryRegistrationId: string },
-    matches: Array<{
-      winnerId: string | null;
-      isDraw: boolean;
-      participants: Array<{ categoryRegistrationId: string; position: number }>;
-    }>
-  ): number {
-    const h2hMatches = matches.filter((m) => {
-      const ids = m.participants.map((p) => p.categoryRegistrationId);
-      return (
-        ids.includes(a.categoryRegistrationId) &&
-        ids.includes(b.categoryRegistrationId)
-      );
-    });
-
-    if (h2hMatches.length === 0) return 0;
-
-    let aWins = 0;
-    let bWins = 0;
-    for (const m of h2hMatches) {
-      if (m.isDraw) continue;
-      if (m.winnerId === a.categoryRegistrationId) aWins++;
-      else if (m.winnerId === b.categoryRegistrationId) bWins++;
-    }
-
-    if (aWins > bWins) return -1;
-    if (bWins > aWins) return 1;
-    return 0;
   }
 
   async calculateGroupStandings(
