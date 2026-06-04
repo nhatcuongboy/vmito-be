@@ -4,6 +4,10 @@ export class CreateTournamentDto {
   @IsString()
   name: string;
 
+  @IsOptional()
+  @IsString()
+  description?: string | null;
+
   @IsDateString()
   startDate: string;
 

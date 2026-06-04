@@ -15,6 +15,11 @@ export class UpdateTournamentDto {
   name?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string | null;
+
+  @IsOptional()
   @IsDateString()
   startDate?: string;
 

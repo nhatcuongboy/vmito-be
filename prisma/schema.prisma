@@ -531,6 +531,7 @@ model Tournament {
   id                  String           @id @default(cuid())
   slug                String           @unique
   name                String
+  description         String?          @db.Text
   startDate           DateTime
   endDate             DateTime
   hostId              String

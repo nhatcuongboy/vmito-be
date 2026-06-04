@@ -193,7 +193,7 @@ export class TournamentsService {
   }
 
   async create(dto: CreateTournamentDto, hostId: string) {
-    const { name, startDate, endDate, venueId } = dto;
+    const { name, description, startDate, endDate, venueId } = dto;
 
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -211,6 +211,7 @@ export class TournamentsService {
     const tournament = await this.prisma.tournament.create({
       data: {
         name,
+        description: description?.trim() || null,
         slug,
         startDate: start,
         endDate: end,
@@ -636,6 +637,7 @@ export class TournamentsService {
 
     const updateData: {
       name?: string;
+      description?: string | null;
       startDate?: Date;
       endDate?: Date;
       status?: TournamentStatus;
@@ -651,6 +653,12 @@ export class TournamentsService {
 
     if (dto.name !== undefined) {
       updateData.name = dto.name;
+    }
+
+    if (dto.description !== undefined) {
+      const trimmed =
+        typeof dto.description === 'string' ? dto.description.trim() : null;
+      updateData.description = trimmed ? trimmed : null;
     }
 
     if (dto.startDate !== undefined) {
