@@ -404,6 +404,7 @@ export class TournamentsService {
               data: {
                 tournamentId: newTournament.id,
                 name: p.name,
+                code: p.code,
                 email: p.email,
                 phone: p.phone,
                 gender: p.gender,
@@ -1062,6 +1063,7 @@ export class TournamentsService {
       data: {
         tournamentId,
         name: dto.name,
+        code: dto.code,
         email: dto.email,
         phone: dto.phone,
         gender: dto.gender,

@@ -879,6 +879,7 @@ model TournamentPlayer {
   id               String   @id @default(cuid())
   tournamentId     String
   name             String
+  code             String? // Human-readable player code (e.g. "VDV001", "XD01")
   email            String?
   phone            String?
   gender           Gender?

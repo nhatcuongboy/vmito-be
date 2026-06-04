@@ -14,6 +14,10 @@ export class CreateTournamentPlayerDto {
   name: string;
 
   @IsOptional()
+  @IsString()
+  code?: string;
+
+  @IsOptional()
   @IsEmail()
   email?: string;
 
@@ -52,6 +56,10 @@ export class UpdateTournamentPlayerDto {
   @IsOptional()
   @IsString()
   name?: string;
+
+  @IsOptional()
+  @IsString()
+  code?: string;
 
   @IsOptional()
   @IsEmail()
