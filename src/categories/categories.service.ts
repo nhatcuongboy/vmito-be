@@ -1271,6 +1271,27 @@ export class CategoriesService {
     );
   }
 
+  /**
+   * Later-round elimination matches are created as empty shells and only get
+   * their two participants once both feeding matches finish (see advanceWinner).
+   * Block starting/scoring such a match until both sides are determined —
+   * otherwise we would record a "TBD vs TBD" result and possibly advance a
+   * bogus winner. Group matches always carry both participants from the start,
+   * so they are unaffected.
+   */
+  private assertMatchParticipantsResolved(match: {
+    round: string;
+    groupId: string | null;
+    participants: unknown[];
+  }) {
+    const isElimination = match.round !== 'GROUP' && !match.groupId;
+    if (isElimination && match.participants.length < 2) {
+      throw new BadRequestException(
+        'Match participants are not determined yet. Wait for the feeding matches to finish.'
+      );
+    }
+  }
+
   // ─── Phase 4: Group CRUD ──────────────────────────────────
 
   async getGroups(categoryId: string) {
@@ -1976,6 +1997,7 @@ export class CategoriesService {
       );
     }
 
+    this.assertMatchParticipantsResolved(match);
     await this.assertMatchRostersReady(match.participants);
 
     const updated = await this.prisma.categoryMatch.update({
@@ -2003,6 +2025,7 @@ export class CategoriesService {
       );
     }
 
+    this.assertMatchParticipantsResolved(match);
     await this.assertMatchRostersReady(match.participants);
 
     // Auto-calculate total scores from sets if provided
