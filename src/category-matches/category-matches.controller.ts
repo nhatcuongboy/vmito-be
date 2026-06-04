@@ -98,6 +98,14 @@ export class CategoryMatchesController {
     return this.categoriesService.startMatch(id, user.userId, user.role);
   }
 
+  @Post(':id/reset-result')
+  resetMatchResult(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.resetMatchResult(id, user.userId, user.role);
+  }
+
   @Post(':id/end')
   endMatch(
     @Param('id') id: string,

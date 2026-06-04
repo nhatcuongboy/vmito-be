@@ -2068,6 +2068,141 @@ export class CategoriesService {
     return updatedMatch;
   }
 
+  /**
+   * Reset a match back to its initial (not-yet-played) state. Clears the result
+   * (status → SCHEDULED, scores/sets/winner/forfeit), the live-scoring scratch
+   * state (pointLog), and timing. For finished elimination matches we also undo
+   * the auto-advancement so the downstream bracket doesn't keep a participant
+   * that no longer has a result feeding it.
+   */
+  async resetMatchResult(id: string, userId: string, role?: string) {
+    const match = await this.getMatchForScoring(id, userId, role);
+
+    if (
+      match.status === 'FINISHED' &&
+      match.round !== 'GROUP' &&
+      match.winnerId
+    ) {
+      await this.removeAdvancedWinner({
+        id: match.id,
+        categoryId: match.categoryId,
+        round: match.round,
+        winnerId: match.winnerId,
+        participants: match.participants.map((participant) => ({
+          categoryRegistrationId: participant.categoryRegistrationId,
+          position: participant.position,
+        })),
+      });
+    }
+
+    const updated = await this.prisma.categoryMatch.update({
+      where: { id },
+      data: {
+        status: 'SCHEDULED',
+        startTime: null,
+        endTime: null,
+        score: null,
+        sets: Prisma.DbNull,
+        winnerId: null,
+        isDraw: false,
+        isForfeit: false,
+        player1Score: null,
+        player2Score: null,
+        player3Score: null,
+        player4Score: null,
+        player1Points: null,
+        player2Points: null,
+        pointLog: Prisma.DbNull,
+        notes: null,
+      },
+      include: MATCH_SCORING_INCLUDE,
+    });
+
+    this.broadcastMatch(updated, TournamentEventType.TOURNAMENT_MATCH_ENDED);
+    return updated;
+  }
+
+  /**
+   * Reverse {@link advanceWinner}: remove the participant this match's winner
+   * (and, for SF, its loser) placed into the next round / 3RD-place match.
+   * Only removes from downstream matches that have not themselves started, so
+   * an in-progress or finished later round is never corrupted.
+   */
+  private async removeAdvancedWinner(match: {
+    id: string;
+    categoryId: string;
+    round: string;
+    winnerId: string | null;
+    participants: Array<{ categoryRegistrationId: string; position: number }>;
+  }) {
+    if (!match.winnerId) return;
+
+    const roundMatches = await this.prisma.categoryMatch.findMany({
+      where: {
+        categoryId: match.categoryId,
+        round: match.round,
+        groupId: null,
+      },
+      orderBy: { matchNumber: 'asc' },
+    });
+
+    const matchIndex = roundMatches.findIndex((m) => m.id === match.id);
+    if (matchIndex === -1) return;
+
+    const roundOrder = this.getRoundOrder();
+    const currentRoundIdx = roundOrder.indexOf(match.round);
+    if (currentRoundIdx === -1 || currentRoundIdx >= roundOrder.length - 1) {
+      return;
+    }
+
+    const nextRound = roundOrder[currentRoundIdx + 1];
+    const nextRoundMatches = await this.prisma.categoryMatch.findMany({
+      where: {
+        categoryId: match.categoryId,
+        round: nextRound,
+        groupId: null,
+      },
+      orderBy: { matchNumber: 'asc' },
+    });
+
+    const nextMatchIndex = Math.floor(matchIndex / 2);
+    const nextMatch = nextRoundMatches[nextMatchIndex];
+    if (nextMatch && nextMatch.status === 'SCHEDULED') {
+      const position = (matchIndex % 2) + 1;
+      await this.prisma.categoryMatchParticipant.deleteMany({
+        where: {
+          matchId: nextMatch.id,
+          position,
+          categoryRegistrationId: match.winnerId,
+        },
+      });
+    }
+
+    // SF loser was placed into the 3RD-place match — undo that too.
+    if (match.round === 'SF') {
+      const thirdPlaceMatches = await this.prisma.categoryMatch.findMany({
+        where: { categoryId: match.categoryId, round: '3RD', groupId: null },
+        orderBy: { matchNumber: 'asc' },
+      });
+      const thirdPlaceMatch = thirdPlaceMatches[0];
+      if (thirdPlaceMatch && thirdPlaceMatch.status === 'SCHEDULED') {
+        const loser = match.participants.find(
+          (p) => p.categoryRegistrationId !== match.winnerId
+        );
+        if (loser) {
+          const loserPosition = (matchIndex % 2) + 1;
+          await this.prisma.categoryMatchParticipant.deleteMany({
+            where: {
+              matchId: thirdPlaceMatch.id,
+              position: loserPosition,
+              categoryRegistrationId: loser.categoryRegistrationId,
+            },
+          });
+        }
+      }
+    }
+  }
+
   private async advanceWinner(match: {
     id: string;
     categoryId: string;
@@ -2318,6 +2453,14 @@ export class CategoriesService {
     if (groups.length === 0) {
       throw new BadRequestException('No groups exist. Create groups first.');
     }
+
+    // Re-generating must start from a clean slate: wipe ALL previously-generated
+    // matches for this category (group stage + playoff shells), so stale matches
+    // from an earlier configuration never linger. Cascades to participants and
+    // nulls any court's currentMatch reference. Without this, leftover playoff
+    // shells (groupId: null) survive the group deletion done client-side and
+    // ensureEliminationShells would skip recreating them (idempotent guard).
+    await this.prisma.categoryMatch.deleteMany({ where: { categoryId } });
 
     const results: Array<{ group: (typeof groups)[0]; matches: unknown[] }> =
       [];
