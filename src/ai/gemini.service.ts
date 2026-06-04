@@ -215,6 +215,7 @@ const SCHEDULE_EXTRACTION_SCHEMA = {
         properties: {
           categoryName: nullableStringSchema,
           matchNumber: nullableIntegerSchema,
+          matchCode: nullableStringSchema,
           team1Code: nullableStringSchema,
           team2Code: nullableStringSchema,
           courtName: nullableStringSchema,
@@ -226,6 +227,7 @@ const SCHEDULE_EXTRACTION_SCHEMA = {
         required: [
           'categoryName',
           'matchNumber',
+          'matchCode',
           'team1Code',
           'team2Code',
           'courtName',
@@ -237,6 +239,7 @@ const SCHEDULE_EXTRACTION_SCHEMA = {
         propertyOrdering: [
           'categoryName',
           'matchNumber',
+          'matchCode',
           'team1Code',
           'team2Code',
           'courtName',
@@ -255,6 +258,7 @@ const SCHEDULE_EXTRACTION_SCHEMA = {
 type RawExtractedScheduleEntry = {
   categoryName?: string | null;
   matchNumber?: number | string | null;
+  matchCode?: string | null;
   team1Code?: string | null;
   team2Code?: string | null;
   courtName?: string | null;
@@ -1054,28 +1058,31 @@ Input the host pasted (may be a table, CSV-like rows, or a plain text list):
 ${text}
 """
 
-A row may identify the match either by a match number ("Trận N") OR by naming the two opposing teams (e.g. "MD01 vs MD02", "Đội A - Đội B"). A common format is:
+A row may identify the match by ANY of: a match code (e.g. "MD-VB01"), a match number ("Trận N"), or the two opposing teams (e.g. "MD01 vs MD02", "Đội A - Đội B"). Common formats are:
 "<category>, <round/group>, <startTime> <date> (<duration>) - <team1> vs <team2> - <court>"
-for example "Đôi nam, Vòng bảng, 08:15 06/06/2026 (10 phút) - MD01 vs MD02 - Sân 6".
+"<category>, <round/group>, <startTime> - <endTime> <date>, <matchCode>, <team1> vs <team2>, <court>"
+for example "Đôi nam, Vòng bảng, 13:00 - 13:15 6/6/2026, MD-VB01, MD01 vs MD02, 5" (matchCode = "MD-VB01", court = "5").
 
 For every match assignment that you can clearly identify, return one entry with:
 - categoryName: must match one of the listed categories above (copy the exact spelling).
-- matchNumber: integer — the "Trận N" / "Match N" number within that category. If only a global match index is mentioned, treat it as the matchNumber. Set to null when the row identifies the match by team names instead of a number.
+- matchNumber: integer — the "Trận N" / "Match N" number within that category. If only a global match index is mentioned, treat it as the matchNumber. Set to null when the row has no plain match number.
+- matchCode: the human-readable match code exactly as written (e.g. "MD-VB01", "M01", "XD-VB03"), typically an alphanumeric token with letters, an optional dash, and digits. This is NOT a team name and NOT a court. Otherwise null.
 - team1Code: the first team's name/code exactly as written (e.g. "MD01"), when the row names the two opponents around "vs", "v", "-", "đấu", "gặp". Otherwise null.
 - team2Code: the second team's name/code exactly as written (e.g. "MD02"). Otherwise null.
-- courtName: the court label exactly as the host wrote it (e.g. "Sân 1", "Court A"). Keep it short.
+- courtName: the court label exactly as the host wrote it (e.g. "Sân 1", "Court A", or a bare number like "5"). Keep it short.
 - date: ISO date string YYYY-MM-DD.
-- startTime: 24-hour clock HH:mm (zero-padded). Convert "9h", "9:00 AM", "09h00" to 09:00. Convert "2 PM" to 14:00.
-- durationMinutes: integer minutes (e.g. 60). Read values like "(10 phút)" / "10 minutes" as 10. If only an end time is given, compute duration from start/end. If nothing is mentioned, use 60.
+- startTime: 24-hour clock HH:mm (zero-padded). Convert "9h", "9:00 AM", "09h00" to 09:00. Convert "2 PM" to 14:00. For a time range like "13:00 - 13:15", startTime is the first time ("13:00").
+- durationMinutes: integer minutes (e.g. 60). For a time range like "13:00 - 13:15", compute the difference (15). Read values like "(10 phút)" / "10 minutes" as 10. If nothing is mentioned, use 60.
 - rawLine: copy the source line/row text verbatim so the host can debug.
 
 Strict rules:
 - Return JSON only matching the provided schema.
+- Do not confuse the three identifiers: matchCode is a code like "MD-VB01"; team1Code/team2Code are the two opponents around "vs"; matchNumber is a plain integer. A row may carry several of them — fill each field independently.
 - The round/group label (e.g. "Vòng bảng", "Bán kết", "Group", "Semi Final") is informational only — do not put it in any field, but still use it to locate the match if helpful.
 - If a row is a header, a divider, an empty line, or clearly not a match, skip it (do not include it).
-- Do not invent matchNumber, team names, court, or categoryName. If a field is missing in the source, set it to null.
+- Do not invent matchCode, matchNumber, team names, court, or categoryName. If a field is missing in the source, set it to null.
 - Do not include matches that are missing BOTH startTime and date.
-- Do not include a row that has neither a matchNumber nor both team names (there would be nothing to match it to).
+- Do not include a row that has none of: matchCode, matchNumber, or both team names (there would be nothing to match it to).
 - Preserve the source language for any text values.`;
 
     const response = await this.withRetry(
@@ -1118,6 +1125,7 @@ Strict rules:
   ): ExtractedScheduleEntry | null {
     const categoryName = this.normalizeTextValue(raw.categoryName);
     const matchNumber = this.normalizeInteger(raw.matchNumber);
+    const matchCode = this.normalizeTextValue(raw.matchCode);
     const team1Code = this.normalizeTextValue(raw.team1Code);
     const team2Code = this.normalizeTextValue(raw.team2Code);
     const courtName = this.normalizeTextValue(raw.courtName);
@@ -1129,13 +1137,21 @@ Strict rules:
 
     // Drop entries that have nothing actionable.
     const hasTeams = Boolean(team1Code && team2Code);
-    if (!categoryName && !matchNumber && !hasTeams && !startTime && !date) {
+    if (
+      !categoryName &&
+      !matchNumber &&
+      !matchCode &&
+      !hasTeams &&
+      !startTime &&
+      !date
+    ) {
       return null;
     }
 
     return {
       categoryName,
       matchNumber,
+      matchCode,
       team1Code,
       team2Code,
       courtName,

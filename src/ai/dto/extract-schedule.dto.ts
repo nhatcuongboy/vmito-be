@@ -20,6 +20,8 @@ export interface ExtractedScheduleEntry {
   categoryName?: string;
   /** Số thứ tự trận trong hạng mục (matchNumber trong DB). */
   matchNumber?: number;
+  /** Mã trận do host viết (ví dụ "MD-VB01", "M01"), khớp với matchCode trong DB. */
+  matchCode?: string;
   /** Tên/mã đội thứ nhất khi dòng ghi theo "MD01 vs MD02" (ví dụ "MD01"). */
   team1Code?: string;
   /** Tên/mã đội thứ hai khi dòng ghi theo "MD01 vs MD02" (ví dụ "MD02"). */
