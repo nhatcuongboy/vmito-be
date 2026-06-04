@@ -20,6 +20,10 @@ export interface ExtractedScheduleEntry {
   categoryName?: string;
   /** Số thứ tự trận trong hạng mục (matchNumber trong DB). */
   matchNumber?: number;
+  /** Tên/mã đội thứ nhất khi dòng ghi theo "MD01 vs MD02" (ví dụ "MD01"). */
+  team1Code?: string;
+  /** Tên/mã đội thứ hai khi dòng ghi theo "MD01 vs MD02" (ví dụ "MD02"). */
+  team2Code?: string;
   /** Tên sân hoặc số sân (ví dụ "Sân 1", "Court A"). */
   courtName?: string;
   /** Ngày thi đấu định dạng YYYY-MM-DD. */
