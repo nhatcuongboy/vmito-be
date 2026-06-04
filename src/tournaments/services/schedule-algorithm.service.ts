@@ -189,8 +189,23 @@ export class ScheduleAlgorithmService {
       const priB = priorityMap.get(b.categoryId) ?? 999;
       if (priA !== priB) return priA - priB;
 
-      // Secondary: Pool play before playoffs
-      const roundOrder = (round: string) => (round === 'GROUP' ? 0 : 1);
+      // Secondary: pool play first, then playoffs in bracket order
+      // (earliest round → Final → 3rd place).
+      const ELIM_ROUND_ORDER = [
+        'R128',
+        'R64',
+        'R32',
+        'R16',
+        'QF',
+        'SF',
+        'F',
+        '3RD',
+      ];
+      const roundOrder = (round: string) => {
+        if (round === 'GROUP') return 0;
+        const index = ELIM_ROUND_ORDER.indexOf(round);
+        return index === -1 ? 99 : 1 + index;
+      };
       const rA = roundOrder(a.round);
       const rB = roundOrder(b.round);
       if (rA !== rB) return rA - rB;

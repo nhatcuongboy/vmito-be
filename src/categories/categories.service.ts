@@ -2330,6 +2330,11 @@ export class CategoriesService {
       );
       results.push({ group, matches });
     }
+
+    // Pre-create the playoff bracket as empty shells so it can be scheduled and
+    // displayed (with seed/feeder labels) before the group stage finishes.
+    await this.ensureEliminationShells(categoryId);
+
     return results;
   }
 
@@ -2421,6 +2426,10 @@ export class CategoriesService {
         );
       }
 
+      // Fill the pre-created shells (preserving any assigned court/time). Fall
+      // back to a full regen when shells are absent or no longer match.
+      const filled = await this.fillEliminationBracket(categoryId, allWinners);
+      if (filled) return this.getEliminationMatches(categoryId);
       return this.generateEliminationBracket(categoryId, allWinners);
     } else {
       // Direct elimination from all registrations
@@ -2615,6 +2624,191 @@ export class CategoriesService {
     }
 
     return allCreatedMatches;
+  }
+
+  // Build the per-round match-format resolver (honours formatConfig.roundFormats).
+  private buildFormatForRound(
+    category: {
+      eliminationMatchFormat?: unknown;
+      matchFormat?: unknown;
+      formatConfig?: unknown;
+    } | null
+  ): (round: string) => MatchFormat {
+    const bracketMatchFormat = (category?.eliminationMatchFormat ??
+      category?.matchFormat) as MatchFormat;
+    const VALID_MATCH_FORMATS = new Set([
+      'BEST_OF_1',
+      'BEST_OF_3',
+      'BEST_OF_5',
+    ]);
+    const roundFormats =
+      (
+        category?.formatConfig as {
+          roundFormats?: Record<string, string>;
+        } | null
+      )?.roundFormats ?? {};
+    return (round: string): MatchFormat => {
+      const override = roundFormats[round];
+      const value =
+        override && VALID_MATCH_FORMATS.has(override)
+          ? override
+          : bracketMatchFormat;
+      return value as MatchFormat;
+    };
+  }
+
+  /**
+   * Pre-create the whole elimination bracket as empty "shells" (0 participants)
+   * so it can be scheduled and displayed (with seed/feeder labels) before the
+   * group stage finishes. Idempotent: skips if any elimination match already
+   * exists. Only applies to group-stage → playoff categories.
+   */
+  async ensureEliminationShells(categoryId: string): Promise<void> {
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+    });
+    if (!category || !category.hasGroupStage) return;
+
+    const groupCount = category.groupCount ?? 0;
+    const winnersPerGroup = category.winnersPerGroup ?? 0;
+    const n = groupCount * winnersPerGroup;
+    if (n < 2) return;
+
+    const existing = await this.prisma.categoryMatch.count({
+      where: { categoryId, groupId: null, round: { not: 'GROUP' } },
+    });
+    if (existing > 0) return; // idempotent
+
+    const bracketSize = this.nextPowerOf2(n);
+    const totalRounds = Math.log2(bracketSize);
+    if (totalRounds < 1) return;
+    const roundNames = this.determineRoundNames(totalRounds);
+    const formatForRound = this.buildFormatForRound(category);
+
+    let globalMatchNumber =
+      (await this.prisma.categoryMatch.count({ where: { categoryId } })) + 1;
+
+    // First round (most matches) gets the lowest numbers, then later rounds,
+    // matching the numbering generateEliminationBracket / feeder logic expect.
+    for (let round = 0; round < totalRounds; round++) {
+      const matchesInRound = bracketSize / Math.pow(2, round + 1);
+      for (let i = 0; i < matchesInRound; i++) {
+        await this.prisma.categoryMatch.create({
+          data: {
+            categoryId,
+            round: roundNames[round],
+            matchNumber: globalMatchNumber++,
+            status: 'SCHEDULED',
+            matchFormat: formatForRound(roundNames[round]),
+          },
+        });
+      }
+    }
+
+    if (category.thirdPlaceMatch && totalRounds >= 2) {
+      await this.prisma.categoryMatch.create({
+        data: {
+          categoryId,
+          round: '3RD',
+          matchNumber: globalMatchNumber++,
+          status: 'SCHEDULED',
+          matchFormat: formatForRound('3RD'),
+        },
+      });
+    }
+  }
+
+  /**
+   * Fill the existing first-round shell matches with the seeded advancing teams
+   * WITHOUT deleting/recreating, so any court/time already assigned is kept.
+   * Returns false when shells are absent or their count no longer matches the
+   * bracket (e.g. config changed), so the caller can fall back to a full regen.
+   */
+  private async fillEliminationBracket(
+    categoryId: string,
+    registrationIds: string[]
+  ): Promise<boolean> {
+    const n = registrationIds.length;
+    const bracketSize = this.nextPowerOf2(n);
+    const totalRounds = Math.log2(bracketSize);
+    const roundNames = this.determineRoundNames(totalRounds);
+
+    const firstRoundMatches = await this.prisma.categoryMatch.findMany({
+      where: { categoryId, groupId: null, round: roundNames[0] },
+      orderBy: { matchNumber: 'asc' },
+      include: { participants: true },
+    });
+
+    // No shells, or structure no longer matches → let caller regenerate.
+    if (firstRoundMatches.length !== bracketSize / 2) return false;
+
+    const seedOrder = this.generateStandardSeeding(bracketSize);
+    const slots: (string | null)[] = (
+      new Array(bracketSize) as (string | null)[]
+    ).fill(null);
+    for (let pos = 0; pos < bracketSize; pos++) {
+      const seed = seedOrder[pos];
+      slots[pos] = seed <= n ? registrationIds[seed - 1] : null;
+    }
+
+    const byeAdvances: { registrationId: string; matchIndex: number }[] = [];
+
+    for (let i = 0; i < firstRoundMatches.length; i++) {
+      const match = firstRoundMatches[i];
+      if (match.participants.length > 0) continue; // already filled
+      const slot1 = slots[i * 2];
+      const slot2 = slots[i * 2 + 1];
+
+      if (slot1 && slot2) {
+        await this.prisma.categoryMatchParticipant.createMany({
+          data: [
+            { matchId: match.id, categoryRegistrationId: slot1, position: 1 },
+            { matchId: match.id, categoryRegistrationId: slot2, position: 2 },
+          ],
+        });
+      } else if (slot1 || slot2) {
+        const realPlayer = (slot1 || slot2)!;
+        await this.prisma.categoryMatchParticipant.create({
+          data: {
+            matchId: match.id,
+            categoryRegistrationId: realPlayer,
+            position: 1,
+          },
+        });
+        await this.prisma.categoryMatch.update({
+          where: { id: match.id },
+          data: { status: 'FINISHED', winnerId: realPlayer, score: 'BYE' },
+        });
+        byeAdvances.push({ registrationId: realPlayer, matchIndex: i });
+      }
+    }
+
+    // Advance BYE winners into the next round's existing shells.
+    if (byeAdvances.length > 0 && totalRounds > 1) {
+      const secondRoundMatches = await this.prisma.categoryMatch.findMany({
+        where: { categoryId, groupId: null, round: roundNames[1] },
+        orderBy: { matchNumber: 'asc' },
+      });
+      for (const bye of byeAdvances) {
+        const nextMatchIndex = Math.floor(bye.matchIndex / 2);
+        if (nextMatchIndex >= secondRoundMatches.length) continue;
+        const position = (bye.matchIndex % 2) + 1;
+        const existing = await this.prisma.categoryMatchParticipant.findFirst({
+          where: { matchId: secondRoundMatches[nextMatchIndex].id, position },
+        });
+        if (!existing) {
+          await this.prisma.categoryMatchParticipant.create({
+            data: {
+              matchId: secondRoundMatches[nextMatchIndex].id,
+              categoryRegistrationId: bye.registrationId,
+              position,
+            },
+          });
+        }
+      }
+    }
+
+    return true;
   }
 
   private nextPowerOf2(n: number): number {

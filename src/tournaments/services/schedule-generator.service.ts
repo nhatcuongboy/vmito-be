@@ -142,17 +142,19 @@ export class ScheduleGeneratorService {
       },
     });
 
-    // Skip placeholder matches that have no participants yet
-    // (e.g. elimination bracket subsequent rounds waiting for winners).
-    // Scheduling them would surface as "TBD vs TBD" in the generated schedule.
+    // Group matches need both participants. Elimination matches are scheduled
+    // even as placeholder shells (0 participants) so the whole bracket can be
+    // laid out in advance; the UI shows seed/feeder labels ("Nhất Bảng A",
+    // "Thắng trận N") for the empty slots.
     const matchesRaw = matchesRawAll.filter(
-      (m) => m.participants.length >= 2
+      (m) =>
+        m.participants.length >= 2 ||
+        (m.round !== 'GROUP' && m.groupId === null)
     );
-    const skippedPlaceholderCount =
-      matchesRawAll.length - matchesRaw.length;
+    const skippedPlaceholderCount = matchesRawAll.length - matchesRaw.length;
     if (skippedPlaceholderCount > 0) {
       this.logger.log(
-        `Skipped ${skippedPlaceholderCount} placeholder match(es) without participants in tournament ${tournamentId}`
+        `Skipped ${skippedPlaceholderCount} incomplete group match(es) without participants in tournament ${tournamentId}`
       );
     }
 
@@ -790,9 +792,7 @@ export class ScheduleGeneratorService {
    * skipped here; their bracket is generated through the dedicated
    * completeGroupStage / generateEliminationBracket flow.
    */
-  private async ensureGroupsForCategories(
-    tournamentId: string
-  ): Promise<void> {
+  private async ensureGroupsForCategories(tournamentId: string): Promise<void> {
     const categories = await this.prisma.category.findMany({
       where: { tournamentId, hasGroupStage: true },
       include: {
