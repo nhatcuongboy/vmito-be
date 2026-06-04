@@ -643,6 +643,9 @@ export class TournamentsService {
       venueId?: string;
       coverPhoto?: string;
       coverPhotoPublicId?: string;
+      contactName?: string | null;
+      contactEmail?: string | null;
+      contactPhone?: string | null;
     } = {};
 
     if (dto.name !== undefined) {
@@ -687,6 +690,24 @@ export class TournamentsService {
 
     if (dto.coverPhotoPublicId !== undefined) {
       updateData.coverPhotoPublicId = dto.coverPhotoPublicId;
+    }
+
+    if (dto.contactName !== undefined) {
+      const trimmed =
+        typeof dto.contactName === 'string' ? dto.contactName.trim() : null;
+      updateData.contactName = trimmed ? trimmed : null;
+    }
+
+    if (dto.contactEmail !== undefined) {
+      const trimmed =
+        typeof dto.contactEmail === 'string' ? dto.contactEmail.trim() : null;
+      updateData.contactEmail = trimmed ? trimmed : null;
+    }
+
+    if (dto.contactPhone !== undefined) {
+      const trimmed =
+        typeof dto.contactPhone === 'string' ? dto.contactPhone.trim() : null;
+      updateData.contactPhone = trimmed ? trimmed : null;
     }
 
     // Validate date range only when dates are being changed

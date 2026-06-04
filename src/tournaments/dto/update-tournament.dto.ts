@@ -4,6 +4,9 @@ import {
   IsDateString,
   IsIn,
   IsBoolean,
+  IsEmail,
+  MaxLength,
+  ValidateIf,
 } from 'class-validator';
 
 export class UpdateTournamentDto {
@@ -42,4 +45,20 @@ export class UpdateTournamentDto {
   @IsOptional()
   @IsString()
   coverPhotoPublicId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  contactName?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== '')
+  @IsEmail()
+  @MaxLength(150)
+  contactEmail?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  contactPhone?: string | null;
 }
