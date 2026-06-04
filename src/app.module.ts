@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -36,6 +36,7 @@ import { ViewsModule } from './views/views.module';
 import { UmpiresModule } from './umpires/umpires.module';
 import { TournamentManagersModule } from './tournament-managers/tournament-managers.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { UserOrIpThrottlerGuard } from './common/guards/user-or-ip-throttler.guard';
 import configuration from './config';
 
 @Module({
@@ -81,13 +82,15 @@ import configuration from './config';
   controllers: [AppController],
   providers: [
     AppService,
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
+    // JwtAuthGuard must run BEFORE the throttler so req.user is populated and
+    // the throttler can bucket by user id (see UserOrIpThrottlerGuard).
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: UserOrIpThrottlerGuard,
     },
   ],
 })

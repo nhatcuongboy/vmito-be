@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { CategoriesService } from '../categories/categories.service';
 import { EndCategoryMatchDto } from '../categories/dto/end-category-match.dto';
 import { UpdateMatchScoreDto } from '../categories/dto/update-match-score.dto';
@@ -116,6 +117,10 @@ export class CategoryMatchesController {
   }
 
   // ─── Live scoring (host / admin / assigned referee) ───
+  // Point-by-point scoring is high-frequency (one request per tap) and already
+  // authorized per match, so it gets a generous per-user limit instead of the
+  // global default that would 429 an active referee mid-game.
+  @Throttle({ default: { ttl: 60000, limit: 600 } })
   @Patch(':id/score')
   updateScore(
     @Param('id') id: string,
@@ -130,6 +135,7 @@ export class CategoryMatchesController {
     );
   }
 
+  @Throttle({ default: { ttl: 60000, limit: 600 } })
   @Patch(':id/score/undo')
   undoLastPoint(
     @Param('id') id: string,
@@ -139,6 +145,7 @@ export class CategoryMatchesController {
   }
 
   // Overwrite an individual set's final score (host / admin / assigned referee).
+  @Throttle({ default: { ttl: 60000, limit: 600 } })
   @Patch(':id/sets/:setNumber/score')
   updateSetScore(
     @Param('id') id: string,
