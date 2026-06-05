@@ -776,6 +776,7 @@ model CategoryMatch {
   winByTwo     Boolean?
   pointCap     Int?
   notes        String?
+  refereeName  String? // Name entered by the referee when ending the match (separate from assigned TournamentUmpire)
 
   // Live scoring fields
   refereeId    String? // Assigned referee (TournamentUmpire) for live scoring

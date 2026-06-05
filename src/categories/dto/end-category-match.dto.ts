@@ -78,4 +78,8 @@ export class EndCategoryMatchDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  refereeName?: string;
 }

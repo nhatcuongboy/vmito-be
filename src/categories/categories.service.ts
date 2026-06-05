@@ -964,7 +964,12 @@ export class CategoriesService {
       updateData.finalPointCap = dto.finalPointCap;
     }
 
-    return this.prisma.category.update({
+    const formatChanged =
+      dto.matchFormat !== undefined ||
+      dto.eliminationMatchFormat !== undefined ||
+      dto.formatConfig !== undefined;
+
+    const updated = await this.prisma.category.update({
       where: { id },
       data: updateData,
       include: {
@@ -974,6 +979,58 @@ export class CategoriesService {
         },
       },
     });
+
+    // `matchFormat` is denormalized onto each match at generation time. When the
+    // host changes the category's format afterwards, re-sync the still-unplayed
+    // matches so the schedule/score badges and live scoring reflect the new
+    // config — mirroring how the per-set scoring rules are always read live.
+    if (formatChanged) {
+      await this.syncScheduledMatchFormats(id);
+    }
+
+    return updated;
+  }
+
+  /**
+   * Re-apply the category's per-round match format to its SCHEDULED matches.
+   * Group matches inherit `category.matchFormat`; elimination rounds use the
+   * elimination format (with `formatConfig.roundFormats` overrides). Matches
+   * that are in progress or finished keep the format they were played under.
+   */
+  private async syncScheduledMatchFormats(categoryId: string) {
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+      select: {
+        matchFormat: true,
+        eliminationMatchFormat: true,
+        formatConfig: true,
+      },
+    });
+    if (!category) return;
+
+    const formatForRound = this.buildFormatForRound(category);
+    const groupFormat = category.matchFormat ?? MatchFormat.BEST_OF_1;
+
+    const matches = await this.prisma.categoryMatch.findMany({
+      where: { categoryId, status: 'SCHEDULED' },
+      select: { id: true, round: true, groupId: true, matchFormat: true },
+    });
+
+    await Promise.all(
+      matches.flatMap((m) => {
+        const next =
+          m.groupId || m.round === 'GROUP'
+            ? groupFormat
+            : formatForRound(m.round);
+        if (m.matchFormat === next) return [];
+        return [
+          this.prisma.categoryMatch.update({
+            where: { id: m.id },
+            data: { matchFormat: next },
+          }),
+        ];
+      })
+    );
   }
 
   async remove(id: string, userId: string, role?: string) {
@@ -2065,6 +2122,7 @@ export class CategoriesService {
         player1Points: dto.player1Points,
         player2Points: dto.player2Points,
         notes: dto.notes,
+        refereeName: dto.refereeName ?? null,
       },
       include: MATCH_SCORING_INCLUDE,
     });
@@ -2137,6 +2195,7 @@ export class CategoriesService {
         player2Points: null,
         pointLog: Prisma.DbNull,
         notes: null,
+        refereeName: null,
       },
       include: MATCH_SCORING_INCLUDE,
     });
