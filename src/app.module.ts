@@ -15,6 +15,7 @@ import { CourtsModule } from './courts/courts.module';
 import { MatchesModule } from './matches/matches.module';
 import { TournamentsModule } from './tournaments/tournaments.module';
 import { CategoriesModule } from './categories/categories.module';
+import { SponsorsModule } from './sponsors/sponsors.module';
 import { CategoryMatchesModule } from './category-matches/category-matches.module';
 import { PwaModule } from './pwa/pwa.module';
 import { TasksModule } from './tasks/tasks.module';
@@ -58,6 +59,7 @@ import configuration from './config';
     MatchesModule,
     TournamentsModule,
     CategoriesModule,
+    SponsorsModule,
     CategoryMatchesModule,
     TasksModule,
     PwaModule,

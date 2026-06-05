@@ -559,8 +559,28 @@ model Tournament {
   pairs            TournamentPair[]
   tournamentVenues TournamentVenue[]
   scheduleConfig   ScheduleConfiguration?
+  sponsors         TournamentSponsor[]
 
   @@map("tournaments")
+}
+
+// A sponsor displayed on a tournament's public page.
+model TournamentSponsor {
+  id           String   @id @default(cuid())
+  tournamentId String
+  name         String
+  logo         String?
+  logoPublicId String?
+  website      String?
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@index([tournamentId])
+  @@map("tournament_sponsors")
 }
 
 enum TournamentStatus {
