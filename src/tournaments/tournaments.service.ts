@@ -344,6 +344,7 @@ export class TournamentsService {
             scheduleType: source.scheduleType ?? null,
             coverPhoto: copyHomePage ? source.coverPhoto : null,
             coverPhotoPublicId: copyHomePage ? source.coverPhotoPublicId : null,
+            youtubeVideoUrls: copyHomePage ? source.youtubeVideoUrls : [],
           },
         });
 
@@ -646,6 +647,7 @@ export class TournamentsService {
       venueId?: string;
       coverPhoto?: string;
       coverPhotoPublicId?: string;
+      youtubeVideoUrls?: string[];
       contactName?: string | null;
       contactEmail?: string | null;
       contactPhone?: string | null;
@@ -699,6 +701,10 @@ export class TournamentsService {
 
     if (dto.coverPhotoPublicId !== undefined) {
       updateData.coverPhotoPublicId = dto.coverPhotoPublicId;
+    }
+
+    if (dto.youtubeVideoUrls !== undefined) {
+      updateData.youtubeVideoUrls = dto.youtubeVideoUrls;
     }
 
     if (dto.contactName !== undefined) {

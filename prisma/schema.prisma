@@ -541,6 +541,7 @@ model Tournament {
   scheduleType        ScheduleType?
   coverPhoto          String?
   coverPhotoPublicId  String?
+  youtubeVideoUrls    String[]         @default([])
   contactName         String?
   contactEmail        String?
   contactPhone        String?

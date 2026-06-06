@@ -5,6 +5,7 @@ import {
   IsIn,
   IsBoolean,
   IsEmail,
+  IsArray,
   MaxLength,
   ValidateIf,
 } from 'class-validator';
@@ -50,6 +51,12 @@ export class UpdateTournamentDto {
   @IsOptional()
   @IsString()
   coverPhotoPublicId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(500, { each: true })
+  youtubeVideoUrls?: string[];
 
   @IsOptional()
   @IsString()
