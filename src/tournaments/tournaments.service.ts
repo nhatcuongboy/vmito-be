@@ -793,21 +793,55 @@ export class TournamentsService {
     });
     if (!tournament) throw new NotFoundException('Tournament not found');
 
+    const playerSelect = {
+      id: true,
+      tournamentId: true,
+      name: true,
+      code: true,
+      gender: true,
+      image: true,
+    } as const;
+
     return this.prisma.categoryMatch.findMany({
       where: {
         category: { tournamentId },
+      },
+      omit: {
+        // pointLog is large (100+ entries per match) and not used by public views
+        pointLog: true,
+        // Live-scoring internals not needed for read-only consumers
+        scoreVersion: true,
+        // Schedule management internals not consumed by the public API
+        queueOrder: true,
+        isQueued: true,
+        scheduledDuration: true,
+        autoAssignedAt: true,
+        assignedBy: true,
       },
       include: {
         participants: {
           include: {
             categoryRegistration: {
               include: {
-                player: true,
+                player: { select: playerSelect },
                 pair: {
-                  include: {
+                  select: {
+                    id: true,
+                    tournamentId: true,
+                    name: true,
+                    type: true,
+                    notes: true,
+                    createdAt: true,
+                    updatedAt: true,
                     members: {
-                      include: { player: true },
                       orderBy: { position: 'asc' },
+                      select: {
+                        id: true,
+                        pairId: true,
+                        playerId: true,
+                        position: true,
+                        player: { select: playerSelect },
+                      },
                     },
                   },
                 },
@@ -816,8 +850,8 @@ export class TournamentsService {
           },
         },
         court: true,
-        group: true,
-        category: true,
+        // group and category are excluded: consumers load categories separately,
+        // and groupId is already present on the match row.
       },
       orderBy: [{ category: { createdAt: 'asc' } }, { matchNumber: 'asc' }],
     });
