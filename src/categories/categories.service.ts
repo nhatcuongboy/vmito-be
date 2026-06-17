@@ -2599,6 +2599,82 @@ export class CategoriesService {
 
   // ─── Phase 9: Elimination Bracket ─────────────────────────
 
+  async getGroupStageCompletion(
+    categoryId: string,
+    userId: string,
+    role?: string
+  ) {
+    const category = await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'STRUCTURE'
+    );
+
+    const isRoundRobinToElimination =
+      category.format === CategoryFormat.ROUND_ROBIN_TO_SE &&
+      category.hasGroupStage;
+
+    if (!isRoundRobinToElimination) {
+      return {
+        categoryId,
+        categoryName: category.name,
+        isEligible: false,
+        isCompleted: false,
+        canGenerateBracket: false,
+        hasBracket: false,
+        totalGroupMatches: 0,
+        finishedGroupMatches: 0,
+        unfinishedGroupMatches: 0,
+      };
+    }
+
+    const [
+      totalGroupMatches,
+      finishedGroupMatches,
+      eliminationMatchCount,
+      eliminationParticipantCount,
+    ] = await Promise.all([
+      this.prisma.categoryMatch.count({
+        where: { categoryId, round: 'GROUP' },
+      }),
+      this.prisma.categoryMatch.count({
+        where: { categoryId, round: 'GROUP', status: 'FINISHED' },
+      }),
+      this.prisma.categoryMatch.count({
+        where: {
+          categoryId,
+          round: { not: 'GROUP' },
+        },
+      }),
+      this.prisma.categoryMatchParticipant.count({
+        where: {
+          match: {
+            categoryId,
+            round: { not: 'GROUP' },
+          },
+        },
+      }),
+    ]);
+
+    const isCompleted =
+      totalGroupMatches > 0 && finishedGroupMatches === totalGroupMatches;
+    const hasBracket = eliminationMatchCount > 0;
+    const hasGeneratedBracket = eliminationParticipantCount > 0;
+
+    return {
+      categoryId,
+      categoryName: category.name,
+      isEligible: true,
+      isCompleted,
+      canGenerateBracket: isCompleted && !hasGeneratedBracket,
+      hasBracket,
+      totalGroupMatches,
+      finishedGroupMatches,
+      unfinishedGroupMatches: totalGroupMatches - finishedGroupMatches,
+    };
+  }
+
   async completeGroupStage(categoryId: string, userId: string, role?: string) {
     const category = await this.getCategoryWithOwnership(
       categoryId,

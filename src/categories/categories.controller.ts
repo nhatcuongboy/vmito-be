@@ -340,6 +340,18 @@ export class CategoriesController {
 
   // ─── Group Stage Completion / Elimination Bracket ─────────
 
+  @Get(':id/group-stage-completion')
+  getGroupStageCompletion(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.getGroupStageCompletion(
+      id,
+      user.userId,
+      user.role
+    );
+  }
+
   @Post(':id/complete-group-stage')
   completeGroupStage(
     @Param('id') id: string,
