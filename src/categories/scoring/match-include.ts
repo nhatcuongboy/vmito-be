@@ -41,7 +41,7 @@ export const MATCH_SCORING_INCLUDE = {
       finalPointsToWin: true,
       finalWinByTwo: true,
       finalPointCap: true,
-      tournament: { select: { hostId: true } },
+      tournament: { select: { hostId: true, sportType: true } },
     },
   },
   referee: { select: { id: true, name: true, userId: true } },

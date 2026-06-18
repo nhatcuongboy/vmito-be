@@ -40,6 +40,10 @@ export class CreateCategoryDto {
   @Min(1)
   teamSize?: number;
 
+  @IsOptional()
+  @IsIn(['BEST_OF_1', 'BEST_OF_3', 'BEST_OF_5'])
+  matchFormat?: string;
+
   // ─── Per-set scoring rules (optional; defaults to BWF 21 / win-by-2 / cap 30) ──
   @IsOptional()
   @IsInt()

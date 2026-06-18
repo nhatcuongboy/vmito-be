@@ -41,6 +41,10 @@ export class UpdateTournamentDto {
   scheduleType?: string;
 
   @IsOptional()
+  @IsIn(['BADMINTON', 'PICKLEBALL'])
+  sportType?: string;
+
+  @IsOptional()
   @IsString()
   venueId?: string;
 

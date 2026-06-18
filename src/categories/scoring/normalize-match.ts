@@ -5,7 +5,9 @@ import {
   setWins,
   currentSet,
   Side,
+  ScoringRules,
 } from './badminton-scoring';
+import { getTournamentSportProfile } from '../../tournaments/sport-profiles';
 
 // ─── Structural input shape (subset of the Prisma include used everywhere) ───
 
@@ -62,6 +64,16 @@ export interface NormalizableMatch {
     name: string;
     tournamentId: string;
     matchFormat?: string | null;
+    pointsToWin?: number | null;
+    winByTwo?: boolean | null;
+    pointCap?: number | null;
+    knockoutPointsToWin?: number | null;
+    knockoutWinByTwo?: boolean | null;
+    knockoutPointCap?: number | null;
+    finalPointsToWin?: number | null;
+    finalWinByTwo?: boolean | null;
+    finalPointCap?: number | null;
+    tournament?: { sportType?: 'BADMINTON' | 'PICKLEBALL' | null } | null;
   } | null;
   referee?: { id: string; name: string } | null;
 }
@@ -139,6 +151,69 @@ function parseSets(raw: unknown): ScoringSet[] {
     }));
 }
 
+type ScoringStage = 'GROUP' | 'KNOCKOUT' | 'FINAL';
+
+function stageOfRound(round: string): ScoringStage {
+  if (round === 'GROUP') return 'GROUP';
+  if (round === 'F' || round === 'GF' || round === 'GF2') return 'FINAL';
+  return 'KNOCKOUT';
+}
+
+function resolveRules(match: NormalizableMatch): ScoringRules {
+  const category = match.category;
+  const fallback = getTournamentSportProfile(
+    category?.tournament?.sportType
+  ).defaultScoring;
+  if (!category) {
+    return {
+      pointsToWin: fallback.pointsToWin,
+      winByTwo: fallback.winByTwo,
+      pointCap: fallback.pointCap,
+    };
+  }
+
+  const stage = stageOfRound(match.round);
+  const pointsToWin =
+    stage === 'FINAL'
+      ? (category.finalPointsToWin ??
+        category.knockoutPointsToWin ??
+        category.pointsToWin ??
+        fallback.pointsToWin)
+      : stage === 'KNOCKOUT'
+        ? (category.knockoutPointsToWin ??
+          category.pointsToWin ??
+          fallback.pointsToWin)
+        : (category.pointsToWin ?? fallback.pointsToWin);
+  const winByTwo =
+    stage === 'FINAL'
+      ? (category.finalWinByTwo ??
+        category.knockoutWinByTwo ??
+        category.winByTwo ??
+        fallback.winByTwo)
+      : stage === 'KNOCKOUT'
+        ? (category.knockoutWinByTwo ?? category.winByTwo ?? fallback.winByTwo)
+        : (category.winByTwo ?? fallback.winByTwo);
+
+  const baseCap =
+    category.pointCap !== undefined ? category.pointCap : fallback.pointCap;
+  const pointCap =
+    stage === 'FINAL'
+      ? category.finalPointCap !== null && category.finalPointCap !== undefined
+        ? category.finalPointCap
+        : category.knockoutPointCap !== null &&
+            category.knockoutPointCap !== undefined
+          ? category.knockoutPointCap
+          : baseCap
+      : stage === 'KNOCKOUT'
+        ? category.knockoutPointCap !== null &&
+          category.knockoutPointCap !== undefined
+          ? category.knockoutPointCap
+          : baseCap
+        : baseCap;
+
+  return { pointsToWin, winByTwo, pointCap };
+}
+
 /**
  * Convert a Prisma match (with the standard participant/court/category include)
  * into a flat, grid-friendly payload. Reused by both the WebSocket broadcast and
@@ -150,10 +225,12 @@ export function normalizeMatchForBroadcast(
   const sets = parseSets(match.sets);
   const format = (match.matchFormat ||
     match.category?.matchFormat ||
-    'BEST_OF_1') as MatchFormatValue;
+    getTournamentSportProfile(match.category?.tournament?.sportType)
+      .defaultScoring.matchFormat) as MatchFormatValue;
+  const rules = resolveRules(match);
 
   const current = currentSet(sets);
-  const pendingSide: Side | null = matchWinnerSide(sets, format);
+  const pendingSide: Side | null = matchWinnerSide(sets, format, rules);
 
   const side1 = resolveSide(match.participants, 1);
   const side2 = resolveSide(match.participants, 2);
@@ -193,7 +270,7 @@ export function normalizeMatchForBroadcast(
           side2: current.player2Score,
         }
       : null,
-    setWins: setWins(sets),
+    setWins: setWins(sets, rules),
     winnerId: match.winnerId,
     isDraw: match.isDraw,
     isComplete: pendingSide !== null,

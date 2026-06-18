@@ -528,25 +528,26 @@ enum MatchStatus {
 // Tournament Management Models
 
 model Tournament {
-  id                  String           @id @default(cuid())
-  slug                String           @unique
-  name                String
-  description         String?          @db.Text
-  startDate           DateTime
-  endDate             DateTime
-  hostId              String
-  venueId             String?
-  status              TournamentStatus @default(PREPARING)
-  isPublished         Boolean          @default(false)
-  scheduleType        ScheduleType?
-  coverPhoto          String?
-  coverPhotoPublicId  String?
-  youtubeVideoUrls    String[]         @default([])
-  contactName         String?
-  contactEmail        String?
-  contactPhone        String?
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
+  id                 String           @id @default(cuid())
+  slug               String           @unique
+  name               String
+  description        String?          @db.Text
+  startDate          DateTime
+  endDate            DateTime
+  hostId             String
+  venueId            String?
+  status             TournamentStatus @default(PREPARING)
+  sportType          SportType        @default(BADMINTON)
+  isPublished        Boolean          @default(false)
+  scheduleType       ScheduleType?
+  coverPhoto         String?
+  coverPhotoPublicId String?
+  youtubeVideoUrls   String[]         @default([])
+  contactName        String?
+  contactEmail       String?
+  contactPhone       String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
   // Relations
   host             User                      @relation("HostedTournaments", fields: [hostId], references: [id])
@@ -589,6 +590,11 @@ enum TournamentStatus {
   IN_PROGRESS
   FINISHED
   CANCELLED
+}
+
+enum SportType {
+  BADMINTON
+  PICKLEBALL
 }
 
 // Per-tournament permission scopes that a host can grant to a manager.
@@ -751,43 +757,43 @@ model CategoryGroupRegistration {
 }
 
 model CategoryMatch {
-  id           String       @id @default(cuid())
-  categoryId   String
-  groupId      String?
-  round        String
-  matchNumber  Int
-  matchCode    String? // Optional human-readable code (e.g. "M01", "XD-VB01")
-  status       MatchStatus  @default(SCHEDULED)
-  startTime    DateTime?
-  endTime      DateTime?
-  courtId      String?
-  score        String?
-  sets         Json?
-  winnerId     String?
-  isDraw       Boolean      @default(false)
-  isForfeit    Boolean      @default(false) // Decided by forfeit/walkover; winnerId wins, the other side forfeited
-  player1Score Int?
-  player2Score Int?
-  player3Score Int?
-  player4Score Int?
+  id            String       @id @default(cuid())
+  categoryId    String
+  groupId       String?
+  round         String
+  matchNumber   Int
+  matchCode     String? // Optional human-readable code (e.g. "M01", "XD-VB01")
+  status        MatchStatus  @default(SCHEDULED)
+  startTime     DateTime?
+  endTime       DateTime?
+  courtId       String?
+  score         String?
+  sets          Json?
+  winnerId      String?
+  isDraw        Boolean      @default(false)
+  isForfeit     Boolean      @default(false) // Decided by forfeit/walkover; winnerId wins, the other side forfeited
+  player1Score  Int?
+  player2Score  Int?
+  player3Score  Int?
+  player4Score  Int?
   player1Points Int? // Manually-assigned standings points for side 1 (pointsEarning = 'manual')
   player2Points Int? // Manually-assigned standings points for side 2 (pointsEarning = 'manual')
-  matchFormat  MatchFormat? // Match format for this specific match/round
+  matchFormat   MatchFormat? // Match format for this specific match/round
   // Per-match overrides for set scoring rules. Null = inherit from category.
-  pointsToWin  Int?
-  winByTwo     Boolean?
-  pointCap     Int?
-  notes        String?
-  refereeName  String? // Name entered by the referee when ending the match (separate from assigned TournamentUmpire)
+  pointsToWin   Int?
+  winByTwo      Boolean?
+  pointCap      Int?
+  notes         String?
+  refereeName   String? // Name entered by the referee when ending the match (separate from assigned TournamentUmpire)
 
   // Double-elimination bracket linkage. bracketType: 'UPPER' | 'LOWER' | 'GF'.
   // Winner/loser routing is stored explicitly (plain ids, no FK) so advancement
   // does not rely on positional index math (which only works for single elim).
-  bracketType        String? // null for single-elim/group matches
-  winnerNextMatchId  String? // match the winner advances into
-  winnerNextSlot     Int? // participant position (1 or 2) in winnerNextMatch
-  loserNextMatchId   String? // match the loser drops into (lower bracket / 3rd place)
-  loserNextSlot      Int? // participant position (1 or 2) in loserNextMatch
+  bracketType       String? // null for single-elim/group matches
+  winnerNextMatchId String? // match the winner advances into
+  winnerNextSlot    Int? // participant position (1 or 2) in winnerNextMatch
+  loserNextMatchId  String? // match the loser drops into (lower bracket / 3rd place)
+  loserNextSlot     Int? // participant position (1 or 2) in loserNextMatch
 
   // Live scoring fields
   refereeId    String? // Assigned referee (TournamentUmpire) for live scoring

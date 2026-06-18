@@ -20,6 +20,7 @@ import {
   ScheduleType,
   MatchStatus,
   TournamentPermission,
+  SportType,
 } from '@prisma/client';
 import { MATCH_SCORING_INCLUDE } from '../categories/scoring/match-include';
 import { normalizeMatchForBroadcast } from '../categories/scoring/normalize-match';
@@ -217,6 +218,7 @@ export class TournamentsService {
         endDate: end,
         hostId,
         venueId: venueId || undefined,
+        sportType: (dto.sportType ?? 'BADMINTON') as SportType,
         status: 'PREPARING',
       },
       include: {
@@ -340,6 +342,7 @@ export class TournamentsService {
             hostId: source.hostId,
             venueId: dto.venueId || null,
             status: 'PREPARING',
+            sportType: source.sportType,
             isPublished: false,
             scheduleType: source.scheduleType ?? null,
             coverPhoto: copyHomePage ? source.coverPhoto : null,
@@ -366,6 +369,15 @@ export class TournamentsService {
               matchFormat: c.matchFormat,
               eliminationMatchFormat: c.eliminationMatchFormat,
               thirdPlaceMatch: c.thirdPlaceMatch,
+              pointsToWin: c.pointsToWin,
+              winByTwo: c.winByTwo,
+              pointCap: c.pointCap,
+              knockoutPointsToWin: c.knockoutPointsToWin,
+              knockoutWinByTwo: c.knockoutWinByTwo,
+              knockoutPointCap: c.knockoutPointCap,
+              finalPointsToWin: c.finalPointsToWin,
+              finalWinByTwo: c.finalWinByTwo,
+              finalPointCap: c.finalPointCap,
               formatConfig: c.formatConfig ?? undefined,
             },
           });
@@ -642,6 +654,7 @@ export class TournamentsService {
       startDate?: Date;
       endDate?: Date;
       status?: TournamentStatus;
+      sportType?: SportType;
       isPublished?: boolean;
       scheduleType?: ScheduleType;
       venueId?: string;
@@ -681,6 +694,10 @@ export class TournamentsService {
 
     if (dto.status !== undefined) {
       updateData.status = dto.status as TournamentStatus;
+    }
+
+    if (dto.sportType !== undefined) {
+      updateData.sportType = dto.sportType as SportType;
     }
 
     if (dto.isPublished !== undefined) {

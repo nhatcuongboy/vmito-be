@@ -12,6 +12,7 @@ import {
   CategoryFormat,
   MatchFormat,
   MatchStatus,
+  SportType,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateCategoryDto } from './dto/update-category.dto';
@@ -53,6 +54,7 @@ import {
   TournamentAccessService,
   ManageScope,
 } from '../common/tournament-access/tournament-access.service';
+import { getTournamentSportProfile } from '../tournaments/sport-profiles';
 
 type TScoringStage = 'GROUP' | 'KNOCKOUT' | 'FINAL';
 
@@ -227,11 +229,17 @@ export class CategoriesService {
 
   private matchFormatOf(match: {
     matchFormat: MatchFormat | null;
-    category: { matchFormat: MatchFormat | null };
+    category: {
+      matchFormat: MatchFormat | null;
+      tournament?: { sportType?: SportType | null } | null;
+    };
   }): MatchFormatValue {
+    const fallback = getTournamentSportProfile(
+      match.category.tournament?.sportType
+    ).defaultScoring.matchFormat;
     return (match.matchFormat ??
       match.category.matchFormat ??
-      'BEST_OF_1') as MatchFormatValue;
+      fallback) as MatchFormatValue;
   }
 
   /**
@@ -255,45 +263,61 @@ export class CategoriesService {
       finalPointsToWin: number | null;
       finalWinByTwo: boolean | null;
       finalPointCap: number | null;
+      tournament?: { sportType?: SportType | null } | null;
     };
   }): ScoringRules {
     const stage = stageOfRound(match.round);
     const cat = match.category;
+    const fallback = getTournamentSportProfile(
+      cat.tournament?.sportType
+    ).defaultScoring;
 
     const resolvePoints = (): number => {
       if (stage === 'FINAL') {
         return (
-          cat.finalPointsToWin ?? cat.knockoutPointsToWin ?? cat.pointsToWin
+          cat.finalPointsToWin ??
+          cat.knockoutPointsToWin ??
+          cat.pointsToWin ??
+          fallback.pointsToWin
         );
       }
       if (stage === 'KNOCKOUT') {
-        return cat.knockoutPointsToWin ?? cat.pointsToWin;
+        return (
+          cat.knockoutPointsToWin ?? cat.pointsToWin ?? fallback.pointsToWin
+        );
       }
-      return cat.pointsToWin;
+      return cat.pointsToWin ?? fallback.pointsToWin;
     };
 
     const resolveWinByTwo = (): boolean => {
       if (stage === 'FINAL') {
-        return cat.finalWinByTwo ?? cat.knockoutWinByTwo ?? cat.winByTwo;
+        return (
+          cat.finalWinByTwo ??
+          cat.knockoutWinByTwo ??
+          cat.winByTwo ??
+          fallback.winByTwo
+        );
       }
       if (stage === 'KNOCKOUT') {
-        return cat.knockoutWinByTwo ?? cat.winByTwo;
+        return cat.knockoutWinByTwo ?? cat.winByTwo ?? fallback.winByTwo;
       }
-      return cat.winByTwo;
+      return cat.winByTwo ?? fallback.winByTwo;
     };
 
     const resolveCap = (): number | null => {
       if (stage === 'FINAL') {
         if (cat.finalPointCap !== null) return cat.finalPointCap;
         if (cat.knockoutPointCap !== null) return cat.knockoutPointCap;
-        return cat.pointCap;
+        return cat.pointCap !== undefined ? cat.pointCap : fallback.pointCap;
       }
       if (stage === 'KNOCKOUT') {
         return cat.knockoutPointCap !== null
           ? cat.knockoutPointCap
-          : cat.pointCap;
+          : cat.pointCap !== undefined
+            ? cat.pointCap
+            : fallback.pointCap;
       }
-      return cat.pointCap;
+      return cat.pointCap !== undefined ? cat.pointCap : fallback.pointCap;
     };
 
     return {
@@ -705,6 +729,9 @@ export class CategoriesService {
       dto.registrationMode,
       dto.teamSize
     );
+    const defaultScoring = getTournamentSportProfile(
+      tournament.sportType
+    ).defaultScoring;
 
     return this.prisma.category.create({
       data: {
@@ -712,13 +739,16 @@ export class CategoriesService {
         name: dto.name,
         type,
         ...registrationConfig,
+        matchFormat: (dto.matchFormat ??
+          defaultScoring.matchFormat) as MatchFormat,
+        pointsToWin: dto.pointsToWin ?? defaultScoring.pointsToWin,
+        winByTwo: dto.winByTwo ?? defaultScoring.winByTwo,
+        pointCap:
+          dto.pointCap !== undefined ? dto.pointCap : defaultScoring.pointCap,
         ...(dto.format && {
           format: dto.format as CategoryFormat,
           hasGroupStage: dto.format !== 'SINGLE_ELIMINATION',
         }),
-        ...(dto.pointsToWin !== undefined && { pointsToWin: dto.pointsToWin }),
-        ...(dto.winByTwo !== undefined && { winByTwo: dto.winByTwo }),
-        ...(dto.pointCap !== undefined && { pointCap: dto.pointCap }),
         ...(dto.knockoutPointsToWin !== undefined && {
           knockoutPointsToWin: dto.knockoutPointsToWin,
         }),
