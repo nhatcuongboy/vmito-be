@@ -16,7 +16,12 @@ export class UpdateCategoryDto {
   name?: string;
 
   @IsOptional()
-  @IsIn(['ROUND_ROBIN', 'SINGLE_ELIMINATION', 'ROUND_ROBIN_TO_SE'])
+  @IsIn([
+    'ROUND_ROBIN',
+    'SINGLE_ELIMINATION',
+    'ROUND_ROBIN_TO_SE',
+    'DOUBLE_ELIMINATION',
+  ])
   format?: string;
 
   @IsOptional()

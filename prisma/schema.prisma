@@ -677,6 +677,7 @@ enum CategoryFormat {
   ROUND_ROBIN
   SINGLE_ELIMINATION
   ROUND_ROBIN_TO_SE
+  DOUBLE_ELIMINATION
 }
 
 enum MatchFormat {
@@ -778,6 +779,15 @@ model CategoryMatch {
   pointCap     Int?
   notes        String?
   refereeName  String? // Name entered by the referee when ending the match (separate from assigned TournamentUmpire)
+
+  // Double-elimination bracket linkage. bracketType: 'UPPER' | 'LOWER' | 'GF'.
+  // Winner/loser routing is stored explicitly (plain ids, no FK) so advancement
+  // does not rely on positional index math (which only works for single elim).
+  bracketType        String? // null for single-elim/group matches
+  winnerNextMatchId  String? // match the winner advances into
+  winnerNextSlot     Int? // participant position (1 or 2) in winnerNextMatch
+  loserNextMatchId   String? // match the loser drops into (lower bracket / 3rd place)
+  loserNextSlot      Int? // participant position (1 or 2) in loserNextMatch
 
   // Live scoring fields
   refereeId    String? // Assigned referee (TournamentUmpire) for live scoring

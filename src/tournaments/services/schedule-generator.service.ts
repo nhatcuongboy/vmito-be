@@ -788,9 +788,10 @@ export class ScheduleGeneratorService {
    *   - At least one group exists (creates default groups if none).
    *   - Every registration is assigned to a group (round-robin distribution).
    *
-   * Categories with format SINGLE_ELIMINATION (hasGroupStage === false) are
-   * skipped here; their bracket is generated through the dedicated
-   * completeGroupStage / generateEliminationBracket flow.
+   * Categories without a group stage (hasGroupStage === false), e.g.
+   * SINGLE_ELIMINATION and DOUBLE_ELIMINATION, are skipped here; their bracket
+   * is generated through the dedicated completeGroupStage /
+   * generateEliminationBracket flow.
    */
   private async ensureGroupsForCategories(tournamentId: string): Promise<void> {
     const categories = await this.prisma.category.findMany({

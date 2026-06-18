@@ -59,12 +59,12 @@ type TScoringStage = 'GROUP' | 'KNOCKOUT' | 'FINAL';
 /**
  * Map a CategoryMatch.round label to its scoring stage.
  * - 'GROUP' (round-robin pool) → GROUP
- * - 'F' (final) → FINAL
- * - everything else (R128/R64/R32/R16/QF/SF/3RD) → KNOCKOUT
+ * - 'F' (final) and 'GF'/'GF2' (double-elim grand final) → FINAL
+ * - everything else (R128/R64/R32/R16/QF/SF/3RD, UB-x/LB-x) → KNOCKOUT
  */
 const stageOfRound = (round: string): TScoringStage => {
   if (round === 'GROUP') return 'GROUP';
-  if (round === 'F') return 'FINAL';
+  if (round === 'F' || round === 'GF' || round === 'GF2') return 'FINAL';
   return 'KNOCKOUT';
 };
 
@@ -2129,17 +2129,38 @@ export class CategoriesService {
 
     // Auto-advance winner in elimination rounds
     if (updatedMatch.round !== 'GROUP' && dto.winnerId && !dto.isDraw) {
-      await this.advanceWinner({
-        id: updatedMatch.id,
-        categoryId: updatedMatch.categoryId,
-        round: updatedMatch.round,
-        matchNumber: updatedMatch.matchNumber,
-        winnerId: updatedMatch.winnerId,
-        participants: updatedMatch.participants.map((participant) => ({
-          categoryRegistrationId: participant.categoryRegistrationId,
-          position: participant.position,
-        })),
+      const category = await this.prisma.category.findUnique({
+        where: { id: updatedMatch.categoryId },
+        select: { format: true },
       });
+      if (category?.format === CategoryFormat.DOUBLE_ELIMINATION) {
+        await this.advanceDoubleElimination({
+          id: updatedMatch.id,
+          categoryId: updatedMatch.categoryId,
+          round: updatedMatch.round,
+          winnerId: updatedMatch.winnerId,
+          winnerNextMatchId: updatedMatch.winnerNextMatchId,
+          winnerNextSlot: updatedMatch.winnerNextSlot,
+          loserNextMatchId: updatedMatch.loserNextMatchId,
+          loserNextSlot: updatedMatch.loserNextSlot,
+          participants: updatedMatch.participants.map((participant) => ({
+            categoryRegistrationId: participant.categoryRegistrationId,
+            position: participant.position,
+          })),
+        });
+      } else {
+        await this.advanceWinner({
+          id: updatedMatch.id,
+          categoryId: updatedMatch.categoryId,
+          round: updatedMatch.round,
+          matchNumber: updatedMatch.matchNumber,
+          winnerId: updatedMatch.winnerId,
+          participants: updatedMatch.participants.map((participant) => ({
+            categoryRegistrationId: participant.categoryRegistrationId,
+            position: participant.position,
+          })),
+        });
+      }
     }
 
     this.broadcastMatch(
@@ -2164,16 +2185,37 @@ export class CategoriesService {
       match.round !== 'GROUP' &&
       match.winnerId
     ) {
-      await this.removeAdvancedWinner({
-        id: match.id,
-        categoryId: match.categoryId,
-        round: match.round,
-        winnerId: match.winnerId,
-        participants: match.participants.map((participant) => ({
-          categoryRegistrationId: participant.categoryRegistrationId,
-          position: participant.position,
-        })),
+      const category = await this.prisma.category.findUnique({
+        where: { id: match.categoryId },
+        select: { format: true },
       });
+      if (category?.format === CategoryFormat.DOUBLE_ELIMINATION) {
+        await this.removeAdvancedDoubleElimination({
+          id: match.id,
+          categoryId: match.categoryId,
+          round: match.round,
+          winnerId: match.winnerId,
+          winnerNextMatchId: match.winnerNextMatchId,
+          winnerNextSlot: match.winnerNextSlot,
+          loserNextMatchId: match.loserNextMatchId,
+          loserNextSlot: match.loserNextSlot,
+          participants: match.participants.map((participant) => ({
+            categoryRegistrationId: participant.categoryRegistrationId,
+            position: participant.position,
+          })),
+        });
+      } else {
+        await this.removeAdvancedWinner({
+          id: match.id,
+          categoryId: match.categoryId,
+          round: match.round,
+          winnerId: match.winnerId,
+          participants: match.participants.map((participant) => ({
+            categoryRegistrationId: participant.categoryRegistrationId,
+            position: participant.position,
+          })),
+        });
+      }
     }
 
     const updated = await this.prisma.categoryMatch.update({
@@ -2743,6 +2785,13 @@ export class CategoriesService {
         throw new BadRequestException('At least 2 registrations are needed');
       }
 
+      if (category.format === CategoryFormat.DOUBLE_ELIMINATION) {
+        return this.generateDoubleEliminationBracket(
+          categoryId,
+          registrations.map((r) => r.id)
+        );
+      }
+
       return this.generateEliminationBracket(
         categoryId,
         registrations.map((r) => r.id)
@@ -2925,6 +2974,465 @@ export class CategoriesService {
     }
 
     return allCreatedMatches;
+  }
+
+  // ─── Double Elimination Bracket ───────────────────────────
+
+  /**
+   * Generate a full double-elimination bracket: an upper (winners) bracket
+   * identical to single-elim, a lower (losers) bracket that catches every
+   * upper-bracket loser, and a grand final. When the category is configured as
+   * a "true" double elimination, a bracket-reset match (GF2) is also created so
+   * the lower-bracket champion must beat the upper-bracket champion twice.
+   *
+   * Routing is stored explicitly on every match via winnerNextMatchId/Slot and
+   * loserNextMatchId/Slot so advancement never relies on positional index math
+   * (which only works for a single bracket). The grand-final reset is resolved
+   * dynamically in {@link advanceDoubleElimination}.
+   */
+  private async generateDoubleEliminationBracket(
+    categoryId: string,
+    registrationIds: string[]
+  ) {
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+    });
+
+    const n = registrationIds.length;
+    const bracketSize = this.nextPowerOf2(n);
+    const upperRounds = Math.log2(bracketSize); // R
+    const formatForRound = this.buildFormatForRound(category);
+
+    const fc = category?.formatConfig as {
+      doubleElimination?: { isTrueDoubleElimination?: boolean };
+    } | null;
+    const isReset = fc?.doubleElimination?.isTrueDoubleElimination === true;
+
+    // Seed registrations into the upper-bracket first-round slots (null = BYE).
+    const seedOrder = this.generateStandardSeeding(bracketSize);
+    const slots: (string | null)[] = (
+      new Array(bracketSize) as (string | null)[]
+    ).fill(null);
+    for (let pos = 0; pos < bracketSize; pos++) {
+      const seed = seedOrder[pos];
+      slots[pos] = seed <= n ? registrationIds[seed - 1] : null;
+    }
+
+    // Wipe any previously generated elimination matches for this category.
+    await this.prisma.categoryMatch.deleteMany({
+      where: { categoryId, groupId: null, round: { not: 'GROUP' } },
+    });
+
+    let globalMatchNumber =
+      (await this.prisma.categoryMatch.count({ where: { categoryId } })) + 1;
+
+    type BracketMatch = Awaited<
+      ReturnType<typeof this.prisma.categoryMatch.create>
+    >;
+
+    // Upper-bracket round labels (UB-QF / UB-SF / UB-F, etc).
+    const ubNames = this.determineRoundNames(upperRounds).map((s) => `UB-${s}`);
+
+    // Create the upper bracket: round 0 carries the seeded participants /
+    // BYEs, later rounds are empty shells.
+    const ub: BracketMatch[][] = [];
+    for (let r = 0; r < upperRounds; r++) {
+      const matchesInRound = bracketSize / Math.pow(2, r + 1);
+      const roundMatches: BracketMatch[] = [];
+      for (let i = 0; i < matchesInRound; i++) {
+        let data: Prisma.CategoryMatchCreateInput = {
+          category: { connect: { id: categoryId } },
+          round: ubNames[r],
+          matchNumber: globalMatchNumber++,
+          status: 'SCHEDULED',
+          bracketType: 'UPPER',
+          matchFormat: formatForRound(ubNames[r]),
+        };
+        if (r === 0) {
+          const slot1 = slots[i * 2];
+          const slot2 = slots[i * 2 + 1];
+          if (slot1 && slot2) {
+            data = {
+              ...data,
+              participants: {
+                create: [
+                  { categoryRegistrationId: slot1, position: 1 },
+                  { categoryRegistrationId: slot2, position: 2 },
+                ],
+              },
+            };
+          } else if (slot1 || slot2) {
+            const realPlayer = (slot1 || slot2)!;
+            data = {
+              ...data,
+              status: 'FINISHED',
+              winnerId: realPlayer,
+              score: 'BYE',
+              participants: {
+                create: [{ categoryRegistrationId: realPlayer, position: 1 }],
+              },
+            };
+          }
+        }
+        const match = await this.prisma.categoryMatch.create({
+          data,
+          include: { participants: true, court: true },
+        });
+        roundMatches.push(match);
+      }
+      ub.push(roundMatches);
+    }
+
+    // Lower bracket: 2R-2 rounds. Match counts follow the canonical pattern —
+    // round 0 pairs the first-round upper losers, "drop" (odd) rounds mix the
+    // previous lower winners with the next batch of upper losers, and "minor"
+    // (even) rounds halve via internal pairing.
+    const lbRoundCount = Math.max(0, 2 * upperRounds - 2);
+    const lbCounts: number[] = [];
+    for (let k = 0; k < lbRoundCount; k++) {
+      if (k === 0) lbCounts.push(bracketSize / 4);
+      else if (k % 2 === 1) lbCounts.push(lbCounts[k - 1]);
+      else lbCounts.push(lbCounts[k - 1] / 2);
+    }
+    const lb: BracketMatch[][] = [];
+    for (let k = 0; k < lbRoundCount; k++) {
+      const roundMatches: BracketMatch[] = [];
+      const label = k === lbRoundCount - 1 ? 'LB-F' : `LB-${k + 1}`;
+      for (let i = 0; i < lbCounts[k]; i++) {
+        const match = await this.prisma.categoryMatch.create({
+          data: {
+            category: { connect: { id: categoryId } },
+            round: label,
+            matchNumber: globalMatchNumber++,
+            status: 'SCHEDULED',
+            bracketType: 'LOWER',
+            matchFormat: formatForRound(label),
+          },
+          include: { participants: true, court: true },
+        });
+        roundMatches.push(match);
+      }
+      lb.push(roundMatches);
+    }
+
+    // Grand final (+ optional reset shell).
+    const grandFinal = await this.prisma.categoryMatch.create({
+      data: {
+        category: { connect: { id: categoryId } },
+        round: 'GF',
+        matchNumber: globalMatchNumber++,
+        status: 'SCHEDULED',
+        bracketType: 'GF',
+        matchFormat: formatForRound('GF'),
+      },
+      include: { participants: true, court: true },
+    });
+    let grandFinalReset: BracketMatch | null = null;
+    if (isReset) {
+      grandFinalReset = await this.prisma.categoryMatch.create({
+        data: {
+          category: { connect: { id: categoryId } },
+          round: 'GF2',
+          matchNumber: globalMatchNumber++,
+          status: 'SCHEDULED',
+          bracketType: 'GF',
+          matchFormat: formatForRound('GF2'),
+        },
+        include: { participants: true, court: true },
+      });
+    }
+
+    // ─── Wire up routing (winner/loser → next match + slot) ───
+    const link = (
+      matchId: string,
+      data: {
+        winnerNextMatchId?: string;
+        winnerNextSlot?: number;
+        loserNextMatchId?: string;
+        loserNextSlot?: number;
+      }
+    ) => this.prisma.categoryMatch.update({ where: { id: matchId }, data });
+
+    // Upper bracket winner/loser routing.
+    for (let r = 0; r < upperRounds; r++) {
+      for (let i = 0; i < ub[r].length; i++) {
+        const isUpperFinal = r === upperRounds - 1;
+        // Winner destination.
+        const winnerNextMatchId = isUpperFinal
+          ? grandFinal.id
+          : ub[r + 1][Math.floor(i / 2)].id;
+        const winnerNextSlot = isUpperFinal ? 1 : (i % 2) + 1;
+        // Loser destination in the lower bracket.
+        let loserNextMatchId: string | undefined;
+        let loserNextSlot: number | undefined;
+        if (lbRoundCount > 0) {
+          if (r === 0) {
+            // First-round losers pair up into LB round 0.
+            loserNextMatchId = lb[0][Math.floor(i / 2)].id;
+            loserNextSlot = (i % 2) + 1;
+          } else {
+            // Round m losers drop into LB drop-round (2m-1), slot 2.
+            const lbRound = 2 * r - 1;
+            loserNextMatchId = lb[lbRound][i].id;
+            loserNextSlot = 2;
+          }
+        }
+        await link(ub[r][i].id, {
+          winnerNextMatchId,
+          winnerNextSlot,
+          loserNextMatchId,
+          loserNextSlot,
+        });
+      }
+    }
+
+    // Lower bracket winner routing (losers are eliminated → no loserNext).
+    for (let k = 0; k < lbRoundCount; k++) {
+      const isLast = k === lbRoundCount - 1;
+      for (let j = 0; j < lb[k].length; j++) {
+        let winnerNextMatchId: string;
+        let winnerNextSlot: number;
+        if (isLast) {
+          winnerNextMatchId = grandFinal.id;
+          winnerNextSlot = 2;
+        } else if (k % 2 === 0) {
+          // Even (minor / first) round → next drop round, slot 1.
+          winnerNextMatchId = lb[k + 1][j].id;
+          winnerNextSlot = 1;
+        } else {
+          // Odd (drop) round → internal pairing in the next minor round.
+          winnerNextMatchId = lb[k + 1][Math.floor(j / 2)].id;
+          winnerNextSlot = (j % 2) + 1;
+        }
+        await link(lb[k][j].id, { winnerNextMatchId, winnerNextSlot });
+      }
+    }
+
+    // Settle every BYE so single-fed downstream matches auto-advance and dead
+    // (double-BYE) matches resolve before any real match is played.
+    await this.settleByes(categoryId);
+
+    void grandFinalReset; // reset shell is populated dynamically at the GF
+
+    return this.getEliminationMatches(categoryId);
+  }
+
+  /**
+   * Resolve BYE cascades across an explicitly-linked bracket. Repeatedly looks
+   * for matches whose every feeder (matches pointing at it via winnerNext /
+   * loserNext) is FINISHED: such a match auto-finishes when it holds a single
+   * participant (BYE) or carries none (dead slot), pushing the result onward.
+   */
+  private async settleByes(categoryId: string): Promise<void> {
+    // A bounded number of passes (one per round depth is plenty); guard against
+    // any accidental cycle with a hard cap.
+    for (let pass = 0; pass < 64; pass++) {
+      const matches = await this.prisma.categoryMatch.findMany({
+        where: { categoryId, groupId: null, round: { not: 'GROUP' } },
+        include: { participants: true },
+      });
+      const byId = new Map(matches.map((m) => [m.id, m]));
+
+      // Feeder count per match (how many upstream matches route into it).
+      const feederTotal = new Map<string, number>();
+      const feederDone = new Map<string, number>();
+      for (const m of matches) {
+        for (const target of [m.winnerNextMatchId, m.loserNextMatchId]) {
+          if (!target || !byId.has(target)) continue;
+          feederTotal.set(target, (feederTotal.get(target) ?? 0) + 1);
+          if (m.status === 'FINISHED') {
+            feederDone.set(target, (feederDone.get(target) ?? 0) + 1);
+          }
+        }
+      }
+
+      let changed = false;
+      for (const m of matches) {
+        if (m.status === 'FINISHED') continue;
+        if (m.round === 'GF' || m.round === 'GF2') continue; // resolved at play
+        const total = feederTotal.get(m.id) ?? 0;
+        if (total === 0) continue; // first round; real matches handled at gen
+        const done = feederDone.get(m.id) ?? 0;
+        if (done < total) continue; // still waiting on a feeder
+
+        if (m.participants.length === 1) {
+          // BYE: the lone participant advances.
+          const winnerId = m.participants[0].categoryRegistrationId;
+          await this.prisma.categoryMatch.update({
+            where: { id: m.id },
+            data: { status: 'FINISHED', winnerId, score: 'BYE' },
+          });
+          if (m.winnerNextMatchId && m.winnerNextSlot) {
+            await this.placeParticipant(
+              m.winnerNextMatchId,
+              winnerId,
+              m.winnerNextSlot
+            );
+          }
+          changed = true;
+        } else if (m.participants.length === 0) {
+          // Dead slot (both feeders were BYEs): finish with no winner so the
+          // downstream "all feeders done" check can proceed.
+          await this.prisma.categoryMatch.update({
+            where: { id: m.id },
+            data: { status: 'FINISHED', score: 'BYE' },
+          });
+          changed = true;
+        }
+      }
+      if (!changed) break;
+    }
+  }
+
+  /** Create a match participant at the given slot if it isn't taken yet. */
+  private async placeParticipant(
+    matchId: string,
+    categoryRegistrationId: string,
+    position: number
+  ): Promise<void> {
+    const existing = await this.prisma.categoryMatchParticipant.findFirst({
+      where: { matchId, position },
+    });
+    if (existing) return;
+    await this.prisma.categoryMatchParticipant.create({
+      data: { matchId, categoryRegistrationId, position },
+    });
+  }
+
+  /**
+   * Advance a finished double-elimination match using its stored routing.
+   * Sends the winner to winnerNext and the loser to loserNext, then resolves
+   * the grand-final / bracket-reset specifics.
+   */
+  private async advanceDoubleElimination(match: {
+    id: string;
+    categoryId: string;
+    round: string;
+    winnerId: string | null;
+    winnerNextMatchId: string | null;
+    winnerNextSlot: number | null;
+    loserNextMatchId: string | null;
+    loserNextSlot: number | null;
+    participants: Array<{ categoryRegistrationId: string; position: number }>;
+  }): Promise<void> {
+    if (!match.winnerId) return;
+    const loser = match.participants.find(
+      (p) => p.categoryRegistrationId !== match.winnerId
+    );
+
+    // Grand final: decide champion or trigger the reset match.
+    if (match.round === 'GF') {
+      const upperRep = match.participants.find((p) => p.position === 1);
+      const resetMatch = await this.prisma.categoryMatch.findFirst({
+        where: { categoryId: match.categoryId, round: 'GF2', groupId: null },
+      });
+      const lowerRepWon =
+        !upperRep || upperRep.categoryRegistrationId !== match.winnerId;
+      if (resetMatch && lowerRepWon) {
+        // Lower-bracket champion forced a reset → replay with both finalists.
+        for (const p of match.participants) {
+          await this.placeParticipant(
+            resetMatch.id,
+            p.categoryRegistrationId,
+            p.position
+          );
+        }
+      } else if (resetMatch && !lowerRepWon) {
+        // Upper-bracket champion won outright → the reset match is not played.
+        await this.prisma.categoryMatch.update({
+          where: { id: resetMatch.id },
+          data: { status: 'CANCELLED' },
+        });
+      }
+      return;
+    }
+    if (match.round === 'GF2') return; // reset winner is the champion
+
+    // Normal upper/lower routing.
+    if (match.winnerNextMatchId && match.winnerNextSlot) {
+      await this.placeParticipant(
+        match.winnerNextMatchId,
+        match.winnerId,
+        match.winnerNextSlot
+      );
+    }
+    if (loser && match.loserNextMatchId && match.loserNextSlot) {
+      await this.placeParticipant(
+        match.loserNextMatchId,
+        loser.categoryRegistrationId,
+        match.loserNextSlot
+      );
+    }
+  }
+
+  /**
+   * Reverse {@link advanceDoubleElimination}: pull the winner / loser this match
+   * pushed into downstream matches, but only when those matches have not yet
+   * started, so an in-progress or finished later match is never corrupted.
+   */
+  private async removeAdvancedDoubleElimination(match: {
+    id: string;
+    categoryId: string;
+    round: string;
+    winnerId: string | null;
+    winnerNextMatchId: string | null;
+    winnerNextSlot: number | null;
+    loserNextMatchId: string | null;
+    loserNextSlot: number | null;
+    participants: Array<{ categoryRegistrationId: string; position: number }>;
+  }): Promise<void> {
+    if (!match.winnerId) return;
+    const loser = match.participants.find(
+      (p) => p.categoryRegistrationId !== match.winnerId
+    );
+
+    if (match.round === 'GF') {
+      const resetMatch = await this.prisma.categoryMatch.findFirst({
+        where: { categoryId: match.categoryId, round: 'GF2', groupId: null },
+      });
+      if (resetMatch && resetMatch.status !== 'FINISHED') {
+        await this.prisma.categoryMatchParticipant.deleteMany({
+          where: { matchId: resetMatch.id },
+        });
+        if (resetMatch.status === 'CANCELLED') {
+          await this.prisma.categoryMatch.update({
+            where: { id: resetMatch.id },
+            data: { status: 'SCHEDULED' },
+          });
+        }
+      }
+      return;
+    }
+    if (match.round === 'GF2') return;
+
+    if (match.winnerNextMatchId && match.winnerNextSlot) {
+      const next = await this.prisma.categoryMatch.findUnique({
+        where: { id: match.winnerNextMatchId },
+      });
+      if (next && next.status === 'SCHEDULED') {
+        await this.prisma.categoryMatchParticipant.deleteMany({
+          where: {
+            matchId: match.winnerNextMatchId,
+            position: match.winnerNextSlot,
+            categoryRegistrationId: match.winnerId,
+          },
+        });
+      }
+    }
+    if (loser && match.loserNextMatchId && match.loserNextSlot) {
+      const next = await this.prisma.categoryMatch.findUnique({
+        where: { id: match.loserNextMatchId },
+      });
+      if (next && next.status === 'SCHEDULED') {
+        await this.prisma.categoryMatchParticipant.deleteMany({
+          where: {
+            matchId: match.loserNextMatchId,
+            position: match.loserNextSlot,
+            categoryRegistrationId: loser.categoryRegistrationId,
+          },
+        });
+      }
+    }
   }
 
   // Build the per-round match-format resolver (honours formatConfig.roundFormats).
