@@ -1646,7 +1646,7 @@ export class CategoriesService {
       groups.push({
         categoryId,
         groupNumber: i + 1,
-        name: `Group ${groupNames[i] || i + 1}`,
+        name: groupNames[i] || String(i + 1),
       });
     }
 
