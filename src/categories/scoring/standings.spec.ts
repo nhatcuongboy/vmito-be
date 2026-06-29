@@ -104,6 +104,38 @@ describe('computeStandings — points', () => {
     expect(rankOf(rows, 'A').matchesDrawn).toBe(1);
   });
 
+  it('tracks the 5 most recent outcomes (oldest → newest, capped at 5)', () => {
+    // A plays 6 matches (processed oldest-first): W L W W W W.
+    const rows = computeStandings(
+      entrants('A', 'B'),
+      [
+        match('A', 'B', 21, 10),
+        match('A', 'B', 10, 21),
+        match('A', 'B', 21, 12),
+        match('A', 'B', 21, 13),
+        match('A', 'B', 21, 14),
+        match('A', 'B', 21, 15),
+      ],
+      baseConfig()
+    );
+    // Only the last 5 are kept: L W W W W (mirror for B).
+    expect(rankOf(rows, 'A').recentForm).toEqual(['L', 'W', 'W', 'W', 'W']);
+    expect(rankOf(rows, 'B').recentForm).toEqual(['W', 'L', 'L', 'L', 'L']);
+  });
+
+  it('records draws and skips cancelled matches in recent form', () => {
+    const rows = computeStandings(
+      entrants('A', 'B'),
+      [
+        match('A', 'B', 21, 21, { winnerId: null, isDraw: true }),
+        match('A', 'B', 0, 0, { winnerId: null, isCancelled: true }),
+        match('A', 'B', 21, 10),
+      ],
+      baseConfig()
+    );
+    expect(rankOf(rows, 'A').recentForm).toEqual(['D', 'W']);
+  });
+
   // Regression: game points used to be multiplied by the *cumulative* games
   // total, so a team's game points ballooned across matches (2 + 4 = 6).
   it('counts game points per match, not cumulatively', () => {

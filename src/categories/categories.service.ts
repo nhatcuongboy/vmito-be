@@ -2736,8 +2736,11 @@ export class CategoriesService {
     });
 
     // Cancelled matches are pulled in too so cancelledMatchPoints can apply.
+    // Ordered oldest-first (by finish time, then match number) so the recent-form
+    // streak reflects chronological play order.
     const settledMatches = await this.prisma.categoryMatch.findMany({
       where: { groupId, status: { in: ['FINISHED', 'CANCELLED'] } },
+      orderBy: [{ endTime: 'asc' }, { matchNumber: 'asc' }],
       include: { participants: true },
     });
 

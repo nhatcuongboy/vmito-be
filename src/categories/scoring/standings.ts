@@ -70,6 +70,8 @@ export interface StandingRow {
   gamesWon: number;
   gamesLost: number;
   gameDifference: number;
+  /** Outcomes of the 5 most recent played matches, oldest → newest. */
+  recentForm: Array<'W' | 'L' | 'D'>;
   rank: number;
 }
 
@@ -159,6 +161,7 @@ export function computeStandings(
       gamesWon: 0,
       gamesLost: 0,
       gameDifference: 0,
+      recentForm: [],
       rank: 0,
       seed,
     });
@@ -217,9 +220,13 @@ export function computeStandings(
     if (match.isDraw) {
       s1.matchesDrawn++;
       s2.matchesDrawn++;
+      s1.recentForm.push('D');
+      s2.recentForm.push('D');
     } else if (winner && loser) {
       winner.matchesWon++;
       loser.matchesLost++;
+      winner.recentForm.push('W');
+      loser.recentForm.push('L');
       if (match.isForfeit) loser.matchesForfeited++;
     }
 
@@ -252,6 +259,8 @@ export function computeStandings(
   all.forEach((r) => {
     r.pointDifference = r.pointsFor - r.pointsAgainst;
     r.gameDifference = r.gamesWon - r.gamesLost;
+    // Keep only the 5 most recent outcomes (matches are processed oldest-first).
+    r.recentForm = r.recentForm.slice(-5);
   });
 
   const criteria = buildCriteria(config);
