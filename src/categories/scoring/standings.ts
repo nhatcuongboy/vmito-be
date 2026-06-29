@@ -108,8 +108,8 @@ export function resolveStandingsConfig(
   return {
     pointsEarning,
     winPoints: zero ? 0 : num(rr.winPoints, 2),
-    tiePoints: zero ? 0 : num(rr.tiePoints, 1),
-    lossPoints: zero ? 0 : num(rr.lossPoints, 0),
+    tiePoints: zero ? 0 : num(rr.tiePoints, 0),
+    lossPoints: zero ? 0 : num(rr.lossPoints, 1),
     cancelledMatchPoints: zero ? 0 : num(rr.cancelledMatchPoints, 0),
     gameWinPoints: zero ? 0 : num(rr.gameWinPoints, 0),
     gameLossPoints: zero ? 0 : num(rr.gameLossPoints, 0),

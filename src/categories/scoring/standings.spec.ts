@@ -53,8 +53,8 @@ describe('resolveStandingsConfig', () => {
     const c = resolveStandingsConfig(null);
     expect(c.pointsEarning).toBe('match_results');
     expect(c.winPoints).toBe(2);
-    expect(c.tiePoints).toBe(1);
-    expect(c.lossPoints).toBe(0);
+    expect(c.tiePoints).toBe(0);
+    expect(c.lossPoints).toBe(1);
     expect(c.tiebreakers).toHaveLength(4);
   });
 
