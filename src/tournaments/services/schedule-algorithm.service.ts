@@ -279,7 +279,11 @@ export class ScheduleAlgorithmService {
     // Sort candidates by start time
     candidates.sort((a, b) => a.windowStart - b.windowStart);
 
-    // Try each candidate
+    // Evaluate every candidate court and pick the one whose earliest feasible
+    // start time is globally smallest. This load-balances matches across courts:
+    // since empty courts all expose the same earliest start, distinct courts win
+    // ties in turn instead of every match piling onto the first court.
+    let best: MatchAssignment | null = null;
     for (const candidate of candidates) {
       const result = this.findAvailableWindow(
         match,
@@ -292,10 +296,18 @@ export class ScheduleAlgorithmService {
         participantSchedule
       );
 
-      if (result) return result;
+      if (!result) continue;
+
+      if (
+        !best ||
+        new Date(result.startTime).getTime() <
+          new Date(best.startTime).getTime()
+      ) {
+        best = result;
+      }
     }
 
-    return null;
+    return best;
   }
 
   private findAvailableWindow(
