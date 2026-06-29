@@ -1167,13 +1167,74 @@ export class SessionsService {
       },
     });
 
-    // If number of courts changed, adjust courts
-    if (
+    // Handle court sync when courts array is explicitly provided.
+    // Uses id-based matching to safely create, update, and delete courts
+    // without conflicts from custom court numbers.
+    if (updateSessionDto.courts && Array.isArray(updateSessionDto.courts)) {
+      const existingCourts = await this.prisma.court.findMany({
+        where: { sessionId: id },
+        orderBy: { courtNumber: 'asc' },
+      });
+
+      const existingCourtMap = new Map(existingCourts.map((c) => [c.id, c]));
+
+      const courtsWithId = updateSessionDto.courts.filter(
+        (c) => c.id && existingCourtMap.has(c.id)
+      );
+      const courtsToCreate = updateSessionDto.courts.filter((c) => !c.id);
+      const keptIds = new Set(courtsWithId.map((c) => c.id));
+      const courtsToDelete = existingCourts.filter((c) => !keptIds.has(c.id));
+
+      // Delete removed courts (only if they have no active match)
+      if (courtsToDelete.length > 0) {
+        await this.prisma.court.deleteMany({
+          where: {
+            id: { in: courtsToDelete.map((c) => c.id) },
+            status: 'EMPTY',
+          },
+        });
+      }
+
+      // Two-pass rename to avoid unique constraint conflicts during renaming
+      if (courtsWithId.length > 0) {
+        // Pass 1: assign temp courtNumbers
+        for (let i = 0; i < courtsWithId.length; i++) {
+          await this.prisma.court.update({
+            where: { id: courtsWithId[i].id as string },
+            data: { courtNumber: 100000 + i },
+          });
+        }
+        // Pass 2: set final values
+        for (const courtConfig of courtsWithId) {
+          await this.prisma.court.update({
+            where: { id: courtConfig.id as string },
+            data: {
+              courtNumber: courtConfig.courtNumber,
+              courtName: courtConfig.courtName ?? null,
+              direction: courtConfig.direction,
+            },
+          });
+        }
+      }
+
+      // Create new courts (those without an id)
+      if (courtsToCreate.length > 0) {
+        await this.prisma.court.createMany({
+          data: courtsToCreate.map((c) => ({
+            sessionId: id,
+            courtNumber: c.courtNumber,
+            courtName: c.courtName || null,
+            direction: c.direction || CourtDirection.HORIZONTAL,
+            status: 'EMPTY' as const,
+          })),
+        });
+      }
+    } else if (
+      // Count-only change (no courts array provided): add/remove courts sequentially
       updateSessionDto.numberOfCourts !== undefined &&
       updateSessionDto.numberOfCourts !== existingSession.numberOfCourts
     ) {
       if (updateSessionDto.numberOfCourts > existingSession.numberOfCourts) {
-        // Add new courts
         const newCourts: Array<{
           sessionId: string;
           courtNumber: number;
@@ -1194,58 +1255,15 @@ export class SessionsService {
             status: 'EMPTY' as const,
           });
         }
-
-        await this.prisma.court.createMany({
-          data: newCourts,
-        });
+        await this.prisma.court.createMany({ data: newCourts });
       } else if (
         updateSessionDto.numberOfCourts < existingSession.numberOfCourts
       ) {
-        // Remove excess courts (only if they're empty)
         await this.prisma.court.deleteMany({
           where: {
             sessionId: id,
-            courtNumber: {
-              gt: updateSessionDto.numberOfCourts,
-            },
+            courtNumber: { gt: updateSessionDto.numberOfCourts },
             status: 'EMPTY',
-          },
-        });
-      }
-    }
-
-    // Handle specific court updates (courtNumber, names, directions)
-    // Match by positional index (ordered by current courtNumber) so renaming courtNumber works correctly.
-    // Two-pass update to avoid unique constraint violations on (sessionId, courtNumber):
-    //   Pass 1 – set courtNumber to a temporary large offset (index + 100000)
-    //   Pass 2 – set courtNumber to the final desired value
-    if (updateSessionDto.courts && Array.isArray(updateSessionDto.courts)) {
-      const existingCourts = await this.prisma.court.findMany({
-        where: { sessionId: id },
-        orderBy: { courtNumber: 'asc' },
-      });
-
-      // Pass 1: assign temp courtNumbers to avoid conflicts
-      for (let i = 0; i < updateSessionDto.courts.length; i++) {
-        const existingCourt = existingCourts[i];
-        if (!existingCourt) continue;
-        await this.prisma.court.update({
-          where: { id: existingCourt.id },
-          data: { courtNumber: 100000 + i },
-        });
-      }
-
-      // Pass 2: set final values
-      for (let i = 0; i < updateSessionDto.courts.length; i++) {
-        const courtConfig = updateSessionDto.courts[i];
-        const existingCourt = existingCourts[i];
-        if (!existingCourt) continue;
-        await this.prisma.court.update({
-          where: { id: existingCourt.id },
-          data: {
-            courtNumber: courtConfig.courtNumber,
-            courtName: courtConfig.courtName ?? null,
-            direction: courtConfig.direction,
           },
         });
       }

@@ -13,6 +13,10 @@ import { Transform } from 'class-transformer';
 import { CourtDirection, FeeType, MatchType } from '@prisma/client';
 
 export class CourtConfigDto {
+  @IsString()
+  @IsOptional()
+  id?: string;
+
   @IsNumber()
   courtNumber: number;
 
