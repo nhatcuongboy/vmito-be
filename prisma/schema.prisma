@@ -800,6 +800,11 @@ model CategoryMatch {
   scoreVersion Int     @default(0) // Optimistic lock guard for rapid live updates
   pointLog     Json? // Ordered point history for exact undo (array of { side, setNumber })
 
+  // Pickleball doubles serve state (only used while a PICKLEBALL doubles match
+  // is live; null for badminton, pickleball singles, or non-live matches).
+  servingSide  Int? // 1 = side 1, 2 = side 2 — which team currently serves
+  serverNumber Int? // 1 = first server, 2 = second server
+
   // Schedule management fields
   queueOrder        Int? // Priority order in queue for Next Available Court mode
   isQueued          Boolean   @default(false) // Whether match is waiting for court assignment

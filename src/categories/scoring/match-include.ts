@@ -31,6 +31,7 @@ export const MATCH_SCORING_INCLUDE = {
       name: true,
       tournamentId: true,
       type: true,
+      teamSize: true,
       matchFormat: true,
       pointsToWin: true,
       winByTwo: true,

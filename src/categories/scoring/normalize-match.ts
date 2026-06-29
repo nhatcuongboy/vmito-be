@@ -57,12 +57,16 @@ export interface NormalizableMatch {
   estimatedEndTime: Date | null;
   updatedAt: Date;
   courtId: string | null;
+  servingSide?: number | null;
+  serverNumber?: number | null;
   court?: CourtLike | null;
   participants?: ParticipantLike[] | null;
   category?: {
     id: string;
     name: string;
     tournamentId: string;
+    type?: string | null;
+    teamSize?: number | null;
     matchFormat?: string | null;
     pointsToWin?: number | null;
     winByTwo?: boolean | null;
@@ -89,6 +93,9 @@ export interface ScoreboardMatchPayload {
   tournamentId: string | null;
   categoryId: string;
   categoryName: string | null;
+  sportType: 'BADMINTON' | 'PICKLEBALL' | null;
+  teamSize: number | null;
+  isDoubles: boolean;
   round: string;
   matchNumber: number;
   status: string;
@@ -101,6 +108,8 @@ export interface ScoreboardMatchPayload {
   score: string | null;
   currentSet: { setNumber: number; side1: number; side2: number } | null;
   setWins: { side1: number; side2: number };
+  servingSide: 1 | 2 | null;
+  serverNumber: 1 | 2 | null;
   winnerId: string | null;
   isDraw: boolean;
   isComplete: boolean;
@@ -152,6 +161,30 @@ function parseSets(raw: unknown): ScoringSet[] {
 }
 
 type ScoringStage = 'GROUP' | 'KNOCKOUT' | 'FINAL';
+
+const DOUBLES_CATEGORY_TYPES = [
+  'MENS_DOUBLE',
+  'WOMENS_DOUBLE',
+  'MIXED_DOUBLE',
+];
+
+/**
+ * A match is doubles when its category type is a doubles type, the category's
+ * teamSize is >= 2, or any participant registration carries a pair. Mirrors the
+ * server-side CategoriesService.isDoublesMatch logic.
+ */
+function resolveIsDoubles(match: NormalizableMatch): boolean {
+  const category = match.category;
+  if (category?.type && DOUBLES_CATEGORY_TYPES.includes(category.type)) {
+    return true;
+  }
+  if ((category?.teamSize ?? 0) >= 2) return true;
+  return (
+    match.participants?.some(
+      (p) => p.categoryRegistration?.pair != null
+    ) ?? false
+  );
+}
 
 function stageOfRound(round: string): ScoringStage {
   if (round === 'GROUP') return 'GROUP';
@@ -242,11 +275,30 @@ export function normalizeMatchForBroadcast(
         ? side2.registrationId
         : null;
 
+  const sportType = match.category?.tournament?.sportType ?? null;
+  const teamSize = match.category?.teamSize ?? null;
+  const isDoubles = resolveIsDoubles(match);
+
+  // Serve state is only meaningful for live pickleball doubles. Null it out
+  // everywhere else so the scoreboard never renders a stray server indicator.
+  const servesApply = sportType === 'PICKLEBALL' && isDoubles;
+  const servingSide =
+    servesApply && (match.servingSide === 1 || match.servingSide === 2)
+      ? (match.servingSide as 1 | 2)
+      : null;
+  const serverNumber =
+    servesApply && (match.serverNumber === 1 || match.serverNumber === 2)
+      ? (match.serverNumber as 1 | 2)
+      : null;
+
   return {
     matchId: match.id,
     tournamentId: match.category?.tournamentId ?? null,
     categoryId: match.categoryId,
     categoryName: match.category?.name ?? null,
+    sportType,
+    teamSize,
+    isDoubles,
     round: match.round,
     matchNumber: match.matchNumber,
     status: match.status,
@@ -271,6 +323,8 @@ export function normalizeMatchForBroadcast(
         }
       : null,
     setWins: setWins(sets, rules),
+    servingSide,
+    serverNumber,
     winnerId: match.winnerId,
     isDraw: match.isDraw,
     isComplete: pendingSide !== null,

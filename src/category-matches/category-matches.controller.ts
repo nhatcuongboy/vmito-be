@@ -15,6 +15,7 @@ import { Throttle } from '@nestjs/throttler';
 import { CategoriesService } from '../categories/categories.service';
 import { EndCategoryMatchDto } from '../categories/dto/end-category-match.dto';
 import { UpdateMatchScoreDto } from '../categories/dto/update-match-score.dto';
+import { UpdatePickleballServeDto } from '../categories/dto/update-pickleball-serve.dto';
 import { UpdateSetScoreDto } from '../categories/dto/update-set-score.dto';
 import { AssignRefereeDto } from '../categories/dto/assign-referee.dto';
 import { BulkScheduleDto } from './dto/bulk-schedule.dto';
@@ -142,6 +143,22 @@ export class CategoryMatchesController {
     @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.undoLastPoint(id, user.userId, user.role);
+  }
+
+  // Update pickleball doubles serve state (host / admin / assigned referee).
+  @Throttle({ default: { ttl: 60000, limit: 600 } })
+  @Patch(':id/pickleball-serve')
+  updatePickleballServe(
+    @Param('id') id: string,
+    @Body() dto: UpdatePickleballServeDto,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.updatePickleballServe(
+      id,
+      dto,
+      user.userId,
+      user.role
+    );
   }
 
   // Overwrite an individual set's final score (host / admin / assigned referee).

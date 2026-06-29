@@ -22,6 +22,7 @@ import { ConvertLegacyRegistrationDto } from '../tournaments/dto/tournament-pair
 import { CreateCategoryMatchDto } from './dto/create-category-match.dto';
 import { EndCategoryMatchDto } from './dto/end-category-match.dto';
 import { UpdateMatchScoreDto } from './dto/update-match-score.dto';
+import { UpdatePickleballServeDto } from './dto/update-pickleball-serve.dto';
 import { UpdateSetScoreDto } from './dto/update-set-score.dto';
 import {
   TournamentsGateway,
@@ -502,6 +503,76 @@ export class CategoriesService {
       isDoubles,
       TournamentEventType.TOURNAMENT_MATCH_SCORE_UPDATED
     );
+  }
+
+  /**
+   * Whether a match should track pickleball serve state: only PICKLEBALL
+   * doubles. Badminton and pickleball singles never carry serve state.
+   */
+  private isPickleballDoubles(match: {
+    category: {
+      type: CategoryType;
+      tournament?: { sportType?: SportType | null } | null;
+    };
+    participants: Array<{
+      categoryRegistration?: { pair?: unknown } | null;
+    }>;
+  }): boolean {
+    if (match.category.tournament?.sportType !== SportType.PICKLEBALL) {
+      return false;
+    }
+    return this.isDoublesMatch(match);
+  }
+
+  /**
+   * Update the pickleball doubles serve state (serving side + server number).
+   * Only valid while a PICKLEBALL doubles match is in progress. Mirrors the
+   * live-scoring authorization and broadcast so the public scoreboard updates
+   * in realtime. V1 keeps this manual — the referee sets serve on rotation.
+   */
+  async updatePickleballServe(
+    id: string,
+    dto: UpdatePickleballServeDto,
+    userId: string,
+    role?: string
+  ) {
+    const match = await this.getMatchForScoring(id, userId, role);
+    if (match.status !== 'IN_PROGRESS') {
+      throw new BadRequestException(
+        'Serve can only be updated while the match is in progress'
+      );
+    }
+    if (match.category.tournament?.sportType !== SportType.PICKLEBALL) {
+      throw new BadRequestException(
+        'Serve tracking is only available for pickleball matches'
+      );
+    }
+    if (!this.isDoublesMatch(match)) {
+      throw new BadRequestException(
+        'Serve tracking is only available for doubles matches'
+      );
+    }
+
+    await this.prisma.categoryMatch.update({
+      where: { id },
+      data: {
+        servingSide: dto.servingSide,
+        serverNumber: dto.serverNumber,
+      },
+    });
+
+    const updated = await this.prisma.categoryMatch.findUnique({
+      where: { id },
+      include: MATCH_SCORING_INCLUDE,
+    });
+    if (updated) {
+      this.broadcastMatch(
+        updated,
+        TournamentEventType.TOURNAMENT_MATCH_SCORE_UPDATED,
+        { clientId: dto.clientId, seq: dto.seq }
+      );
+    }
+    return updated;
   }
 
   /**
@@ -2087,9 +2158,18 @@ export class CategoriesService {
     this.assertMatchParticipantsResolved(match);
     await this.assertMatchRostersReady(match.participants);
 
+    // Pickleball doubles opens at 0-0-2: side 1 serving, second server.
+    // Everything else (badminton, pickleball singles) carries no serve state.
+    const pickleballDoubles = this.isPickleballDoubles(match);
+
     const updated = await this.prisma.categoryMatch.update({
       where: { id },
-      data: { status: 'IN_PROGRESS', startTime: new Date() },
+      data: {
+        status: 'IN_PROGRESS',
+        startTime: new Date(),
+        servingSide: pickleballDoubles ? 1 : null,
+        serverNumber: pickleballDoubles ? 2 : null,
+      },
       include: MATCH_SCORING_INCLUDE,
     });
     this.broadcastMatch(updated, TournamentEventType.TOURNAMENT_MATCH_STARTED);
@@ -2153,6 +2233,9 @@ export class CategoriesService {
         player2Points: dto.player2Points,
         notes: dto.notes,
         refereeName: dto.refereeName ?? null,
+        // Serve state only applies to live matches.
+        servingSide: null,
+        serverNumber: null,
       },
       include: MATCH_SCORING_INCLUDE,
     });
@@ -2268,6 +2351,8 @@ export class CategoriesService {
         pointLog: Prisma.DbNull,
         notes: null,
         refereeName: null,
+        servingSide: null,
+        serverNumber: null,
       },
       include: MATCH_SCORING_INCLUDE,
     });
