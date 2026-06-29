@@ -9,6 +9,7 @@ import { MatchStatus } from '@prisma/client';
 import { GenerateScheduleDto } from '../dto/schedule-generation.dto';
 import { UpdateMatchAssignmentDto } from '../dto/update-match-assignment.dto';
 import { ScheduleValidationService } from './schedule-validation.service';
+import { CategoriesService } from '../../categories/categories.service';
 import {
   ScheduleAlgorithmService,
   MatchForScheduling,
@@ -97,7 +98,8 @@ export class ScheduleGeneratorService {
   constructor(
     private prisma: PrismaService,
     private validationService: ScheduleValidationService,
-    private algorithmService: ScheduleAlgorithmService
+    private algorithmService: ScheduleAlgorithmService,
+    private categoriesService: CategoriesService
   ) {}
 
   private get generatedScheduleModel(): GeneratedScheduleDelegate {
@@ -745,41 +747,54 @@ export class ScheduleGeneratorService {
       (g) => g.registrations.length >= 2 && g._count.matches === 0
     );
 
-    if (groupsWithoutMatches.length === 0) return;
-
-    this.logger.log(
-      `Auto-generating matches for ${groupsWithoutMatches.length} group(s) in tournament ${tournamentId}`
-    );
-
-    for (const group of groupsWithoutMatches) {
-      const regIds = group.registrations.map((r) => r.categoryRegistrationId);
-
-      // Generate round-robin pairs
-      let matchNumber = 1;
-      for (let i = 0; i < regIds.length; i++) {
-        for (let j = i + 1; j < regIds.length; j++) {
-          await this.prisma.categoryMatch.create({
-            data: {
-              categoryId: group.categoryId,
-              groupId: group.id,
-              round: 'GROUP',
-              matchNumber: matchNumber++,
-              status: MatchStatus.SCHEDULED,
-              matchFormat: group.category.matchFormat,
-              participants: {
-                create: [
-                  { categoryRegistrationId: regIds[i], position: 1 },
-                  { categoryRegistrationId: regIds[j], position: 2 },
-                ],
-              },
-            },
-          });
-        }
-      }
-
+    if (groupsWithoutMatches.length > 0) {
       this.logger.log(
-        `Generated ${matchNumber - 1} match(es) for group ${group.id} in category ${group.categoryId}`
+        `Auto-generating matches for ${groupsWithoutMatches.length} group(s) in tournament ${tournamentId}`
       );
+
+      for (const group of groupsWithoutMatches) {
+        const regIds = group.registrations.map((r) => r.categoryRegistrationId);
+
+        // Generate round-robin pairs
+        let matchNumber = 1;
+        for (let i = 0; i < regIds.length; i++) {
+          for (let j = i + 1; j < regIds.length; j++) {
+            await this.prisma.categoryMatch.create({
+              data: {
+                categoryId: group.categoryId,
+                groupId: group.id,
+                round: 'GROUP',
+                matchNumber: matchNumber++,
+                status: MatchStatus.SCHEDULED,
+                matchFormat: group.category.matchFormat,
+                participants: {
+                  create: [
+                    { categoryRegistrationId: regIds[i], position: 1 },
+                    { categoryRegistrationId: regIds[j], position: 2 },
+                  ],
+                },
+              },
+            });
+          }
+        }
+
+        this.logger.log(
+          `Generated ${matchNumber - 1} match(es) for group ${group.id} in category ${group.categoryId}`
+        );
+      }
+    }
+
+    // Step 3: Pre-create playoff/elimination matches for every category so the
+    // bracket gets scheduled alongside the group stage. Idempotent and runs
+    // even when all group matches already exist (so re-runs still backfill a
+    // missing bracket). Group-stage categories get empty shells; direct
+    // knockout categories get a real bracket seeded from registrations.
+    const categories = await this.prisma.category.findMany({
+      where: { tournamentId },
+      select: { id: true },
+    });
+    for (const category of categories) {
+      await this.categoriesService.ensurePlayoffMatches(category.id);
     }
   }
 

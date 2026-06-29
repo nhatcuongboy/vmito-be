@@ -3713,6 +3713,56 @@ export class CategoriesService {
   }
 
   /**
+   * Idempotently make sure a category's playoff/elimination matches exist so the
+   * schedule generator can lay them out alongside the group stage. Safe to call
+   * repeatedly (re-runs of "auto-generate schedule").
+   *   - Group-stage categories (ROUND_ROBIN_TO_SE): pre-create empty bracket
+   *     shells; completeGroupStage later fills them with the advancing teams
+   *     while preserving any court/time already assigned.
+   *   - Direct knockout (SINGLE_ELIMINATION / DOUBLE_ELIMINATION): build the real
+   *     bracket from registrations, since the participants are already known.
+   *   - Pure ROUND_ROBIN (no playoff stage): no-op.
+   */
+  async ensurePlayoffMatches(categoryId: string): Promise<void> {
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+    });
+    if (!category) return;
+
+    if (category.hasGroupStage) {
+      await this.ensureEliminationShells(categoryId);
+      return;
+    }
+
+    if (
+      category.format !== CategoryFormat.SINGLE_ELIMINATION &&
+      category.format !== CategoryFormat.DOUBLE_ELIMINATION
+    ) {
+      return; // pure round-robin has no playoff stage
+    }
+
+    // Idempotent guard: generateEliminationBracket / generateDoubleEliminationBracket
+    // wipe and recreate matches, so only build when the category has none yet.
+    const existing = await this.prisma.categoryMatch.count({
+      where: { categoryId },
+    });
+    if (existing > 0) return;
+
+    const registrations = await this.prisma.categoryRegistration.findMany({
+      where: { categoryId },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (registrations.length < 2) return;
+
+    const regIds = registrations.map((r) => r.id);
+    if (category.format === CategoryFormat.DOUBLE_ELIMINATION) {
+      await this.generateDoubleEliminationBracket(categoryId, regIds);
+    } else {
+      await this.generateEliminationBracket(categoryId, regIds);
+    }
+  }
+
+  /**
    * Pre-create the whole elimination bracket as empty "shells" (0 participants)
    * so it can be scheduled and displayed (with seed/feeder labels) before the
    * group stage finishes. Idempotent: skips if any elimination match already
