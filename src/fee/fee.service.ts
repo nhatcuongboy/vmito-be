@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateFeeConfigDto, UpdateFeeConfigDto } from './dto';
-import { FeeType, Gender, PaymentStatus } from '@prisma/client';
+import { FeeType, Gender, PaymentStatus, RegistrationStatus } from '@prisma/client';
 import { ClubsService } from '../clubs/clubs.service';
 
 @Injectable()
@@ -413,7 +413,8 @@ export class FeeService {
     const players = await this.prisma.player.findMany({
       where: {
         sessionId,
-        // Payment records created for all players, regardless of join status
+        // Exclude players the host rejected — they must not be billed.
+        registrationStatus: { not: RegistrationStatus.REJECTED },
       },
       select: {
         id: true,

@@ -11,7 +11,7 @@ import {
   RejectPaymentDto,
   BulkApproveDto,
 } from './dto';
-import { PaymentStatus, FeeType } from '@prisma/client';
+import { PaymentStatus, FeeType, RegistrationStatus } from '@prisma/client';
 
 @Injectable()
 export class PaymentsService {
@@ -88,6 +88,9 @@ export class PaymentsService {
       where: {
         sessionId,
         ...(status ? { status } : {}),
+        // Hide payments for players the host rejected (records may already
+        // exist if the player was approved and billed before being rejected).
+        player: { registrationStatus: { not: RegistrationStatus.REJECTED } },
       },
       select: this.paymentWithPlayerSelect,
       orderBy: { createdAt: 'asc' },
