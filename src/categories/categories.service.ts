@@ -1286,7 +1286,7 @@ export class CategoriesService {
    */
   async bulkCreateRegistrations(
     categoryId: string,
-    names: string[],
+    input: { names?: string[]; tournamentPlayerIds?: string[] },
     userId: string,
     role?: string
   ) {
@@ -1297,14 +1297,59 @@ export class CategoriesService {
       'PARTICIPANTS'
     );
 
-    const cleaned = names
+    const cleaned = (input.names ?? [])
       .map((name) => name.trim())
       .filter((name) => name.length > 0);
-    if (cleaned.length === 0) {
-      throw new BadRequestException('At least one name is required');
+    const requestedPlayerIds = Array.from(
+      new Set((input.tournamentPlayerIds ?? []).filter((id) => id?.length > 0))
+    );
+
+    if (cleaned.length === 0 && requestedPlayerIds.length === 0) {
+      throw new BadRequestException(
+        'At least one name or player must be provided'
+      );
     }
 
     const isTeam = category.registrationMode === 'TEAM';
+
+    if (requestedPlayerIds.length > 0 && isTeam) {
+      throw new BadRequestException(
+        'Existing players can only be registered in individual categories'
+      );
+    }
+
+    // Validate that the selected players belong to this tournament and skip the
+    // ones that are already registered in this category.
+    let newPlayerIds: string[] = [];
+    if (requestedPlayerIds.length > 0) {
+      const players = await this.prisma.tournamentPlayer.findMany({
+        where: {
+          id: { in: requestedPlayerIds },
+          tournamentId: category.tournamentId,
+        },
+        select: { id: true },
+      });
+      if (players.length !== requestedPlayerIds.length) {
+        throw new BadRequestException(
+          'All selected players must belong to this tournament'
+        );
+      }
+
+      const alreadyRegistered = await this.prisma.categoryRegistration.findMany({
+        where: {
+          categoryId,
+          tournamentPlayerId: { in: requestedPlayerIds },
+        },
+        select: { tournamentPlayerId: true },
+      });
+      const registeredIds = new Set(
+        alreadyRegistered
+          .map((reg) => reg.tournamentPlayerId)
+          .filter((id): id is string => Boolean(id))
+      );
+      newPlayerIds = requestedPlayerIds.filter((id) => !registeredIds.has(id));
+    }
+
     const registrationInclude = {
       player: true,
       pair: {
@@ -1348,6 +1393,14 @@ export class CategoriesService {
               })
             );
           }
+        }
+        for (const playerId of newPlayerIds) {
+          created.push(
+            await tx.categoryRegistration.create({
+              data: { categoryId, tournamentPlayerId: playerId },
+              include: registrationInclude,
+            })
+          );
         }
         return created;
       },

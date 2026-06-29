@@ -95,7 +95,7 @@ export class CategoriesController {
   ) {
     return this.categoriesService.bulkCreateRegistrations(
       id,
-      dto.names,
+      { names: dto.names, tournamentPlayerIds: dto.tournamentPlayerIds },
       user.userId,
       user.role
     );
