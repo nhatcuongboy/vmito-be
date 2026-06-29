@@ -40,6 +40,7 @@ import {
   MatchFormatValue,
   Side,
   isSetComplete,
+  deriveServeState,
 } from './scoring/badminton-scoring';
 import {
   normalizeMatchForBroadcast,
@@ -378,10 +379,18 @@ export class CategoriesService {
     newLog: PointLogEntry[],
     isDoubles: boolean,
     eventType: TournamentEventType,
-    echo?: { clientId?: string; seq?: number }
+    echo?: { clientId?: string; seq?: number },
+    pickleballDoubles = false
   ) {
     const totals = totalsFromSets(newSets, isDoubles);
     const scoreStr = buildScoreString(newSets);
+
+    // Pickleball doubles: serve rotation is deterministic from the rally
+    // outcomes, so derive it from the (recomputed) point log and persist it in
+    // the same write as the score. This keeps the score and the serve dots in
+    // a single atomic broadcast — the referee never sets serve by hand, and the
+    // public scoreboard updates both together with no extra round-trip.
+    const serve = pickleballDoubles ? deriveServeState(newLog) : null;
 
     const result = await this.prisma.categoryMatch.updateMany({
       where: { id: match.id, scoreVersion: match.scoreVersion },
@@ -394,6 +403,9 @@ export class CategoriesService {
         player3Score: totals.player3Score ?? null,
         player4Score: totals.player4Score ?? null,
         scoreVersion: { increment: 1 },
+        ...(serve
+          ? { servingSide: serve.servingSide, serverNumber: serve.serverNumber }
+          : {}),
       },
     });
     if (result.count === 0) {
@@ -476,7 +488,8 @@ export class CategoriesService {
       newLog,
       isDoubles,
       TournamentEventType.TOURNAMENT_MATCH_SCORE_UPDATED,
-      { clientId: dto.clientId, seq: dto.seq }
+      { clientId: dto.clientId, seq: dto.seq },
+      this.isPickleballDoubles(match)
     );
   }
 
@@ -501,7 +514,9 @@ export class CategoriesService {
       newSets,
       newLog,
       isDoubles,
-      TournamentEventType.TOURNAMENT_MATCH_SCORE_UPDATED
+      TournamentEventType.TOURNAMENT_MATCH_SCORE_UPDATED,
+      undefined,
+      this.isPickleballDoubles(match)
     );
   }
 
@@ -689,7 +704,8 @@ export class CategoriesService {
       newLog,
       isDoubles,
       TournamentEventType.TOURNAMENT_MATCH_SCORE_UPDATED,
-      { clientId: dto.clientId, seq: dto.seq }
+      { clientId: dto.clientId, seq: dto.seq },
+      this.isPickleballDoubles(match)
     );
   }
 

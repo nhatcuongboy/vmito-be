@@ -222,6 +222,59 @@ export function rebuildFromLog(
   return sets;
 }
 
+/** Current pickleball-doubles serve state (which side serves + server 1/2). */
+export interface ServeState {
+  servingSide: Side;
+  serverNumber: 1 | 2;
+}
+
+/** Serve state at the start of every game: side 1 serves on its second server. */
+const SERVE_GAME_START: ServeState = { servingSide: 1, serverNumber: 2 };
+
+/**
+ * Derive the live pickleball-doubles serve state by replaying the point log.
+ *
+ * Serve rotation in doubles is fully deterministic from rally outcomes, so the
+ * referee never has to set it manually:
+ *  - At the start of each game (set) serve resets to (side 1, server 2) — the
+ *    standard "team serving first starts on its second server" convention.
+ *  - Serving side wins the rally  → same server keeps serving (no change).
+ *  - Serving side loses the rally → fault on the current server:
+ *      server 1 → server 2 (same side);
+ *      server 2 → side out: serve passes to the rally winner, server 1.
+ *
+ * Returns the state for the latest game represented in the log.
+ */
+export function deriveServeState(log: PointLogEntry[]): ServeState {
+  let servingSide: Side = SERVE_GAME_START.servingSide;
+  let serverNumber: 1 | 2 = SERVE_GAME_START.serverNumber;
+  let currentSetNumber: number | null = null;
+
+  for (const entry of log) {
+    if (entry.setNumber !== currentSetNumber) {
+      // New game: reset serve to the game-start default.
+      currentSetNumber = entry.setNumber;
+      servingSide = SERVE_GAME_START.servingSide;
+      serverNumber = SERVE_GAME_START.serverNumber;
+    }
+
+    if (entry.side === servingSide) {
+      // Serving team won the rally: the same server keeps serving.
+      continue;
+    }
+    // Receiving team won the rally → fault on the current server.
+    if (serverNumber === 1) {
+      serverNumber = 2;
+    } else {
+      servingSide = entry.side;
+      serverNumber = 1;
+    }
+  }
+
+  return { servingSide, serverNumber };
+}
+
+
 /** Display string e.g. "21-19, 18-21, 21-15" across completed/in-progress sets. */
 export function buildScoreString(sets: ScoringSet[]): string {
   return sets

@@ -7,6 +7,7 @@ import {
   rebuildFromLog,
   buildScoreString,
   totalsFromSets,
+  deriveServeState,
   MatchAlreadyDecidedError,
   ScoringSet,
 } from './badminton-scoring';
@@ -128,6 +129,52 @@ describe('badminton-scoring', () => {
       log.push({ side: 1, setNumber: 1 });
       const rebuilt = rebuildFromLog(log, 'BEST_OF_1', false);
       expect(rebuilt[0]).toMatchObject({ player1Score: 21, player2Score: 19 });
+    });
+  });
+
+  describe('deriveServeState (pickleball doubles serve rotation)', () => {
+    const pts = (...sides: (1 | 2)[]) =>
+      sides.map((side) => ({ side, setNumber: 1 }));
+
+    it('starts each game with side 1 on the second server', () => {
+      expect(deriveServeState([])).toEqual({ servingSide: 1, serverNumber: 2 });
+    });
+
+    it('keeps the same server while the serving side keeps winning', () => {
+      expect(deriveServeState(pts(1, 1, 1))).toEqual({
+        servingSide: 1,
+        serverNumber: 2,
+      });
+    });
+
+    it('sides out to the opponent (server 1) when the second server faults', () => {
+      // side 1 is on server 2; side 2 wins -> side out to side 2, server 1.
+      expect(deriveServeState(pts(2))).toEqual({
+        servingSide: 2,
+        serverNumber: 1,
+      });
+    });
+
+    it('advances server 1 -> server 2 on the same side before a side out', () => {
+      // start: side 1 / server 2; 1 wins (no change); 2 wins -> side out
+      // (side 2 / server 1); 1 wins -> side 2 server 2; 1 wins -> side out
+      // back to side 1 / server 1.
+      expect(deriveServeState(pts(1, 2, 1, 1))).toEqual({
+        servingSide: 1,
+        serverNumber: 1,
+      });
+    });
+
+    it('resets serve at the start of a new game', () => {
+      const log = [
+        { side: 2 as const, setNumber: 1 },
+        { side: 1 as const, setNumber: 2 },
+      ];
+      // The setNumber 2 point resets to (1, 2); side 1 wins -> no change.
+      expect(deriveServeState(log)).toEqual({
+        servingSide: 1,
+        serverNumber: 2,
+      });
     });
   });
 
