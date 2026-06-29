@@ -16,7 +16,10 @@ import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
 import { DuplicateTournamentDto } from './dto/duplicate-tournament.dto';
 import { CreateCategoryDto } from '../categories/dto/create-category.dto';
-import { CreateTournamentPlayerDto } from './dto/create-tournament-player.dto';
+import {
+  CreateTournamentPlayerDto,
+  BulkTournamentPlayersDto,
+} from './dto/create-tournament-player.dto';
 import { AddTournamentVenueDto } from './dto/add-tournament-venue.dto';
 import { ScoreboardQueryDto } from './dto/scoreboard-query.dto';
 import { SaveTournamentPairDto } from './dto/tournament-pair.dto';
@@ -154,6 +157,34 @@ export class TournamentsController {
     @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.tournamentsService.createPlayer(
+      id,
+      dto,
+      user.userId,
+      user.role
+    );
+  }
+
+  @Post(':id/players/bulk-preview')
+  previewBulkPlayers(
+    @Param('id') id: string,
+    @Body() dto: BulkTournamentPlayersDto,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    return this.tournamentsService.previewBulkPlayers(
+      id,
+      dto,
+      user.userId,
+      user.role
+    );
+  }
+
+  @Post(':id/players/bulk-create')
+  createBulkPlayers(
+    @Param('id') id: string,
+    @Body() dto: BulkTournamentPlayersDto,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    return this.tournamentsService.createBulkPlayers(
       id,
       dto,
       user.userId,

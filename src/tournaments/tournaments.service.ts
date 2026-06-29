@@ -11,6 +11,8 @@ import { UpdateTournamentDto } from './dto/update-tournament.dto';
 import { DuplicateTournamentDto } from './dto/duplicate-tournament.dto';
 import {
   CreateTournamentPlayerDto,
+  BulkTournamentPlayersDto,
+  BulkTournamentPlayerRowDto,
   UpdateTournamentPlayerDto,
 } from './dto/create-tournament-player.dto';
 import { ScoreboardQueryDto } from './dto/scoreboard-query.dto';
@@ -21,6 +23,7 @@ import {
   MatchStatus,
   TournamentPermission,
   SportType,
+  Gender,
 } from '@prisma/client';
 import { MATCH_SCORING_INCLUDE } from '../categories/scoring/match-include';
 import { normalizeMatchForBroadcast } from '../categories/scoring/normalize-match';
@@ -1137,6 +1140,206 @@ export class TournamentsService {
         userId: dto.userId,
       },
     });
+  }
+
+  private normalizePlayerImportText(value?: string | null) {
+    return typeof value === 'string' ? value.trim() : '';
+  }
+
+  private normalizePlayerImportKey(value?: string | null) {
+    return this.normalizePlayerImportText(value).toLocaleLowerCase('vi-VN');
+  }
+
+  private normalizeTournamentPlayerGender(value?: string | null) {
+    const raw = this.normalizePlayerImportText(value);
+    if (!raw) return undefined;
+
+    const normalized = raw
+      .toLocaleLowerCase('vi-VN')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/[^a-z]/g, '');
+
+    if (normalized === 'male' || normalized === 'm' || normalized === 'nam') {
+      return Gender.MALE;
+    }
+    if (normalized === 'female' || normalized === 'f' || normalized === 'nu') {
+      return Gender.FEMALE;
+    }
+    if (normalized === 'other' || normalized === 'khac') {
+      return Gender.OTHER;
+    }
+    if (
+      normalized === 'prefernottosay' ||
+      normalized === 'khongtietlo' ||
+      normalized === 'khongmuontietlo'
+    ) {
+      return Gender.PREFER_NOT_TO_SAY;
+    }
+
+    return null;
+  }
+
+  private nextTournamentPlayerCode(usedCodes: Set<string>) {
+    let maxNumber = 0;
+    for (const code of usedCodes) {
+      const match = /^VDV(\d+)$/i.exec(code);
+      if (!match) continue;
+      maxNumber = Math.max(maxNumber, Number(match[1]));
+    }
+
+    let nextNumber = maxNumber + 1;
+    let nextCode = `VDV${String(nextNumber).padStart(3, '0')}`;
+    while (usedCodes.has(nextCode.toLocaleLowerCase('vi-VN'))) {
+      nextNumber += 1;
+      nextCode = `VDV${String(nextNumber).padStart(3, '0')}`;
+    }
+    usedCodes.add(nextCode.toLocaleLowerCase('vi-VN'));
+    return nextCode;
+  }
+
+  private validateBulkTournamentPlayerRows(
+    rows: BulkTournamentPlayerRowDto[],
+    existingPlayers: { code: string | null; name: string }[]
+  ) {
+    const existingCodeKeys = new Set(
+      existingPlayers
+        .map((player) => this.normalizePlayerImportKey(player.code))
+        .filter(Boolean)
+    );
+    const existingNameKeys = new Set(
+      existingPlayers
+        .map((player) => this.normalizePlayerImportKey(player.name))
+        .filter(Boolean)
+    );
+    const allCodeKeys = new Set(existingCodeKeys);
+    const batchCodeKeys = new Set<string>();
+    const batchNameKeys = new Set<string>();
+
+    const previewRows = rows.map((row, index) => {
+      const errors: string[] = [];
+      const name = this.normalizePlayerImportText(row.name);
+      const phone = this.normalizePlayerImportText(row.phone) || undefined;
+      const inputCode = this.normalizePlayerImportText(row.code);
+      const code = inputCode || this.nextTournamentPlayerCode(allCodeKeys);
+      const codeKey = this.normalizePlayerImportKey(code);
+      const nameKey = this.normalizePlayerImportKey(name);
+      const gender = this.normalizeTournamentPlayerGender(row.gender);
+
+      if (!name) {
+        errors.push('Tên người chơi là bắt buộc');
+      }
+      if (gender === null) {
+        errors.push('Giới tính không hợp lệ');
+      }
+      if (codeKey) {
+        if (existingCodeKeys.has(codeKey)) {
+          errors.push('Mã đã tồn tại trong giải đấu');
+        }
+        if (batchCodeKeys.has(codeKey)) {
+          errors.push('Mã bị trùng trong danh sách import');
+        }
+        batchCodeKeys.add(codeKey);
+        allCodeKeys.add(codeKey);
+      }
+      if (nameKey) {
+        if (existingNameKeys.has(nameKey)) {
+          errors.push('Tên đã tồn tại trong giải đấu');
+        }
+        if (batchNameKeys.has(nameKey)) {
+          errors.push('Tên bị trùng trong danh sách import');
+        }
+        batchNameKeys.add(nameKey);
+      }
+
+      return {
+        lineNumber: row.lineNumber ?? index + 1,
+        code,
+        name,
+        gender: gender ?? undefined,
+        phone,
+        valid: errors.length === 0,
+        errors,
+      };
+    });
+
+    return {
+      rows: previewRows,
+      canCreate:
+        previewRows.length > 0 && previewRows.every((row) => row.valid),
+      total: previewRows.length,
+      validCount: previewRows.filter((row) => row.valid).length,
+      errorCount: previewRows.filter((row) => !row.valid).length,
+    };
+  }
+
+  async previewBulkPlayers(
+    tournamentId: string,
+    dto: BulkTournamentPlayersDto,
+    userId: string,
+    role?: string
+  ) {
+    await this.assertTournamentOwnership(
+      tournamentId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
+    const existingPlayers = await this.prisma.tournamentPlayer.findMany({
+      where: { tournamentId },
+      select: { code: true, name: true },
+    });
+
+    return this.validateBulkTournamentPlayerRows(dto.rows, existingPlayers);
+  }
+
+  async createBulkPlayers(
+    tournamentId: string,
+    dto: BulkTournamentPlayersDto,
+    userId: string,
+    role?: string
+  ) {
+    await this.assertTournamentOwnership(
+      tournamentId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
+    const existingPlayers = await this.prisma.tournamentPlayer.findMany({
+      where: { tournamentId },
+      select: { code: true, name: true },
+    });
+    const validation = this.validateBulkTournamentPlayerRows(
+      dto.rows,
+      existingPlayers
+    );
+
+    if (!validation.canCreate) {
+      throw new BadRequestException({
+        message: 'Bulk import contains invalid rows',
+        ...validation,
+      });
+    }
+
+    const createdPlayers = await this.prisma.$transaction(
+      validation.rows.map((row) =>
+        this.prisma.tournamentPlayer.create({
+          data: {
+            tournamentId,
+            code: row.code,
+            name: row.name,
+            gender: row.gender,
+            phone: row.phone,
+          },
+        })
+      )
+    );
+
+    return {
+      count: createdPlayers.length,
+      players: createdPlayers,
+    };
   }
 
   async getPlayer(id: string) {
