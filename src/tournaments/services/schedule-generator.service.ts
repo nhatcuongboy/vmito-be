@@ -604,6 +604,9 @@ export class ScheduleGeneratorService {
     }
 
     const assignments = JSON.parse(generated.assignments) as MatchAssignment[];
+    const config = JSON.parse(
+      generated.configSnapshot
+    ) as GenerateScheduleDto;
 
     // Get total match count
     const totalMatches = await this.prisma.categoryMatch.count({
@@ -613,28 +616,61 @@ export class ScheduleGeneratorService {
       },
     });
 
-    try {
-      // Save all assignments in a single transaction
-      await this.prisma.$transaction(
-        assignments.map((a) => {
-          const startTime = new Date(a.startTime);
-          // Calculate estimatedEndTime from startTime + duration (in minutes)
-          const estimatedEndTime = new Date(
-            startTime.getTime() + a.duration * 60000
-          );
-
-          return this.prisma.categoryMatch.update({
-            where: { id: a.matchId },
-            data: {
-              courtId: a.courtId,
-              startTime,
-              scheduledDuration: a.duration,
-              estimatedEndTime,
-              assignedBy: 'SCHEDULE_GENERATOR',
-            },
-          });
-        })
+    // Build the per-assignment updates.
+    const assignmentOps = assignments.map((a) => {
+      const startTime = new Date(a.startTime);
+      // Calculate estimatedEndTime from startTime + duration (in minutes)
+      const estimatedEndTime = new Date(
+        startTime.getTime() + a.duration * 60000
       );
+
+      return this.prisma.categoryMatch.update({
+        where: { id: a.matchId },
+        data: {
+          courtId: a.courtId,
+          startTime,
+          scheduledDuration: a.duration,
+          estimatedEndTime,
+          assignedBy: 'SCHEDULE_GENERATOR',
+        },
+      });
+    });
+
+    // Full regeneration (keepScheduledMatches=false) is a clean replace: wipe
+    // any prior court/time on still-SCHEDULED matches first, so matches the new
+    // run could not place don't keep their stale assignment. IN_PROGRESS and
+    // FINISHED matches are left untouched. When keeping scheduled matches, the
+    // existing assignments must survive, so we skip the clear.
+    const assignedIds = new Set(assignments.map((a) => a.matchId));
+    const ops = config.keepScheduledMatches
+      ? assignmentOps
+      : [
+          this.prisma.categoryMatch.updateMany({
+            where: {
+              category: { tournamentId },
+              status: MatchStatus.SCHEDULED,
+              id: { notIn: Array.from(assignedIds) },
+              OR: [
+                { courtId: { not: null } },
+                { startTime: { not: null } },
+                { estimatedEndTime: { not: null } },
+                { scheduledDuration: { not: null } },
+              ],
+            },
+            data: {
+              courtId: null,
+              startTime: null,
+              estimatedEndTime: null,
+              scheduledDuration: null,
+              assignedBy: null,
+            },
+          }),
+          ...assignmentOps,
+        ];
+
+    try {
+      // Save all assignments (and any clear) in a single transaction.
+      await this.prisma.$transaction(ops);
 
       // Delete the generated schedule
       await this.generatedScheduleModel.delete({

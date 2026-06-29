@@ -1,5 +1,14 @@
 import { Injectable } from '@nestjs/common';
 
+// Time-slot dates/times from the client are wall-clock values in Vietnam local
+// time (e.g. date "2026-07-04" + startTime "08:00" means 08:00 in Hanoi). The
+// rest of the app stores instants in UTC and renders them in the viewer's
+// timezone, so we anchor these wall-clock strings to UTC+7 here — matching
+// VIETNAM_UTC_OFFSET in gemini.service.ts and the AI schedule-import path.
+// Using a fixed offset (Vietnam has no DST) keeps the result independent of the
+// server's own timezone, unlike Date.prototype.setHours.
+const VIETNAM_UTC_OFFSET = '+07:00';
+
 export interface MatchForScheduling {
   id: string;
   categoryId: string;
@@ -222,15 +231,33 @@ export class ScheduleAlgorithmService {
     return match.round === 'GROUP' ? durations.POOL_PLAY : durations.PLAYOFFS;
   }
 
+  /**
+   * Resolve a slot's [start, end) instant window from its Vietnam-local
+   * wall-clock date/time strings. Independent of the server timezone.
+   */
+  private slotWindow(slot: TimeSlotConfig): { start: number; end: number } {
+    return {
+      start: new Date(
+        `${slot.date}T${slot.startTime}:00${VIETNAM_UTC_OFFSET}`
+      ).getTime(),
+      end: new Date(
+        `${slot.date}T${slot.endTime}:00${VIETNAM_UTC_OFFSET}`
+      ).getTime(),
+    };
+  }
+
   private getBufferForSlot(
     assignment: MatchAssignment,
     timeSlots: TimeSlotConfig[]
   ): number {
-    // Find which time slot this assignment belongs to
-    const assignDate = new Date(assignment.startTime)
-      .toISOString()
-      .split('T')[0];
-    const slot = timeSlots.find((ts) => ts.date === assignDate);
+    // Find the time slot whose window actually contains this assignment's
+    // start instant. Matching the instant (not a UTC date string) avoids edge
+    // cases where a Vietnam-local slot falls on a different UTC calendar day.
+    const startTs = new Date(assignment.startTime).getTime();
+    const slot = timeSlots.find((ts) => {
+      const { start, end } = this.slotWindow(ts);
+      return startTs >= start && startTs < end;
+    });
     return slot?.timeBuffer ?? 0;
   }
 
@@ -251,15 +278,7 @@ export class ScheduleAlgorithmService {
 
     for (const slot of timeSlots) {
       const buffer = slot.timeBuffer;
-      const slotDate = new Date(slot.date);
-
-      const [startH, startM] = slot.startTime.split(':').map(Number);
-      const [endH, endM] = slot.endTime.split(':').map(Number);
-
-      const slotStart = new Date(slotDate);
-      slotStart.setHours(startH, startM, 0, 0);
-      const slotEnd = new Date(slotDate);
-      slotEnd.setHours(endH, endM, 0, 0);
+      const { start: windowStart, end: windowEnd } = this.slotWindow(slot);
 
       for (const courtConfig of slot.courts) {
         // Check constraints
@@ -269,8 +288,8 @@ export class ScheduleAlgorithmService {
 
         candidates.push({
           courtId: courtConfig.courtId,
-          windowStart: slotStart.getTime(),
-          windowEnd: slotEnd.getTime(),
+          windowStart,
+          windowEnd,
           buffer,
         });
       }
