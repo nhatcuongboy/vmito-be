@@ -12,6 +12,7 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { CategoriesService } from './categories.service';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CreateCategoryRegistrationDto } from './dto/create-category-registration.dto';
+import { BulkCreateRegistrationDto } from './dto/bulk-create-registration.dto';
 import { ConvertLegacyRegistrationDto } from '../tournaments/dto/tournament-pair.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { AssignGroupRegistrationDto } from './dto/assign-group-registration.dto';
@@ -81,6 +82,20 @@ export class CategoriesController {
     return this.categoriesService.createRegistration(
       id,
       dto,
+      user.userId,
+      user.role
+    );
+  }
+
+  @Post(':id/registrations/bulk')
+  bulkCreateRegistrations(
+    @Param('id') id: string,
+    @Body() dto: BulkCreateRegistrationDto,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.bulkCreateRegistrations(
+      id,
+      dto.names,
       user.userId,
       user.role
     );

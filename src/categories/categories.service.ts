@@ -1277,6 +1277,84 @@ export class CategoriesService {
     });
   }
 
+  /**
+   * Create many registrations in one request. For TEAM categories each name
+   * becomes a new (empty-roster) pair; for INDIVIDUAL categories each name
+   * becomes a new player. Pairs/players and their registrations are created in
+   * a single transaction so the client makes one round-trip instead of two
+   * calls per row (avoids hammering the API with N parallel requests).
+   */
+  async bulkCreateRegistrations(
+    categoryId: string,
+    names: string[],
+    userId: string,
+    role?: string
+  ) {
+    const category = await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
+
+    const cleaned = names
+      .map((name) => name.trim())
+      .filter((name) => name.length > 0);
+    if (cleaned.length === 0) {
+      throw new BadRequestException('At least one name is required');
+    }
+
+    const isTeam = category.registrationMode === 'TEAM';
+    const registrationInclude = {
+      player: true,
+      pair: {
+        include: {
+          members: {
+            include: { player: true },
+            orderBy: { position: 'asc' },
+          },
+        },
+      },
+    } satisfies Prisma.CategoryRegistrationInclude;
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        const created: Prisma.CategoryRegistrationGetPayload<{
+          include: typeof registrationInclude;
+        }>[] = [];
+        for (const name of cleaned) {
+          if (isTeam) {
+            const pair = await tx.tournamentPair.create({
+              data: {
+                tournamentId: category.tournamentId,
+                name,
+                type: category.type,
+              },
+            });
+            created.push(
+              await tx.categoryRegistration.create({
+                data: { categoryId, tournamentPairId: pair.id },
+                include: registrationInclude,
+              })
+            );
+          } else {
+            const player = await tx.tournamentPlayer.create({
+              data: { tournamentId: category.tournamentId, name },
+            });
+            created.push(
+              await tx.categoryRegistration.create({
+                data: { categoryId, tournamentPlayerId: player.id },
+                include: registrationInclude,
+              })
+            );
+          }
+        }
+        return created;
+      },
+      { timeout: 60000, maxWait: 10000 }
+    );
+  }
+
   async deleteRegistration(
     categoryId: string,
     registrationId: string,
