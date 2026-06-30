@@ -3057,22 +3057,27 @@ export class CategoriesService {
       });
 
       const winnersPerGroup = category.winnersPerGroup || 2;
-      const allWinners: string[] = [];
 
-      // Interleave winners: all #1s first, then all #2s, etc.
+      // Compute each group's standings once (the rank loop below reads several
+      // positions per group).
+      const groupStandings = await Promise.all(
+        groups.map((group) => this.getGroupStandings(categoryId, group.id))
+      );
+
+      // Interleave winners: all #1s first, then all #2s, etc. Insert a null
+      // placeholder when a group has no team for the current rank (e.g. a short
+      // group). Keeping the slot preserves the seed alignment of the remaining
+      // qualifiers — dropping it would shift every later team up one seed,
+      // placing real qualifiers into the wrong matchup and turning their
+      // intended slot into a phantom BYE (which then auto-finishes the match).
+      const allWinners: (string | null)[] = [];
       for (let rank = 0; rank < winnersPerGroup; rank++) {
-        for (const group of groups) {
-          const { standings } = await this.getGroupStandings(
-            categoryId,
-            group.id
-          );
-          if (standings[rank]) {
-            allWinners.push(standings[rank].categoryRegistrationId);
-          }
+        for (const { standings } of groupStandings) {
+          allWinners.push(standings[rank]?.categoryRegistrationId ?? null);
         }
       }
 
-      if (allWinners.length < 2) {
+      if (allWinners.filter((winner) => winner !== null).length < 2) {
         throw new BadRequestException(
           'Not enough winners to generate elimination bracket'
         );
@@ -3110,7 +3115,7 @@ export class CategoriesService {
 
   private async generateEliminationBracket(
     categoryId: string,
-    registrationIds: string[]
+    registrationIds: (string | null)[]
   ) {
     const category = await this.prisma.category.findUnique({
       where: { id: categoryId },
@@ -3158,7 +3163,7 @@ export class CategoriesService {
     ).fill(null);
     for (let pos = 0; pos < bracketSize; pos++) {
       const seed = seedOrder[pos];
-      slots[pos] = seed <= n ? registrationIds[seed - 1] : null;
+      slots[pos] = seed <= n ? (registrationIds[seed - 1] ?? null) : null;
     }
 
     // Determine round names
@@ -3907,7 +3912,7 @@ export class CategoriesService {
    */
   private async fillEliminationBracket(
     categoryId: string,
-    registrationIds: string[]
+    registrationIds: (string | null)[]
   ): Promise<boolean> {
     const n = registrationIds.length;
     const bracketSize = this.nextPowerOf2(n);
@@ -3929,7 +3934,9 @@ export class CategoriesService {
     ).fill(null);
     for (let pos = 0; pos < bracketSize; pos++) {
       const seed = seedOrder[pos];
-      slots[pos] = seed <= n ? registrationIds[seed - 1] : null;
+      // A null entry (missing qualifier for that seed) leaves the slot empty,
+      // i.e. a genuine BYE at that exact bracket position.
+      slots[pos] = seed <= n ? (registrationIds[seed - 1] ?? null) : null;
     }
 
     const byeAdvances: { registrationId: string; matchIndex: number }[] = [];
