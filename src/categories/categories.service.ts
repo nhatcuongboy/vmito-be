@@ -12,9 +12,11 @@ import {
   CategoryFormat,
   MatchFormat,
   MatchStatus,
+  ScheduleType,
   SportType,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ScheduleService } from '../tournaments/services/schedule.service';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateCategoryRegistrationDto } from './dto/create-category-registration.dto';
@@ -128,7 +130,8 @@ export class CategoriesService {
   constructor(
     private prisma: PrismaService,
     private tournamentsGateway: TournamentsGateway,
-    private access: TournamentAccessService
+    private access: TournamentAccessService,
+    private scheduleService: ScheduleService
   ) {}
 
   // ─── Helpers ───────────────────────────────────────────────
@@ -1351,13 +1354,15 @@ export class CategoriesService {
         );
       }
 
-      const alreadyRegistered = await this.prisma.categoryRegistration.findMany({
-        where: {
-          categoryId,
-          tournamentPlayerId: { in: requestedPlayerIds },
-        },
-        select: { tournamentPlayerId: true },
-      });
+      const alreadyRegistered = await this.prisma.categoryRegistration.findMany(
+        {
+          where: {
+            categoryId,
+            tournamentPlayerId: { in: requestedPlayerIds },
+          },
+          select: { tournamentPlayerId: true },
+        }
+      );
       const registeredIds = new Set(
         alreadyRegistered
           .map((reg) => reg.tournamentPlayerId)
@@ -2427,7 +2432,46 @@ export class CategoriesService {
       updatedMatch,
       TournamentEventType.TOURNAMENT_MATCH_ENDED
     );
+
+    // "Next Available Court" mode: when a match finishes, free its court and
+    // pull the next queued match onto the next available court. Never let a
+    // scheduling failure block recording the result.
+    await this.maybeAutoAssignNextOnFinish(
+      updatedMatch.id,
+      updatedMatch.categoryId
+    );
+
     return updatedMatch;
+  }
+
+  /**
+   * If the tournament runs in NEXT_AVAILABLE schedule mode, release the court
+   * the just-finished match was on and auto-assign the next queued match.
+   * No-op for ASSIGNED mode. Errors are swallowed so scoring is never blocked.
+   */
+  private async maybeAutoAssignNextOnFinish(
+    matchId: string,
+    categoryId: string
+  ): Promise<void> {
+    try {
+      const category = await this.prisma.category.findUnique({
+        where: { id: categoryId },
+        select: {
+          tournament: { select: { id: true, scheduleType: true } },
+        },
+      });
+      const tournament = category?.tournament;
+      if (
+        !tournament ||
+        tournament.scheduleType !== ScheduleType.NEXT_AVAILABLE
+      ) {
+        return;
+      }
+      await this.scheduleService.releaseCourtAfterMatch(matchId);
+      await this.scheduleService.autoAssignNextMatch(tournament.id);
+    } catch {
+      // Scheduling is best-effort; the match result has already been saved.
+    }
   }
 
   /**

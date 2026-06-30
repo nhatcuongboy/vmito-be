@@ -10,10 +10,15 @@ import { ScheduleGeneratorController } from './controllers/schedule.controller';
 import { ScheduleGeneratorService } from './services/schedule-generator.service';
 import { ScheduleValidationService } from './services/schedule-validation.service';
 import { ScheduleAlgorithmService } from './services/schedule-algorithm.service';
-import { ScheduleService } from './services/schedule.service';
+import { ScheduleModule } from './schedule.module';
 
 @Module({
-  imports: [PrismaModule, CategoriesModule, TournamentAccessModule],
+  imports: [
+    PrismaModule,
+    CategoriesModule,
+    TournamentAccessModule,
+    ScheduleModule,
+  ],
   controllers: [
     TournamentsController,
     TournamentPlayersController,
@@ -22,11 +27,10 @@ import { ScheduleService } from './services/schedule.service';
   ],
   providers: [
     TournamentsService,
-    ScheduleService,
     ScheduleGeneratorService,
     ScheduleValidationService,
     ScheduleAlgorithmService,
   ],
-  exports: [TournamentsService, ScheduleService],
+  exports: [TournamentsService, ScheduleModule],
 })
 export class TournamentsModule {}

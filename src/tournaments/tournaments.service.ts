@@ -31,12 +31,14 @@ import {
   TournamentAccessService,
   ManageScope,
 } from '../common/tournament-access/tournament-access.service';
+import { ScheduleService } from './services/schedule.service';
 
 @Injectable()
 export class TournamentsService {
   constructor(
     private prisma: PrismaService,
-    private access: TournamentAccessService
+    private access: TournamentAccessService,
+    private scheduleService: ScheduleService
   ) {}
 
   private generateSlug(name: string): string {
@@ -782,6 +784,18 @@ export class TournamentsService {
         },
       },
     });
+
+    // Keep the live queue consistent when the schedule type changes.
+    if (dto.scheduleType !== undefined) {
+      try {
+        await this.scheduleService.syncQueueForScheduleType(
+          id,
+          dto.scheduleType as ScheduleType
+        );
+      } catch {
+        // Queue sync is best-effort; the schedule type has already been saved.
+      }
+    }
 
     return tournament;
   }

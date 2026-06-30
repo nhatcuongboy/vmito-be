@@ -14,7 +14,9 @@ import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../auth/decorators/current-user.decorator';
 import { GenerateScheduleDto } from '../dto/schedule-generation.dto';
 import { UpdateMatchAssignmentDto } from '../dto/update-match-assignment.dto';
+import { AddMatchToQueueDto, ReorderQueueDto } from '../dto/queue.dto';
 import { ScheduleGeneratorService } from '../services/schedule-generator.service';
+import { ScheduleService } from '../services/schedule.service';
 
 @ApiTags('tournament-schedule')
 @ApiBearerAuth('JWT-auth')
@@ -22,7 +24,8 @@ import { ScheduleGeneratorService } from '../services/schedule-generator.service
 @UseGuards(JwtAuthGuard)
 export class ScheduleGeneratorController {
   constructor(
-    private readonly scheduleGeneratorService: ScheduleGeneratorService
+    private readonly scheduleGeneratorService: ScheduleGeneratorService,
+    private readonly scheduleService: ScheduleService
   ) {}
 
   @Post('generate')
@@ -114,5 +117,106 @@ export class ScheduleGeneratorController {
       tournamentId,
       user.userId
     );
+  }
+
+  // ==========================================
+  // Next Available Court mode (live queue)
+  // ==========================================
+
+  @Get('courts/available')
+  async getAvailableCourts(
+    @Param('tournamentId') tournamentId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<unknown> {
+    return this.scheduleService.getAvailableCourts(tournamentId, user.userId);
+  }
+
+  @Get('queue')
+  async getQueuedMatches(
+    @Param('tournamentId') tournamentId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<unknown> {
+    return this.scheduleService.getQueuedMatches(tournamentId, user.userId);
+  }
+
+  @Get('queue/addable')
+  async getAddableMatches(
+    @Param('tournamentId') tournamentId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<unknown> {
+    return this.scheduleService.getUnqueuedMatches(tournamentId, user.userId);
+  }
+
+  @Post('queue/initialize')
+  async initializeQueue(
+    @Param('tournamentId') tournamentId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<unknown> {
+    return this.scheduleService.initializeQueue(tournamentId, user.userId);
+  }
+
+  @Post('queue/add')
+  async addMatchToQueue(
+    @Param('tournamentId') tournamentId: string,
+    @Body() dto: AddMatchToQueueDto,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<unknown> {
+    await this.scheduleService.addMatchToQueue(
+      tournamentId,
+      dto.matchId,
+      user.userId,
+      dto.queueOrder
+    );
+    return { success: true };
+  }
+
+  @Put('queue/reorder')
+  async reorderQueue(
+    @Param('tournamentId') tournamentId: string,
+    @Body() dto: ReorderQueueDto,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<unknown> {
+    await this.scheduleService.reorderQueue(
+      tournamentId,
+      dto.matchIds,
+      user.userId
+    );
+    return { success: true };
+  }
+
+  @Delete('queue/:matchId')
+  async removeMatchFromQueue(
+    @Param('tournamentId') tournamentId: string,
+    @Param('matchId') matchId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<unknown> {
+    await this.scheduleService.removeMatchFromQueue(
+      tournamentId,
+      matchId,
+      user.userId
+    );
+    return { success: true };
+  }
+
+  @Post('auto-assign')
+  async autoAssignNextMatch(
+    @Param('tournamentId') tournamentId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<unknown> {
+    return this.scheduleService.autoAssignNextMatch(tournamentId, user.userId);
+  }
+
+  @Post('matches/:matchId/unassign')
+  async unassignMatch(
+    @Param('tournamentId') tournamentId: string,
+    @Param('matchId') matchId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<unknown> {
+    await this.scheduleService.unassignMatch(
+      tournamentId,
+      matchId,
+      user.userId
+    );
+    return { success: true };
   }
 }

@@ -16,6 +16,9 @@ export enum TournamentEventType {
   TOURNAMENT_MATCH_SCORE_UPDATED = 'tournament_match_score_updated',
   TOURNAMENT_MATCH_ENDED = 'tournament_match_ended',
   TOURNAMENT_MATCH_REFEREE_ASSIGNED = 'tournament_match_referee_assigned',
+  // Fired when the live court queue / assignments change (Next Available Court
+  // mode). Carries no match payload — listeners should refetch queue + courts.
+  TOURNAMENT_SCHEDULE_UPDATED = 'tournament_schedule_updated',
 }
 
 @WebSocketGateway({
