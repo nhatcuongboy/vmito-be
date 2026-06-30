@@ -3837,7 +3837,17 @@ export class CategoriesService {
     });
     if (!category || !category.hasGroupStage) return;
 
-    const groupCount = category.groupCount ?? 0;
+    // The `groupCount` column is not always populated: the format wizard for
+    // ROUND_ROBIN_TO_SE only persists `winnersPerGroup`, leaving `groupCount`
+    // null. By the time this runs the groups have already been created
+    // (ensureGroupsForCategories), so fall back to the actual number of groups
+    // so the playoff bracket still gets generated.
+    let groupCount = category.groupCount ?? 0;
+    if (groupCount < 1) {
+      groupCount = await this.prisma.categoryGroup.count({
+        where: { categoryId },
+      });
+    }
     const winnersPerGroup = category.winnersPerGroup ?? 0;
     const n = groupCount * winnersPerGroup;
     if (n < 2) return;
