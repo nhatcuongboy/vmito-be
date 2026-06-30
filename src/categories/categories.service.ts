@@ -3835,20 +3835,23 @@ export class CategoriesService {
     const category = await this.prisma.category.findUnique({
       where: { id: categoryId },
     });
-    if (!category || !category.hasGroupStage) return;
-
-    // The `groupCount` column is not always populated: the format wizard for
-    // ROUND_ROBIN_TO_SE only persists `winnersPerGroup`, leaving `groupCount`
-    // null. By the time this runs the groups have already been created
-    // (ensureGroupsForCategories), so fall back to the actual number of groups
-    // so the playoff bracket still gets generated.
-    let groupCount = category.groupCount ?? 0;
-    if (groupCount < 1) {
-      groupCount = await this.prisma.categoryGroup.count({
-        where: { categoryId },
-      });
+    // Only the group-stage → single-elimination format pre-creates a playoff
+    // bracket. A pure ROUND_ROBIN also has hasGroupStage = true but must never
+    // get a knockout bracket, so gate strictly on the format here.
+    if (!category || category.format !== CategoryFormat.ROUND_ROBIN_TO_SE) {
+      return;
     }
-    const winnersPerGroup = category.winnersPerGroup ?? 0;
+
+    // Mirror completeGroupStage so these shells match the bracket that will
+    // later be filled with the advancing teams: the group count comes from the
+    // actual groups (the `groupCount` column is often unset — the format wizard
+    // only persists winnersPerGroup), and winnersPerGroup defaults to 2 when
+    // unset (same `|| 2` fallback used by completeGroupStage / getGroupWinners).
+    let groupCount = await this.prisma.categoryGroup.count({
+      where: { categoryId },
+    });
+    if (groupCount < 1) groupCount = category.groupCount ?? 0;
+    const winnersPerGroup = category.winnersPerGroup || 2;
     const n = groupCount * winnersPerGroup;
     if (n < 2) return;
 
