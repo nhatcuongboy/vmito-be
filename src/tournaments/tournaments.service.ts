@@ -32,13 +32,18 @@ import {
   ManageScope,
 } from '../common/tournament-access/tournament-access.service';
 import { ScheduleService } from './services/schedule.service';
+import {
+  TournamentsGateway,
+  TournamentEventType,
+} from './realtime/tournaments.gateway';
 
 @Injectable()
 export class TournamentsService {
   constructor(
     private prisma: PrismaService,
     private access: TournamentAccessService,
-    private scheduleService: ScheduleService
+    private scheduleService: ScheduleService,
+    private gateway: TournamentsGateway
   ) {}
 
   private generateSlug(name: string): string {
@@ -795,6 +800,24 @@ export class TournamentsService {
       } catch {
         // Queue sync is best-effort; the schedule type has already been saved.
       }
+    }
+
+    // When the tournament transitions to a terminal state, tell every spectator
+    // (live overlays / scoreboards) so they can drop their socket and stop
+    // consuming resources. Fire only on the actual transition, not on repeats.
+    const becameTerminal =
+      updateData.status !== undefined &&
+      updateData.status !== existingTournament.status &&
+      (updateData.status === TournamentStatus.FINISHED ||
+        updateData.status === TournamentStatus.CANCELLED);
+    if (becameTerminal) {
+      this.gateway.notifyTournamentEvent(
+        id,
+        TournamentEventType.TOURNAMENT_ENDED,
+        {
+          status: updateData.status,
+        }
+      );
     }
 
     return tournament;

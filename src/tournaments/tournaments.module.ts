@@ -12,6 +12,7 @@ import { ScheduleValidationService } from './services/schedule-validation.servic
 import { ScheduleAlgorithmService } from './services/schedule-algorithm.service';
 import { TournamentMatchGenerationService } from './services/tournament-match-generation.service';
 import { ScheduleModule } from './schedule.module';
+import { TournamentsGatewayModule } from './realtime/tournaments-gateway.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { ScheduleModule } from './schedule.module';
     CategoriesModule,
     TournamentAccessModule,
     ScheduleModule,
+    TournamentsGatewayModule,
   ],
   controllers: [
     TournamentsController,

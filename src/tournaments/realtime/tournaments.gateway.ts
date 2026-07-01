@@ -19,6 +19,9 @@ export enum TournamentEventType {
   // Fired when the live court queue / assignments change (Next Available Court
   // mode). Carries no match payload — listeners should refetch queue + courts.
   TOURNAMENT_SCHEDULE_UPDATED = 'tournament_schedule_updated',
+  // Fired when the tournament is finished or cancelled. Spectator overlays /
+  // scoreboards should stop listening and drop their socket to free resources.
+  TOURNAMENT_ENDED = 'tournament_ended',
 }
 
 @WebSocketGateway({
