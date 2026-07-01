@@ -119,6 +119,17 @@ export class ScheduleGeneratorController {
     );
   }
 
+  @Delete('matches/all')
+  async deleteAllMatches(
+    @Param('tournamentId') tournamentId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<unknown> {
+    return await this.scheduleGeneratorService.deleteAllMatches(
+      tournamentId,
+      user.userId
+    );
+  }
+
   // ==========================================
   // Next Available Court mode (live queue)
   // ==========================================

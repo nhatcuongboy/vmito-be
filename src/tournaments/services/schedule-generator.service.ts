@@ -582,6 +582,28 @@ export class ScheduleGeneratorService {
   }
 
   /**
+   * Delete ALL matches in the tournament including those that are scheduled.
+   * Only matches with status IN_PROGRESS or FINISHED are preserved.
+   */
+  async deleteAllMatches(
+    tournamentId: string,
+    userId: string
+  ): Promise<{ success: boolean; deletedCount: number }> {
+    await this.verifyTournamentOwnership(tournamentId, userId);
+
+    const result = await this.prisma.categoryMatch.deleteMany({
+      where: {
+        category: { tournamentId },
+        status: {
+          notIn: ['IN_PROGRESS', 'FINISHED'],
+        },
+      },
+    });
+
+    return { success: true, deletedCount: result.count };
+  }
+
+  /**
    * Save generated schedule to database
    */
   async saveSchedule(
