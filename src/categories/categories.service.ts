@@ -3041,9 +3041,10 @@ export class CategoriesService {
       'STRUCTURE'
     );
 
+    // RRSE always has a group stage by definition; don't require the stale
+    // `hasGroupStage` flag (see completeGroupStage for why it can be false).
     const isRoundRobinToElimination =
-      category.format === CategoryFormat.ROUND_ROBIN_TO_SE &&
-      category.hasGroupStage;
+      category.format === CategoryFormat.ROUND_ROBIN_TO_SE;
 
     if (!isRoundRobinToElimination) {
       return {
@@ -3113,7 +3114,17 @@ export class CategoriesService {
       'STRUCTURE'
     );
 
-    if (category.hasGroupStage) {
+    // A ROUND_ROBIN_TO_SE category always feeds its groups into the bracket,
+    // regardless of the `hasGroupStage` column — that flag defaults to false and
+    // is only maintained by the create/update paths, so a category whose format
+    // was set another way can have it stale. Trusting it alone made this branch
+    // fall through to direct elimination and seed ALL registrations (a 16-slot
+    // R16 bracket) instead of the group winners. Gate on the format instead.
+    const usesGroupStage =
+      category.hasGroupStage ||
+      category.format === CategoryFormat.ROUND_ROBIN_TO_SE;
+
+    if (usesGroupStage) {
       // Validate all group matches are finished
       const unfinishedMatches = await this.prisma.categoryMatch.count({
         where: {
@@ -3935,8 +3946,10 @@ export class CategoriesService {
       );
     }
 
-    // Never overwrite a bracket that has already been played: if any elimination
-    // match is in progress, finished, or carries a score, block the rebuild.
+    // Never overwrite a bracket that has already been played: block the rebuild
+    // if any elimination match is in progress or carries a real result. Auto-BYE
+    // matches (status FINISHED, score 'BYE') are not "played" — they're just
+    // seeding artefacts, so they must not block regeneration.
     const scored = await this.prisma.categoryMatch.count({
       where: {
         categoryId,
@@ -3944,8 +3957,7 @@ export class CategoriesService {
         round: { not: 'GROUP' },
         OR: [
           { status: MatchStatus.IN_PROGRESS },
-          { status: MatchStatus.FINISHED },
-          { score: { not: null } },
+          { AND: [{ score: { not: null } }, { score: { not: 'BYE' } }] },
         ],
       },
     });
