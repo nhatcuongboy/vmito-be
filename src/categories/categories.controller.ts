@@ -395,4 +395,16 @@ export class CategoriesController {
       user.role
     );
   }
+
+  @Post(':id/generate-elimination-shells')
+  generateEliminationShells(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.regenerateEliminationShells(
+      id,
+      user.userId,
+      user.role
+    );
+  }
 }

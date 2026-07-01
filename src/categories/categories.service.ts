@@ -2926,13 +2926,15 @@ export class CategoriesService {
       throw new BadRequestException('No groups exist. Create groups first.');
     }
 
-    // Re-generating must start from a clean slate: wipe ALL previously-generated
-    // matches for this category (group stage + playoff shells), so stale matches
-    // from an earlier configuration never linger. Cascades to participants and
-    // nulls any court's currentMatch reference. Without this, leftover playoff
-    // shells (groupId: null) survive the group deletion done client-side and
-    // ensureEliminationShells would skip recreating them (idempotent guard).
-    await this.prisma.categoryMatch.deleteMany({ where: { categoryId } });
+    // Re-generating must start from a clean slate for the group stage: wipe only
+    // the previously-generated GROUP matches, so stale matches from an earlier
+    // configuration never linger. Cascades to participants and nulls any court's
+    // currentMatch reference. Playoff shells (groupId: null, round != GROUP) are
+    // owned by the separate "generate elimination shells" flow and are preserved
+    // here so regenerating the group stage never wipes a bracket the user built.
+    await this.prisma.categoryMatch.deleteMany({
+      where: { categoryId, round: 'GROUP' },
+    });
 
     const results: Array<{ group: (typeof groups)[0]; matches: unknown[] }> =
       [];
@@ -2946,18 +2948,18 @@ export class CategoriesService {
       results.push({ group, matches });
     }
 
-    // Pre-create the playoff bracket as empty shells so it can be scheduled and
-    // displayed (with seed/feeder labels) before the group stage finishes.
-    await this.ensureEliminationShells(categoryId);
-
     return results;
   }
 
   private async buildMatchGenerationPreview(
     categoryId: string
   ): Promise<MatchGenerationPreview> {
+    // Scoped to GROUP matches: this preview only backs the group-stage generate
+    // flow (getMatchGenerationPreview + generateAllGroupMatches). Playoff shells
+    // live in their own flow, so a scheduled shell must not block regenerating
+    // the group stage.
     const matches = await this.prisma.categoryMatch.findMany({
-      where: { categoryId },
+      where: { categoryId, round: 'GROUP' },
       select: {
         status: true,
         courtId: true,
@@ -3905,6 +3907,65 @@ export class CategoriesService {
     } else {
       await this.generateEliminationBracket(categoryId, regIds);
     }
+  }
+
+  /**
+   * Create (or re-create) the playoff bracket shells for a ROUND_ROBIN_TO_SE
+   * category. Backs the explicit "Phát sinh trận vòng loại" button, decoupled
+   * from group-match generation. Safe to call repeatedly: wipes the existing
+   * (unscored) shells and rebuilds them to match the current advancing-teams
+   * config, but refuses once any playoff match has been started/scored so a
+   * live bracket is never destroyed.
+   */
+  async regenerateEliminationShells(
+    categoryId: string,
+    userId: string,
+    role?: string
+  ) {
+    const category = await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'STRUCTURE'
+    );
+
+    if (category.format !== CategoryFormat.ROUND_ROBIN_TO_SE) {
+      throw new BadRequestException(
+        'Only round-robin-to-single-elimination categories have a playoff bracket'
+      );
+    }
+
+    // Never overwrite a bracket that has already been played: if any elimination
+    // match is in progress, finished, or carries a score, block the rebuild.
+    const scored = await this.prisma.categoryMatch.count({
+      where: {
+        categoryId,
+        groupId: null,
+        round: { not: 'GROUP' },
+        OR: [
+          { status: MatchStatus.IN_PROGRESS },
+          { status: MatchStatus.FINISHED },
+          { score: { not: null } },
+        ],
+      },
+    });
+    if (scored > 0) {
+      throw new BadRequestException({
+        code: 'HAS_SCORED_ELIMINATION',
+        message:
+          'Cannot regenerate the playoff bracket after a playoff match has been started or scored',
+      });
+    }
+
+    // Wipe the existing (unscored) shells so ensureEliminationShells rebuilds
+    // them fresh against the current advancing-teams configuration.
+    await this.prisma.categoryMatch.deleteMany({
+      where: { categoryId, groupId: null, round: { not: 'GROUP' } },
+    });
+
+    await this.ensureEliminationShells(categoryId);
+
+    return this.getEliminationMatches(categoryId);
   }
 
   /**
