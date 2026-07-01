@@ -518,6 +518,7 @@ export class PaymentsService {
         amount: true,
         status: true,
         paymentMethod: true,
+        hostNotes: true,
         submittedAt: true,
         approvedAt: true,
         rejectedAt: true,
