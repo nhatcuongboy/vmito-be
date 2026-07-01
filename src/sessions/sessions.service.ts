@@ -1091,13 +1091,16 @@ export class SessionsService {
     );
 
     // Crawled sessions are not linked to a Venue record (Gemini rarely produces
-    // a real Google placeId). We keep the human-readable location string only,
-    // falling back to the extracted venue name/address for display.
+    // a real Google placeId). We keep a human-readable location string only.
+    // Prefer the AI's explicit location; otherwise compose "<venue name>,
+    // <address>" so the court/venue name is never dropped (previously we fell
+    // back to the address alone, hiding "Sân GENZ").
+    const composedVenue = [extracted.venue?.name, extracted.venue?.address]
+      .map((s) => s?.trim())
+      .filter(Boolean)
+      .join(', ');
     const finalLocation =
-      extracted.location ||
-      extracted.venue?.address ||
-      extracted.venue?.name ||
-      undefined;
+      extracted.location?.trim() || composedVenue || undefined;
 
     const scheduledStart = extracted.startTime
       ? new Date(extracted.startTime)
