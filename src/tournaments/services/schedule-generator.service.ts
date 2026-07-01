@@ -5,7 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { MatchStatus } from '@prisma/client';
+import { MatchStatus, TournamentCourtStatus } from '@prisma/client';
 import { GenerateScheduleDto } from '../dto/schedule-generation.dto';
 import { UpdateMatchAssignmentDto } from '../dto/update-match-assignment.dto';
 import { ScheduleValidationService } from './schedule-validation.service';
@@ -582,8 +582,7 @@ export class ScheduleGeneratorService {
   }
 
   /**
-   * Delete ALL matches in the tournament including those that are scheduled.
-   * Only matches with status IN_PROGRESS or FINISHED are preserved.
+   * Delete ALL matches in the tournament, regardless of status.
    */
   async deleteAllMatches(
     tournamentId: string,
@@ -591,14 +590,31 @@ export class ScheduleGeneratorService {
   ): Promise<{ success: boolean; deletedCount: number }> {
     await this.verifyTournamentOwnership(tournamentId, userId);
 
-    const result = await this.prisma.categoryMatch.deleteMany({
-      where: {
-        category: { tournamentId },
-        status: {
-          notIn: ['IN_PROGRESS', 'FINISHED'],
+    const [, , result] = await this.prisma.$transaction([
+      this.prisma.tournamentCourt.updateMany({
+        where: {
+          tournamentId,
+          currentMatch: { is: { category: { tournamentId } } },
+          status: TournamentCourtStatus.OCCUPIED,
         },
-      },
-    });
+        data: {
+          currentMatchId: null,
+          status: TournamentCourtStatus.AVAILABLE,
+        },
+      }),
+      this.prisma.tournamentCourt.updateMany({
+        where: {
+          tournamentId,
+          currentMatch: { is: { category: { tournamentId } } },
+        },
+        data: { currentMatchId: null },
+      }),
+      this.prisma.categoryMatch.deleteMany({
+        where: {
+          category: { tournamentId },
+        },
+      }),
+    ]);
 
     return { success: true, deletedCount: result.count };
   }
@@ -626,9 +642,7 @@ export class ScheduleGeneratorService {
     }
 
     const assignments = JSON.parse(generated.assignments) as MatchAssignment[];
-    const config = JSON.parse(
-      generated.configSnapshot
-    ) as GenerateScheduleDto;
+    const config = JSON.parse(generated.configSnapshot) as GenerateScheduleDto;
 
     // Get total match count
     const totalMatches = await this.prisma.categoryMatch.count({
