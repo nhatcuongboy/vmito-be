@@ -49,6 +49,7 @@ export class SessionSchedulerService {
       const sessions = await this.prisma.session.findMany({
         where: {
           status: 'PREPARING',
+          isCrawled: false, // crawled (vãng lai) sessions have no lifecycle
           scheduledStartTime: { lte: fifteenMinutesFromNow, gt: now },
           startReminderSentAt: null,
         },
@@ -109,6 +110,7 @@ export class SessionSchedulerService {
       const sessions = await this.prisma.session.findMany({
         where: {
           status: 'PREPARING',
+          isCrawled: false, // crawled (vãng lai) sessions have no lifecycle
           scheduledStartTime: { lte: now },
           // Only auto-start sessions whose scheduled end time is still in the future
           scheduledEndTime: { gt: now },
@@ -312,6 +314,7 @@ export class SessionSchedulerService {
       const sessions = await this.prisma.session.findMany({
         where: {
           status: 'PREPARING',
+          isCrawled: false, // crawled (vãng lai) sessions have no lifecycle
           scheduledEndTime: { lte: now },
         },
         include: {
@@ -385,6 +388,35 @@ export class SessionSchedulerService {
       }
     } catch (error) {
       this.logger.error('[AutoCancel] Error auto-cancelling sessions', error);
+    }
+  }
+
+  /**
+   * Nightly clean-up of crawled (vãng lai) Facebook sessions whose play time
+   * has already passed, so the "find sessions" list only shows fresh imports.
+   * These rows have no Player/Court/heavy relations, so a hard delete is safe.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async cleanupExpiredCrawledSessions() {
+    try {
+      const now = new Date();
+      const result = await this.prisma.session.deleteMany({
+        where: {
+          isCrawled: true,
+          endTime: { lt: now },
+        },
+      });
+
+      if (result.count > 0) {
+        this.logger.log(
+          `[CrawledCleanup] Removed ${result.count} expired crawled session(s)`
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        '[CrawledCleanup] Error cleaning up crawled sessions',
+        error
+      );
     }
   }
 }

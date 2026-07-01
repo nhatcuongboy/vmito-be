@@ -208,6 +208,11 @@ model Session {
   shuttlecock        String?
   referenceVideoUrl  String?
 
+  // Crawled (vãng lai) sessions imported from public Facebook posts — view-only
+  isCrawled      Boolean @default(false) // cờ phân biệt kèo cào Facebook
+  externalUrl    String? @unique // link bài FB gốc — chống trùng + điều hướng
+  externalSource String? // nguồn: tên group Facebook / "facebook"
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   courts    Court[]
@@ -223,6 +228,7 @@ model Session {
   ratings        Rating[]
   clubSessions   ClubSession[]
 
+  @@index([isCrawled])
   @@map("sessions")
 }
 

@@ -27,6 +27,7 @@ import {
   generateSlug,
   removeVietnameseTones,
 } from '../common/utils/string.utils';
+import { ExtractedSessionDto } from '../ai/dto/extract-session.dto';
 
 @Injectable()
 export class SessionsService {
@@ -1033,6 +1034,134 @@ export class SessionsService {
     });
   }
 
+  /**
+   * Create a view-only "kèo vãng lai" session imported from a public Facebook
+   * post (via Apify webhook + Gemini extraction).
+   *
+   * Unlike {@link create}, this deliberately freezes all interaction logic:
+   * it does NOT create Court / Player records and does NOT send notifications.
+   * The session is hosted by the system bot user (CRAWLER_BOT_USER_ID) and
+   * flagged with isCrawled=true so the frontend renders a read-only variant.
+   *
+   * Deduplication is enforced by the unique externalUrl column: re-ingesting
+   * the same post is a no-op that returns null (nothing created).
+   */
+  async createCrawledSession(
+    extracted: ExtractedSessionDto,
+    externalUrl: string,
+    externalSource?: string
+  ) {
+    // Dedup: skip if this Facebook post was already imported
+    const existing = await this.prisma.session.findUnique({
+      where: { externalUrl },
+      select: { id: true },
+    });
+    if (existing) {
+      return null;
+    }
+
+    const botUserId = this.configService.get<string>('crawler.botUserId');
+    if (!botUserId) {
+      throw new BadRequestException(
+        'CRAWLER_BOT_USER_ID is not configured; cannot import crawled sessions.'
+      );
+    }
+    const botUser = await this.prisma.user.findUnique({
+      where: { id: botUserId },
+    });
+    if (!botUser) {
+      throw new NotFoundException(
+        `Crawler bot user "${botUserId}" not found; seed it before importing.`
+      );
+    }
+
+    const name = extracted.name?.trim() || 'Kèo vãng lai';
+    const sessionDuration = extracted.sessionDuration ?? 120;
+
+    // Only keep valid level IDs (1-8); ignore anything else
+    const requiredLevels = (extracted.requiredLevels || []).filter((level) =>
+      VALID_LEVELS.includes(level)
+    );
+
+    // Crawled sessions are not linked to a Venue record (Gemini rarely produces
+    // a real Google placeId). We keep the human-readable location string only,
+    // falling back to the extracted venue name/address for display.
+    const finalLocation =
+      extracted.location ||
+      extracted.venue?.address ||
+      extracted.venue?.name ||
+      undefined;
+
+    const scheduledStart = extracted.startTime
+      ? new Date(extracted.startTime)
+      : new Date();
+    const scheduledEnd = extracted.endTime
+      ? new Date(extracted.endTime)
+      : new Date(scheduledStart.getTime() + sessionDuration * 60 * 1000);
+    const gracePeriodEnd = new Date(scheduledEnd.getTime() + 30 * 60 * 1000);
+
+    const sessionSlug = `${generateSlug(name)}-${Math.random().toString(36).substring(2, 7)}`;
+    const sessionSearchTerms = removeVietnameseTones(
+      `${name} ${finalLocation || ''} ${extracted.hostName || ''} ${
+        extracted.venue
+          ? `${extracted.venue.name || ''} ${extracted.venue.address || ''}`
+          : ''
+      }`
+    ).toLowerCase();
+
+    return this.prisma.session.create({
+      data: {
+        name,
+        slug: sessionSlug,
+        hostId: botUserId,
+        isCrawled: true,
+        externalUrl,
+        externalSource,
+        // View-only: no player management, keep guest/new-player flags off
+        allowGuestJoin: false,
+        allowNewPlayers: false,
+        numberOfCourts: extracted.numberOfCourts ?? 1,
+        sessionDuration,
+        maxPlayersPerCourt: extracted.maxPlayersPerCourt ?? 8,
+        requiredLevels,
+        searchTerms: sessionSearchTerms,
+        scheduledStartTime: scheduledStart,
+        scheduledEndTime: scheduledEnd,
+        gracePeriodEnd,
+        startTime: scheduledStart,
+        endTime: scheduledEnd,
+        status: 'PREPARING',
+        description: extracted.description,
+        notes: extracted.notes ?? null,
+        location: finalLocation,
+        hostName: extracted.hostName,
+        hostPhone: extracted.hostPhone,
+        defaultMatchType: extracted.defaultMatchType || 'DOUBLES',
+        shuttlecock: extracted.shuttlecock,
+        // Fee (display only) — created inline via nested write
+        ...(extracted.feeConfig
+          ? {
+              feeConfig: {
+                create: {
+                  feeType: extracted.feeConfig.feeType,
+                  maleFee: extracted.feeConfig.maleFee ?? null,
+                  femaleFee: extracted.feeConfig.femaleFee ?? null,
+                  notes: extracted.feeConfig.notes ?? null,
+                },
+              },
+            }
+          : {}),
+      },
+      include: {
+        host: {
+          select: { id: true, name: true, email: true, image: true },
+        },
+        venue: true,
+        feeConfig: true,
+      },
+    });
+  }
+
   async update(
     id: string,
     updateSessionDto: UpdateSessionDto,
@@ -1045,6 +1174,12 @@ export class SessionsService {
 
     if (!existingSession) {
       throw new NotFoundException('Session not found');
+    }
+
+    if (existingSession.isCrawled) {
+      throw new ForbiddenException(
+        'Crawled (vãng lai) sessions are view-only and cannot be modified.'
+      );
     }
 
     // Authorization check: only session owner or admin can update
@@ -1386,6 +1521,12 @@ export class SessionsService {
       throw new NotFoundException('Session not found');
     }
 
+    if (existingSession.isCrawled) {
+      throw new ForbiddenException(
+        'Crawled (vãng lai) sessions are view-only and cannot be cancelled.'
+      );
+    }
+
     // Authorization check
     if (role !== 'ADMIN' && existingSession.hostId !== userId) {
       throw new ForbiddenException('Not authorized to cancel this session');
@@ -1463,6 +1604,14 @@ export class SessionsService {
 
     if (!existingSession) {
       throw new NotFoundException('Session not found');
+    }
+
+    // Crawled (vãng lai) sessions are view-only; only admins may remove a bad
+    // import manually (the cleanup cron deletes them directly, bypassing this).
+    if (existingSession.isCrawled && role !== 'ADMIN') {
+      throw new ForbiddenException(
+        'Crawled (vãng lai) sessions are view-only and cannot be deleted.'
+      );
     }
 
     // Authorization check: only session owner or admin can delete
@@ -1555,6 +1704,12 @@ export class SessionsService {
       throw new NotFoundException('Session not found');
     }
 
+    if (existingSession.isCrawled) {
+      throw new ForbiddenException(
+        'Crawled (vãng lai) sessions are view-only and cannot be started.'
+      );
+    }
+
     if (existingSession.status !== 'PREPARING') {
       throw new BadRequestException(
         'Session has already been started or finished'
@@ -1620,6 +1775,12 @@ export class SessionsService {
 
     if (!sessionData) {
       throw new NotFoundException('Session not found');
+    }
+
+    if (sessionData.isCrawled) {
+      throw new ForbiddenException(
+        'Crawled (vãng lai) sessions are view-only and cannot be ended.'
+      );
     }
 
     if (sessionData.status !== 'IN_PROGRESS') {

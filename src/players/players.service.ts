@@ -588,6 +588,7 @@ export class PlayersService {
         id: true,
         name: true,
         hostId: true,
+        isCrawled: true,
         host: {
           select: {
             role: true,
@@ -605,6 +606,13 @@ export class PlayersService {
 
     if (!session) {
       throw new NotFoundException('Session does not exist');
+    }
+
+    // Crawled (vãng lai) sessions are view-only — no registration/player mgmt
+    if (session.isCrawled) {
+      throw new ForbiddenException(
+        'Crawled (vãng lai) sessions are view-only; registration is disabled.'
+      );
     }
 
     // Determine initial status
