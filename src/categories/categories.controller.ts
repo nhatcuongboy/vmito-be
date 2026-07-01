@@ -19,6 +19,7 @@ import { AssignGroupRegistrationDto } from './dto/assign-group-registration.dto'
 import { BulkAssignGroupRegistrationDto } from './dto/bulk-assign-group-registration.dto';
 import { AutoAssignDto } from './dto/auto-assign.dto';
 import { CreateCategoryMatchDto } from './dto/create-category-match.dto';
+import { GenerateAllGroupMatchesDto } from './dto/generate-all-group-matches.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
@@ -168,10 +169,14 @@ export class CategoriesController {
   @Post(':id/groups/generate-all-matches')
   generateAllGroupMatches(
     @Param('id') id: string,
+    @Body() dto: GenerateAllGroupMatchesDto | undefined,
     @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.generateAllGroupMatches(
       id,
+      {
+        forceReplaceScheduledMatches: dto?.forceReplaceScheduledMatches,
+      },
       user.userId,
       user.role
     );
@@ -294,6 +299,18 @@ export class CategoriesController {
   }
 
   // ─── Category Matches ────────────────────────────────────
+
+  @Get(':id/matches/generation-preview')
+  getMatchGenerationPreview(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.getMatchGenerationPreview(
+      id,
+      user.userId,
+      user.role
+    );
+  }
 
   @Public()
   @Get(':id/matches')

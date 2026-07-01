@@ -10,6 +10,7 @@ import { ScheduleGeneratorController } from './controllers/schedule.controller';
 import { ScheduleGeneratorService } from './services/schedule-generator.service';
 import { ScheduleValidationService } from './services/schedule-validation.service';
 import { ScheduleAlgorithmService } from './services/schedule-algorithm.service';
+import { TournamentMatchGenerationService } from './services/tournament-match-generation.service';
 import { ScheduleModule } from './schedule.module';
 
 @Module({
@@ -30,6 +31,7 @@ import { ScheduleModule } from './schedule.module';
     ScheduleGeneratorService,
     ScheduleValidationService,
     ScheduleAlgorithmService,
+    TournamentMatchGenerationService,
   ],
   exports: [TournamentsService, ScheduleModule],
 })

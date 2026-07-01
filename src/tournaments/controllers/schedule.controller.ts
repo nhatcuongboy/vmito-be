@@ -17,6 +17,7 @@ import { UpdateMatchAssignmentDto } from '../dto/update-match-assignment.dto';
 import { AddMatchToQueueDto, ReorderQueueDto } from '../dto/queue.dto';
 import { ScheduleGeneratorService } from '../services/schedule-generator.service';
 import { ScheduleService } from '../services/schedule.service';
+import { TournamentMatchGenerationService } from '../services/tournament-match-generation.service';
 
 @ApiTags('tournament-schedule')
 @ApiBearerAuth('JWT-auth')
@@ -25,7 +26,8 @@ import { ScheduleService } from '../services/schedule.service';
 export class ScheduleGeneratorController {
   constructor(
     private readonly scheduleGeneratorService: ScheduleGeneratorService,
-    private readonly scheduleService: ScheduleService
+    private readonly scheduleService: ScheduleService,
+    private readonly tournamentMatchGenerationService: TournamentMatchGenerationService
   ) {}
 
   @Post('generate')
@@ -97,6 +99,17 @@ export class ScheduleGeneratorController {
     );
   }
 
+  @Get('readiness')
+  async getReadiness(
+    @Param('tournamentId') tournamentId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<unknown> {
+    return this.tournamentMatchGenerationService.getScheduleReadiness(
+      tournamentId,
+      user.userId
+    );
+  }
+
   @Delete('clear')
   async clearSchedule(
     @Param('tournamentId') tournamentId: string,
@@ -124,7 +137,9 @@ export class ScheduleGeneratorController {
     @Param('tournamentId') tournamentId: string,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<unknown> {
-    return await this.scheduleGeneratorService.deleteAllMatches(
+    // Deprecated: use DELETE /tournaments/:tournamentId/matches from the
+    // rounds/match-management UI. Kept as a compatibility alias.
+    return await this.tournamentMatchGenerationService.deleteAllTournamentMatches(
       tournamentId,
       user.userId
     );

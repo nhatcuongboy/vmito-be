@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { TournamentsService } from './tournaments.service';
+import { TournamentMatchGenerationService } from './services/tournament-match-generation.service';
 import { CategoriesService } from '../categories/categories.service';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
@@ -34,6 +35,7 @@ import { Public } from '../auth/decorators/public.decorator';
 export class TournamentsController {
   constructor(
     private readonly tournamentsService: TournamentsService,
+    private readonly tournamentMatchGenerationService: TournamentMatchGenerationService,
     private readonly categoriesService: CategoriesService
   ) {}
 
@@ -95,6 +97,17 @@ export class TournamentsController {
       duplicateTournamentDto,
       user.userId,
       user.role
+    );
+  }
+
+  @Delete(':id/matches')
+  deleteAllMatches(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string }
+  ) {
+    return this.tournamentMatchGenerationService.deleteAllTournamentMatches(
+      id,
+      user.userId
     );
   }
 

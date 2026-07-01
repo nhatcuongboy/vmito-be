@@ -100,6 +100,16 @@ interface CategoryUpdateData {
   finalPointCap?: number | null;
 }
 
+export interface MatchGenerationPreview {
+  existingMatches: number;
+  scheduledAssignedMatches: number;
+  inProgressMatches: number;
+  finishedMatches: number;
+  canGenerate: boolean;
+  requiresForceReplaceScheduledMatches: boolean;
+  blockingReason?: 'HAS_STARTED_OR_FINISHED_MATCHES';
+}
+
 const DOUBLES_TYPES: CategoryType[] = [
   'MENS_DOUBLE',
   'WOMENS_DOUBLE',
@@ -2871,12 +2881,41 @@ export class CategoriesService {
 
   // ─── Bulk Group Match Generation ─────────────────────────
 
+  async getMatchGenerationPreview(
+    categoryId: string,
+    userId: string,
+    role?: string
+  ): Promise<MatchGenerationPreview> {
+    await this.getCategoryWithOwnership(categoryId, userId, role, 'STRUCTURE');
+    return this.buildMatchGenerationPreview(categoryId);
+  }
+
   async generateAllGroupMatches(
     categoryId: string,
+    options: { forceReplaceScheduledMatches?: boolean } | undefined,
     userId: string,
     role?: string
   ) {
     await this.getCategoryWithOwnership(categoryId, userId, role, 'STRUCTURE');
+
+    const preview = await this.buildMatchGenerationPreview(categoryId);
+    if (!preview.canGenerate) {
+      throw new BadRequestException({
+        code: 'HAS_STARTED_OR_FINISHED_MATCHES',
+        message:
+          'Cannot regenerate matches after any match has started or finished',
+      });
+    }
+    if (
+      preview.requiresForceReplaceScheduledMatches &&
+      !options?.forceReplaceScheduledMatches
+    ) {
+      throw new BadRequestException({
+        code: 'REQUIRES_FORCE_REPLACE_SCHEDULED_MATCHES',
+        message:
+          'Regenerating matches will remove existing schedule assignments. Confirm before retrying.',
+      });
+    }
 
     const groups = await this.prisma.categoryGroup.findMany({
       where: { categoryId },
@@ -2912,6 +2951,44 @@ export class CategoriesService {
     await this.ensureEliminationShells(categoryId);
 
     return results;
+  }
+
+  private async buildMatchGenerationPreview(
+    categoryId: string
+  ): Promise<MatchGenerationPreview> {
+    const matches = await this.prisma.categoryMatch.findMany({
+      where: { categoryId },
+      select: {
+        status: true,
+        courtId: true,
+        startTime: true,
+      },
+    });
+    const scheduledAssignedMatches = matches.filter(
+      (match) =>
+        match.status === MatchStatus.SCHEDULED &&
+        (match.courtId !== null || match.startTime !== null)
+    ).length;
+    const inProgressMatches = matches.filter(
+      (match) => match.status === MatchStatus.IN_PROGRESS
+    ).length;
+    const finishedMatches = matches.filter(
+      (match) => match.status === MatchStatus.FINISHED
+    ).length;
+    const canGenerate = inProgressMatches === 0 && finishedMatches === 0;
+
+    return {
+      existingMatches: matches.length,
+      scheduledAssignedMatches,
+      inProgressMatches,
+      finishedMatches,
+      canGenerate,
+      requiresForceReplaceScheduledMatches:
+        canGenerate && scheduledAssignedMatches > 0,
+      blockingReason: canGenerate
+        ? undefined
+        : 'HAS_STARTED_OR_FINISHED_MATCHES',
+    };
   }
 
   // ─── Elimination Matches Query ──────────────────────────
