@@ -8,6 +8,8 @@ export interface ApifyAttachment {
   canonical_uri_with_fallback?: string;
   thumbnail?: string;
   image?: { uri?: string };
+  thumbnailImage?: { uri?: string };
+  preferred_thumbnail?: { image?: { uri?: string } };
   [key: string]: unknown;
 }
 

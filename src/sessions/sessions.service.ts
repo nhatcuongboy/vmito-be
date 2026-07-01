@@ -1049,7 +1049,14 @@ export class SessionsService {
   async createCrawledSession(
     extracted: ExtractedSessionDto,
     externalUrl: string,
-    externalSource?: string
+    externalSource?: string,
+    meta?: {
+      authorName?: string;
+      authorUrl?: string;
+      authorAvatar?: string;
+      groupUrl?: string;
+      coverPhoto?: string;
+    }
   ) {
     // Dedup: skip if this Facebook post was already imported
     const existing = await this.prisma.session.findUnique({
@@ -1117,6 +1124,10 @@ export class SessionsService {
         isCrawled: true,
         externalUrl,
         externalSource,
+        externalAuthorUrl: meta?.authorUrl,
+        externalAuthorAvatar: meta?.authorAvatar,
+        externalGroupUrl: meta?.groupUrl,
+        coverPhoto: meta?.coverPhoto,
         // View-only: no player management, keep guest/new-player flags off
         allowGuestJoin: false,
         allowNewPlayers: false,
@@ -1134,7 +1145,7 @@ export class SessionsService {
         description: extracted.description,
         notes: extracted.notes ?? null,
         location: finalLocation,
-        hostName: extracted.hostName,
+        hostName: meta?.authorName || extracted.hostName,
         hostPhone: extracted.hostPhone,
         defaultMatchType: extracted.defaultMatchType || 'DOUBLES',
         shuttlecock: extracted.shuttlecock,

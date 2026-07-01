@@ -67,7 +67,16 @@ export class WebhooksService {
         const session = await this.sessionsService.createCrawledSession(
           extracted,
           externalUrl,
-          source
+          source,
+          {
+            authorName: item.user?.name,
+            authorUrl: item.user?.id
+              ? `https://www.facebook.com/${item.user.id}`
+              : undefined,
+            authorAvatar: item.user?.profilePic,
+            groupUrl: item.facebookUrl || item.groupUrl,
+            coverPhoto: this.resolveImage(item),
+          }
         );
 
         // createCrawledSession returns null when the post was already imported
@@ -173,6 +182,19 @@ export class WebhooksService {
       return `${base}?vmitoPost=${this.simpleHash(text)}`;
     }
     return null;
+  }
+
+  /** Pick the best single image URL from the post's attachments (hotlinked). */
+  private resolveImage(item: ApifyPostItem): string | undefined {
+    for (const att of item.attachments || []) {
+      const u =
+        att?.image?.uri ||
+        att?.thumbnailImage?.uri ||
+        att?.preferred_thumbnail?.image?.uri ||
+        att?.thumbnail;
+      if (typeof u === 'string' && u.trim()) return u.trim();
+    }
+    return undefined;
   }
 
   /** Human-readable source label: explicit group title, else the group slug. */
