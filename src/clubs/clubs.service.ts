@@ -711,11 +711,11 @@ export class ClubsService {
   // ===========================================
 
   /**
-   * Get all clubs for a host
+   * Get clubs for management. Admins can manage all clubs in the system.
    */
-  async getClubs(hostId: string) {
+  async getClubs(hostId: string, userRole?: Role) {
     const clubs = await this.prisma.club.findMany({
-      where: { hostId },
+      where: userRole === Role.ADMIN ? {} : { hostId },
       include: {
         _count: {
           select: { members: true },

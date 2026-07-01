@@ -120,7 +120,7 @@ export class ClubsController {
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
   @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async getClubs(@CurrentUser() user: JwtUser) {
-    return this.clubsService.getClubs(user.userId);
+    return this.clubsService.getClubs(user.userId, user.role);
   }
 
   @Post()
