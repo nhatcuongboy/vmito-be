@@ -15,7 +15,10 @@ import {
   Prisma,
   SessionStatus,
 } from '@prisma/client';
-import { VALID_LEVELS } from '../common/constants/level.constants';
+import {
+  VALID_LEVELS,
+  getLevelDistance,
+} from '../common/constants/level.constants';
 
 import { SessionsGateway } from './sessions.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -1085,7 +1088,7 @@ export class SessionsService {
     const name = extracted.name?.trim() || 'Kèo vãng lai';
     const sessionDuration = extracted.sessionDuration ?? 120;
 
-    // Only keep valid level IDs (1-8); ignore anything else
+    // Only keep valid level IDs; ignore anything else
     const requiredLevels = (extracted.requiredLevels || []).filter((level) =>
       VALID_LEVELS.includes(level)
     );
@@ -3303,7 +3306,9 @@ export class SessionsService {
         matchReasons.push('level_match');
       } else if (
         user.level &&
-        session.requiredLevels.some((l) => Math.abs(l - user.level!) <= 1)
+        session.requiredLevels.some(
+          (level) => getLevelDistance(level, user.level!) <= 1
+        )
       ) {
         levelScore = 0.5;
       } else {

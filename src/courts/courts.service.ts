@@ -17,6 +17,10 @@ import {
 } from '../sessions/sessions.gateway';
 import { GeminiService } from '../ai/gemini.service';
 import { Language, DEFAULT_LANGUAGE } from '../common/constants/language.enum';
+import {
+  LEVEL_SHORT_LABELS,
+  getLevelRank,
+} from '../common/constants/level.constants';
 
 export interface PreSelectedPlayerInfo {
   playerId: string;
@@ -34,17 +38,6 @@ export interface PreSelectedPlayerInfo {
     matchesPlayed: number;
   };
 }
-
-const LEVEL_SHORT_LABELS: Record<number, string> = {
-  1: 'Yếu',
-  2: 'TBY',
-  3: 'TB-',
-  4: 'TB',
-  5: 'TB+',
-  6: 'Khá',
-  7: 'BC',
-  8: 'CN',
-};
 
 @Injectable()
 export class CourtsService {
@@ -1168,8 +1161,9 @@ Return ONLY a raw JSON object in this exact format:
 
   // Helper functions
   private getLevelScore(level: number | null): number {
-    if (!level) return 3; // Default to INTERMEDIATE (3)
-    return level;
+    const intermediateRank = getLevelRank(4) ?? 3;
+    if (!level) return intermediateRank;
+    return getLevelRank(level) ?? intermediateRank;
   }
 
   private findBalancedPairs(players: { level: number | null }[]): {

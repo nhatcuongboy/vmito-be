@@ -27,7 +27,7 @@ export class JoinByCodeDto {
   @IsOptional()
   gender?: Gender;
 
-  @ApiPropertyOptional({ description: 'Player skill level (1-7)' })
+  @ApiPropertyOptional({ description: 'Player stable skill level ID' })
   @IsNumber()
   @Min(1)
   @IsOptional()

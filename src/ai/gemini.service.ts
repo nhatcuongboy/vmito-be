@@ -11,6 +11,11 @@ import { ExtractedScheduleEntry } from './dto/extract-schedule.dto';
 import { Language, DEFAULT_LANGUAGE } from '../common/constants/language.enum';
 import { PrismaService } from '../prisma/prisma.service';
 import { removeVietnameseTones } from '../common/utils/string.utils';
+import {
+  getLevelsInRange,
+  isValidLevel,
+  sortLevelsByRank,
+} from '../common/constants/level.constants';
 
 const MODEL = 'gemini-3.1-flash-lite';
 const VIETNAM_TIME_ZONE = 'Asia/Ho_Chi_Minh';
@@ -269,11 +274,15 @@ type RawExtractedScheduleEntry = {
 };
 
 /**
- * Maps AI-returned short name strings to numeric level IDs (1-8).
- * Aligned with FE levelShorts: 1=Yếu, 2=TBY, 3=TB-, 4=TB, 5=TB+, 6=Khá, 7=BC, 8=CN
+ * Maps AI-returned short name strings to stable numeric level IDs.
  */
 const LEVEL_SHORT_NAME_MAP: Record<string, number> = {
+  'Y-': 9,
+  'Yếu-': 9,
   Y: 1,
+  Yếu: 1,
+  'Y+': 10,
+  'Yếu+': 10,
   TBY: 2,
   'TB-': 3,
   TB: 4,
@@ -329,7 +338,9 @@ Core capabilities:
 
 ## Skill levels
 When discussing player skill levels, prefer these short labels instead of raw numbers:
+- Y- = Beginner minus
 - Y = Beginner
+- Y+ = Beginner plus
 - TBY = Advanced beginner
 - TB- = Low intermediate
 - TB = Intermediate
@@ -476,7 +487,24 @@ Only use another language if the user explicitly asks you to translate, compare 
       if (!matches.includes(level)) matches.push(level);
     };
 
-    if (/\bY\b|YEU|BEGINNER/.test(normalized)) add(1);
+    const hasBeginnerMinus =
+      compact.includes('Y-') ||
+      compact.includes('YEU-') ||
+      compact.includes('BEGINNER-');
+    const hasBeginnerPlus =
+      compact.includes('Y+') ||
+      compact.includes('YEU+') ||
+      compact.includes('BEGINNER+');
+    const hasPlainBeginner =
+      /\bY\b/.test(normalized) ||
+      /(^|[^A-Z])YEU($|[^A-Z+-])/.test(normalized) ||
+      /(^|[^A-Z])BEGINNER($|[^A-Z+-])/.test(normalized);
+
+    if (hasBeginnerMinus) add(9);
+    if (hasPlainBeginner) {
+      add(1);
+    }
+    if (hasBeginnerPlus) add(10);
     if (compact.includes('TBY') || compact.includes('TRUNGBINHYEU')) add(2);
     if (compact.includes('TB-') || compact.includes('TRUNGBINH-')) add(3);
     if (compact.includes('TB+') || compact.includes('TRUNGBINH+')) add(5);
@@ -499,9 +527,7 @@ Only use another language if the user explicitly asks you to translate, compare 
       matches.length >= 2 &&
       /\b(DEN|TO|THRU|THROUGH)\b|[-–—]/.test(normalized)
     ) {
-      const start = Math.min(...matches);
-      const end = Math.max(...matches);
-      return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+      return getLevelsInRange(matches[0], matches[matches.length - 1]);
     }
 
     return matches;
@@ -513,16 +539,14 @@ Only use another language if the user explicitly asks you to translate, compare 
     if (value === null || value === undefined) return undefined;
     const values = Array.isArray(value) ? value : [value];
     const levels = values.flatMap((item) => {
-      if (typeof item === 'number' && item >= 1 && item <= 8) return [item];
+      if (typeof item === 'number' && isValidLevel(item)) return [item];
       if (typeof item !== 'string') return [];
       const direct = LEVEL_SHORT_NAME_MAP[item];
       if (direct) return [direct];
       return this.normalizeLevelToken(item);
     });
-    const unique = [...new Set(levels)].filter(
-      (level) => level >= 1 && level <= 8
-    );
-    return unique.length > 0 ? unique.sort((a, b) => a - b) : undefined;
+    const unique = [...new Set(levels)].filter(isValidLevel);
+    return unique.length > 0 ? sortLevelsByRank(unique) : undefined;
   }
 
   private normalizeVenue(
@@ -924,7 +948,7 @@ Field guidance:
 - venue: Structured venue data for matching against the database. venue.name is the court/venue name only; venue.address is the full address if available; district/city are administrative areas.
 - startTime/endTime: ISO 8601 datetime strings. If only time is given (e.g. "18h-20h") and no calendar date is mentioned, combine it with current date ${currentDate.date}. If date is mentioned without year, use year ${currentDate.year}. Use Vietnam time.
 - sessionDuration: Duration in minutes if explicitly stated or computable from startTime/endTime.
-- requiredLevels: Array of level short labels. Use only: Y, TBY, TB-, TB, TB+, K, BC, CN. For ranges, include every level in the range, e.g. "TB- đến Khá" -> ["TB-","TB","TB+","K"]. Return null if all levels are welcome or no level is mentioned.
+- requiredLevels: Array of level short labels. Use only: Y-, Y, Y+, TBY, TB-, TB, TB+, K, BC, CN. For ranges, include every level in the range, e.g. "Yếu- đến TBY" -> ["Y-","Y","Y+","TBY"] and "TB- đến Khá" -> ["TB-","TB","TB+","K"]. Return null if all levels are welcome or no level is mentioned.
 - numberOfCourts: Number of courts if mentioned. For "2 sân (3 và 4)", this is 2.
 - courtNames: Actual specific court numbers/names from the post, not generated sequence numbers. For "2 sân (3 và 4)", return ["3","4"]; for "sân A và B", return ["A","B"].
 - courts: If specific courts are known, return matching court objects. Numeric court names should use that actual number as courtNumber; non-numeric court names can use sequential courtNumber with courtName set.

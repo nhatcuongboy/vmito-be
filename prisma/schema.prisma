@@ -20,7 +20,7 @@ model User {
 
   // Player related information
   gender           Gender?
-  level            Int? // 1-8 (Beginner to Pro)
+  level            Int? // Stable level ID from level_definitions
   levelDescription String?
   phone            String?
   searchTerms      String? // Normalized search string
@@ -158,6 +158,19 @@ model LevelDescription {
   @@map("level_descriptions")
 }
 
+model LevelDefinition {
+  id         Int      @id
+  code       String   @unique
+  shortLabel String
+  sortOrder  Int
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([active, sortOrder])
+  @@map("level_definitions")
+}
+
 model Session {
   id                 String        @id @default(cuid())
   slug               String?       @unique
@@ -197,7 +210,7 @@ model Session {
   allowZaloContact Boolean @default(false) // Allow players to contact host via Zalo
 
   // Player level requirements (empty array = all levels allowed)
-  requiredLevels Int[] @default([]) // Array of level IDs (1-8)
+  requiredLevels Int[] @default([]) // Array of level IDs (empty = all)
 
   courtColor         String    @default("#179a3b")
   defaultMatchType   MatchType @default(DOUBLES) // Default match type for courts in this session
@@ -372,7 +385,7 @@ model Player {
   playerNumber       Int
   name               String?
   gender             Gender?
-  level              Int? // 1-7 (Beginner to Pro)
+  level              Int? // Stable level ID from level_definitions
   levelDescription   String?
   desire             String?
   phone              String?
@@ -1148,7 +1161,7 @@ model Club {
   imagePublicIds String[]       @default([]) // Multiple image public IDs
   location       String? // Primary location/venue
   defaultVenueId String? // Link to default venue
-  requiredLevels Int[]          @default([]) // Array of level IDs (1-8)
+  requiredLevels Int[]          @default([]) // Array of level IDs (empty = all)
 
   // Statistics (cached for performance)
   sessionCount       Int @default(0)

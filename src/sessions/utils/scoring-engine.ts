@@ -10,6 +10,8 @@
  * - Available slots (10%)
  */
 
+import { getLevelDistance } from '../../common/constants/level.constants';
+
 interface SessionForScoring {
   id: string;
   venueId?: string | null;
@@ -170,7 +172,7 @@ export class ScoringEngine {
     let minDiff = Infinity;
     for (const currentLevel of current.requiredLevels) {
       for (const candidateLevel of candidate.requiredLevels) {
-        const diff = Math.abs(currentLevel - candidateLevel);
+        const diff = getLevelDistance(currentLevel, candidateLevel);
         minDiff = Math.min(minDiff, diff);
       }
     }

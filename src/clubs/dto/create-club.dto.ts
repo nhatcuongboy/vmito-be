@@ -103,7 +103,6 @@ export class CreateClubDto {
   @IsArray()
   @IsInt({ each: true })
   @Min(1, { each: true })
-  @Max(8, { each: true })
   requiredLevels?: number[];
 
   @IsOptional()

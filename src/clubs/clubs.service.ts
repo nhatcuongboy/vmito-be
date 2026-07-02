@@ -26,6 +26,7 @@ import {
   generateSlug,
 } from '../common/utils/string.utils';
 import { NotificationsService } from '../notifications/notifications.service';
+import { VALID_LEVELS } from '../common/constants/level.constants';
 
 @Injectable()
 export class ClubsService {
@@ -33,6 +34,24 @@ export class ClubsService {
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService
   ) {}
+
+  private validateRequiredLevels(requiredLevels?: number[]) {
+    if (requiredLevels === undefined) return;
+
+    if (!Array.isArray(requiredLevels)) {
+      throw new BadRequestException('requiredLevels must be an array');
+    }
+
+    const invalidLevels = requiredLevels.filter(
+      (level) => !VALID_LEVELS.includes(level)
+    );
+
+    if (invalidLevels.length > 0) {
+      throw new BadRequestException(
+        `Invalid level values: ${invalidLevels.join(', ')}. Valid levels are: ${VALID_LEVELS.join(', ')}`
+      );
+    }
+  }
 
   private async uniqueClubSlug(name: string): Promise<string> {
     const base = generateSlug(name);
@@ -834,6 +853,8 @@ export class ClubsService {
       }
     }
 
+    this.validateRequiredLevels(dto.requiredLevels);
+
     const { schedules, ...clubData } = dto;
 
     // All clubs are approved immediately upon creation
@@ -975,6 +996,8 @@ export class ClubsService {
         throw new NotFoundException('Venue not found');
       }
     }
+
+    this.validateRequiredLevels(dto.requiredLevels);
 
     const { schedules, ...clubData } = dto;
 

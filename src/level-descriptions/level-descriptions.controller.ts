@@ -19,6 +19,12 @@ export class LevelDescriptionsController {
     return this.levelDescriptionsService.findAll();
   }
 
+  @Public()
+  @Get('level-definitions')
+  findDefinitions() {
+    return this.levelDescriptionsService.findDefinitions();
+  }
+
   @Put('admin/level-descriptions')
   @UseGuards(AdminGuard)
   updateAll(@Body() dto: UpdateLevelDescriptionsDto) {
