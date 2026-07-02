@@ -1012,7 +1012,15 @@ export class TournamentsService {
   async addVenue(
     tournamentId: string,
     dto: {
-      venueId: string;
+      venueId?: string;
+      name?: string;
+      acronym?: string;
+      placeId?: string;
+      address?: string;
+      lat?: number;
+      lng?: number;
+      district?: string;
+      city?: string;
       courts?: { courtNumber: number; courtName?: string }[];
     }
   ) {
@@ -1021,22 +1029,45 @@ export class TournamentsService {
     });
     if (!tournament) throw new NotFoundException('Tournament not found');
 
-    const venue = await this.prisma.venue.findUnique({
-      where: { id: dto.venueId },
-    });
-    if (!venue) throw new NotFoundException('Venue not found');
-
-    // Upsert: if already linked, update courts; otherwise create
-    const existing = await (this.prisma as any).tournamentVenue.findUnique({
-      where: { tournamentId_venueId: { tournamentId, venueId: dto.venueId } },
-    });
-
     let tournamentVenue: any;
-    if (existing) {
-      tournamentVenue = existing;
+
+    if (dto.venueId) {
+      // ── Linked mode ──────────────────────────────────────────────────────
+      const venue = await this.prisma.venue.findUnique({
+        where: { id: dto.venueId },
+      });
+      if (!venue) throw new NotFoundException('Venue not found');
+
+      // Upsert by (tournamentId, venueId)
+      const existing = await (this.prisma as any).tournamentVenue.findFirst({
+        where: { tournamentId, venueId: dto.venueId },
+      });
+
+      if (existing) {
+        tournamentVenue = existing;
+      } else {
+        tournamentVenue = await (this.prisma as any).tournamentVenue.create({
+          data: { tournamentId, venueId: dto.venueId },
+        });
+      }
     } else {
+      // ── Inline mode ───────────────────────────────────────────────────────
+      // Store address fields directly — no Venue record is created.
+      if (!dto.name) throw new Error('name is required for inline venue mode');
+
       tournamentVenue = await (this.prisma as any).tournamentVenue.create({
-        data: { tournamentId, venueId: dto.venueId },
+        data: {
+          tournamentId,
+          venueId: null,
+          name: dto.name,
+          acronym: dto.acronym ?? null,
+          placeId: dto.placeId ?? null,
+          address: dto.address ?? null,
+          lat: dto.lat ?? null,
+          lng: dto.lng ?? null,
+          district: dto.district ?? null,
+          city: dto.city ?? null,
+        },
       });
     }
 
@@ -1082,11 +1113,18 @@ export class TournamentsService {
     });
   }
 
-  async removeVenue(tournamentId: string, venueId: string) {
+  async removeVenue(tournamentId: string, venueOrRecordId: string) {
+    // Support both linked mode (venueId) and inline mode (tournamentVenue.id)
     const tournamentVenue = await (
       this.prisma as any
-    ).tournamentVenue.findUnique({
-      where: { tournamentId_venueId: { tournamentId, venueId } },
+    ).tournamentVenue.findFirst({
+      where: {
+        tournamentId,
+        OR: [
+          { venueId: venueOrRecordId },
+          { id: venueOrRecordId },
+        ],
+      },
     });
     if (!tournamentVenue)
       throw new NotFoundException('Venue not linked to this tournament');

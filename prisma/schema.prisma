@@ -929,15 +929,25 @@ model TournamentCourt {
 model TournamentVenue {
   id           String   @id @default(cuid())
   tournamentId String
-  venueId      String
+  /// Null when using inline address mode (no Venue record created)
+  venueId      String?
   createdAt    DateTime @default(now())
+
+  /// Inline address fields — populated when venueId is null
+  name     String?
+  acronym  String?
+  placeId  String?
+  address  String?
+  lat      Float?
+  lng      Float?
+  district String?
+  city     String?
 
   // Relations
   tournament Tournament        @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  venue      Venue             @relation(fields: [venueId], references: [id])
+  venue      Venue?            @relation(fields: [venueId], references: [id])
   courts     TournamentCourt[]
 
-  @@unique([tournamentId, venueId])
   @@map("tournament_venues")
 }
 
