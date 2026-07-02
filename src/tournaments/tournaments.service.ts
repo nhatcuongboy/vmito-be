@@ -67,12 +67,16 @@ export class TournamentsService {
   }
 
   async findMyTournaments(userId: string) {
-    // Tournaments the user hosts OR has been assigned to manage. The filtered
-    // `managers` relation lets the client read the caller's granted permissions
+    // Tournaments the user hosts, has been assigned to manage, OR is an umpire/referee for.
+    // The filtered `managers` relation lets the client read the caller's granted permissions
     // (empty for hosted tournaments, where the host has every permission).
     return this.prisma.tournament.findMany({
       where: {
-        OR: [{ hostId: userId }, { managers: { some: { userId } } }],
+        OR: [
+          { hostId: userId },
+          { managers: { some: { userId } } },
+          { umpires: { some: { userId } } },
+        ],
       },
       include: {
         managers: {
