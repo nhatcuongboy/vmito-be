@@ -18,6 +18,7 @@ export interface ResolvedAddress {
 
 @Injectable()
 export class AddressMappingService implements OnModuleInit {
+  private static readonly CSV_FILENAME = 'admin_mapping_old_to_new_10_25.csv';
   private readonly logger = new Logger(AddressMappingService.name);
   private wardMapping = new Map<string, AddressMapping>();
   private districtMapping = new Map<
@@ -26,22 +27,44 @@ export class AddressMappingService implements OnModuleInit {
   >();
 
   onModuleInit() {
-    // CSV lives at project root — two levels up from dist/venues/
-    const csvPath = path.resolve(
-      __dirname,
-      '../../admin_mapping_old_to_new_10_25.csv'
-    );
-    if (!fs.existsSync(csvPath)) {
+    const csvPath = this.locateCsv();
+    if (!csvPath) {
       this.logger.warn(
-        `Address mapping CSV not found at: ${csvPath}. Auto-mapping disabled.`
+        `Address mapping CSV "${AddressMappingService.CSV_FILENAME}" not found in any known location. Auto-mapping disabled.`
       );
       return;
     }
     this.wardMapping = this.loadMappingFromCsv(csvPath);
     this.districtMapping = this.buildDistrictMapping(this.wardMapping);
     this.logger.log(
-      `Loaded ${this.wardMapping.size} ward-level address mappings`
+      `Loaded ${this.wardMapping.size} ward-level address mappings from ${csvPath}`
     );
+  }
+
+  /**
+   * Locate the address-mapping CSV across the environments this app runs in.
+   * The compiled output lives at dist/src/venues, so a fixed relative path is
+   * brittle; instead probe the known candidate locations and return the first
+   * that exists.
+   */
+  private locateCsv(): string | null {
+    const filename = AddressMappingService.CSV_FILENAME;
+    const candidates = [
+      // Project root when launched from there (local `node dist/src/main`
+      // and Docker `WORKDIR /app`).
+      path.resolve(process.cwd(), filename),
+      // Two levels up from dist/src/venues → dist/ (previous behaviour).
+      path.resolve(__dirname, '..', '..', filename),
+      // Three levels up from dist/src/venues → project root.
+      path.resolve(__dirname, '..', '..', '..', filename),
+      // Alongside the compiled service (if bundled as an asset).
+      path.resolve(__dirname, filename),
+    ];
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    return null;
   }
 
   /**
@@ -202,17 +225,17 @@ export class AddressMappingService implements OnModuleInit {
 
   private normalizeCityName(city: string): string {
     return city
-      .replace(/^(Tp\.?\s*|TP\.?\s*)/i, 'Thành Phố ')
-      .replace(/^(T\.\s*)/i, 'Thành Phố ')
+      .replace(/^(?:Tp|TP)(?=[.\s])\.?\s*/i, 'Thành Phố ')
+      .replace(/^T(?=\.)\.\s*/i, 'Thành Phố ')
       .trim()
       .toLowerCase();
   }
 
   private normalizeDistrictName(district: string): string {
     return district
-      .replace(/^(Q\.?\s*)/i, 'Quận ')
-      .replace(/^(H\.?\s*)/i, 'Huyện ')
-      .replace(/^(TX\.?\s*)/i, 'Thị xã ')
+      .replace(/^Q(?=[.\s\d])\.?\s*/i, 'Quận ')
+      .replace(/^H(?=[.\s\d])\.?\s*/i, 'Huyện ')
+      .replace(/^TX(?=[.\s\d])\.?\s*/i, 'Thị xã ')
       .trim()
       .toLowerCase();
   }
