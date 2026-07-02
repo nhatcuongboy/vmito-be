@@ -254,7 +254,8 @@ export class SessionsController {
     if (
       user.role !== 'HOST' &&
       user.role !== 'ADMIN' &&
-      user.role !== 'PLAYER'
+      user.role !== 'PLAYER' &&
+      user.role !== 'REFEREE'
     ) {
       throw new ForbiddenException('Only authorized users can create sessions');
     }
@@ -269,7 +270,8 @@ export class SessionsController {
     if (
       user.role !== 'HOST' &&
       user.role !== 'ADMIN' &&
-      user.role !== 'PLAYER'
+      user.role !== 'PLAYER' &&
+      user.role !== 'REFEREE'
     ) {
       throw new ForbiddenException('Only authorized users can create sessions');
     }

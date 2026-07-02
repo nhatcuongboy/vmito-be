@@ -37,9 +37,12 @@ export class UsersController {
     if (
       user.role !== 'ADMIN' &&
       user.role !== 'HOST' &&
-      user.role !== 'PLAYER'
+      user.role !== 'PLAYER' &&
+      user.role !== 'REFEREE'
     ) {
-      throw new ForbiddenException('Admin, Host or Player access required');
+      throw new ForbiddenException(
+        'Admin, Host, Player or Referee access required'
+      );
     }
     return this.usersService.findAll({
       search,

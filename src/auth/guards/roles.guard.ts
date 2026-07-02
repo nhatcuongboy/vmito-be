@@ -31,12 +31,20 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('Authentication required');
     }
 
-    if (!requiredRoles.includes(user.role)) {
+    if (!this.hasRequiredRole(user.role, requiredRoles)) {
       throw new ForbiddenException(
         `Access denied. Required roles: ${requiredRoles.join(', ')}`
       );
     }
 
     return true;
+  }
+
+  private hasRequiredRole(userRole: Role, requiredRoles: Role[]): boolean {
+    if (requiredRoles.includes(userRole)) {
+      return true;
+    }
+
+    return userRole === Role.REFEREE && requiredRoles.includes(Role.PLAYER);
   }
 }
