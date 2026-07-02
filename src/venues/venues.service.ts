@@ -56,6 +56,7 @@ export class VenuesService {
       radius,
       status,
       isVerified,
+      hasNewAddress,
       closureStatus,
       sortBy: rawSortBy,
       sortOrder = 'asc',
@@ -159,6 +160,13 @@ export class VenuesService {
     // Verified filter
     if (isVerified !== undefined) {
       andConditions.push({ isVerified });
+    }
+
+    // New-era address presence filter (Nghị quyết 60 migration)
+    if (hasNewAddress !== undefined) {
+      andConditions.push(
+        hasNewAddress ? { newAddress: { not: null } } : { newAddress: null }
+      );
     }
 
     const where: Prisma.VenueWhereInput =

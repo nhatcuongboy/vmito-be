@@ -7,7 +7,7 @@ import {
   Min,
   Max,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 import { ClosureStatus, VenueStatus } from '@prisma/client';
 
@@ -88,6 +88,20 @@ export class SearchVenueDto {
   @Type(() => Boolean)
   @IsBoolean()
   isVerified?: boolean;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'Filter by new-era address presence. true = has new address, false = missing new address.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === 'true' || value === '1') return true;
+    if (value === false || value === 'false' || value === '0') return false;
+    return undefined;
+  })
+  @IsBoolean()
+  hasNewAddress?: boolean;
 
   @ApiProperty({
     required: false,
