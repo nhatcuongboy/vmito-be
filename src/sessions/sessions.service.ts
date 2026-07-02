@@ -121,6 +121,7 @@ export class SessionsService {
       excludeStatuses?: SessionStatus[];
       endTimeBefore?: string;
       endTimeAfter?: string;
+      sessionType?: 'all' | 'regular' | 'facebook';
     }
   ) {
     const page = filters?.page || 1;
@@ -162,6 +163,12 @@ export class SessionsService {
       where.endTime = { lt: new Date(filters.endTimeBefore) };
     } else if (filters?.endTimeAfter) {
       where.endTime = { gte: new Date(filters.endTimeAfter) };
+    }
+
+    if (filters?.sessionType === 'regular') {
+      where.isCrawled = false;
+    } else if (filters?.sessionType === 'facebook') {
+      where.isCrawled = true;
     }
 
     const total = await this.prisma.session.count({ where });
@@ -226,6 +233,7 @@ export class SessionsService {
       excludeStatuses?: SessionStatus[];
       sortBy?: string;
       sortOrder?: 'asc' | 'desc';
+      sessionType?: 'all' | 'regular' | 'facebook';
     }
   ) {
     return this.findAll(undefined, { ...filters, hostId });
@@ -250,6 +258,7 @@ export class SessionsService {
     hostId?: string;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
+    sessionType?: 'all' | 'regular' | 'facebook';
   }) {
     const page = filters?.page || 1;
     const limit = filters?.limit || 12;
@@ -372,6 +381,12 @@ export class SessionsService {
       andConditions.push({
         hostId: filters.hostId,
       });
+    }
+
+    if (filters?.sessionType === 'regular') {
+      andConditions.push({ isCrawled: false });
+    } else if (filters?.sessionType === 'facebook') {
+      andConditions.push({ isCrawled: true });
     }
 
     if (andConditions.length > 0) {
@@ -1093,11 +1108,10 @@ export class SessionsService {
       VALID_LEVELS.includes(level)
     );
 
-    // Crawled sessions are not linked to a Venue record (Gemini rarely produces
-    // a real Google placeId). We keep a human-readable location string only.
+    const matchedVenueId = extracted.venueId?.trim();
+
     // Prefer the AI's explicit location; otherwise compose "<venue name>,
-    // <address>" so the court/venue name is never dropped (previously we fell
-    // back to the address alone, hiding "Sân GENZ").
+    // <address>" so the court/venue name is never dropped.
     const composedVenue = [extracted.venue?.name, extracted.venue?.address]
       .map((s) => s?.trim())
       .filter(Boolean)
@@ -1127,6 +1141,7 @@ export class SessionsService {
         name,
         slug: sessionSlug,
         hostId: botUserId,
+        venueId: matchedVenueId || undefined,
         isCrawled: true,
         externalUrl,
         externalSource,

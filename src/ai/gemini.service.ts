@@ -809,10 +809,20 @@ Only use another language if the user explicitly asks you to translate, compare 
           contains: 70,
           token: 55,
         }) +
+        this.scoreTextMatch(searchCombined, venueName, {
+          exact: 80,
+          contains: 60,
+          token: 45,
+        }) +
         this.scoreTextMatch(searchName, venueAcronym, {
           exact: 85,
           contains: 55,
           token: 25,
+        }) +
+        this.scoreTextMatch(searchCombined, venueAcronym, {
+          exact: 70,
+          contains: 45,
+          token: 20,
         }) +
         this.scoreTextMatch(searchAddress, venueAddress, {
           exact: 45,
@@ -993,8 +1003,11 @@ Important rules:
     const extracted = this.normalizeExtractedSession(rawExtracted);
 
     // Try to match venue in database
-    if (extracted.venue) {
-      const match = await this.findMatchingVenue(extracted.venue);
+    const venueForMatching =
+      extracted.venue ||
+      (extracted.location ? { name: extracted.location } : undefined);
+    if (venueForMatching) {
+      const match = await this.findMatchingVenue(venueForMatching);
       if (match) {
         extracted.venueId = match.venue.id;
         extracted.venue = this.canonicalVenue(match.venue);

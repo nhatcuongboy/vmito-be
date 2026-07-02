@@ -61,7 +61,8 @@ export class SessionsController {
     @Query('excludeStatus') excludeStatus?: SessionStatus,
     @Query('excludeStatuses') excludeStatusesRaw?: string,
     @Query('endTimeBefore') endTimeBefore?: string,
-    @Query('endTimeAfter') endTimeAfter?: string
+    @Query('endTimeAfter') endTimeAfter?: string,
+    @Query('sessionType') sessionType?: 'all' | 'regular' | 'facebook'
   ) {
     // Security: non-admin users can only see their own hosted sessions
     const effectiveHostId = user.role === 'ADMIN' ? hostId : user.userId;
@@ -81,6 +82,7 @@ export class SessionsController {
       excludeStatuses,
       endTimeBefore,
       endTimeAfter,
+      sessionType,
     });
   }
 
@@ -94,7 +96,8 @@ export class SessionsController {
     @Query('excludeStatus') excludeStatus?: SessionStatus,
     @Query('excludeStatuses') excludeStatusesRaw?: string,
     @Query('sortBy') sortBy?: string,
-    @Query('sortOrder') sortOrder?: 'asc' | 'desc'
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc',
+    @Query('sessionType') sessionType?: 'all' | 'regular' | 'facebook'
   ) {
     const excludeStatuses = excludeStatusesRaw
       ? (excludeStatusesRaw.split(',') as SessionStatus[])
@@ -107,6 +110,7 @@ export class SessionsController {
       excludeStatuses,
       sortBy,
       sortOrder,
+      sessionType,
     });
   }
 
@@ -130,7 +134,8 @@ export class SessionsController {
     @Query('limit') limit?: string,
     @Query('hostId') hostId?: string,
     @Query('sortBy') sortBy?: string,
-    @Query('sortOrder') sortOrder?: 'asc' | 'desc'
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc',
+    @Query('sessionType') sessionType?: 'all' | 'regular' | 'facebook'
   ) {
     return this.sessionsService.findAvailable({
       date,
@@ -154,6 +159,7 @@ export class SessionsController {
       hostId,
       sortBy,
       sortOrder,
+      sessionType,
     });
   }
 
