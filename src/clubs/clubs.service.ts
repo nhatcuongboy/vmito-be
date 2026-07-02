@@ -1274,9 +1274,31 @@ export class ClubsService {
   /**
    * Get all join requests for a club
    */
-  async getJoinRequests(clubId: string, hostId: string) {
+  async getAllPendingJoinRequests() {
+    return this.prisma.clubJoinRequest.findMany({
+      where: { status: JoinRequestStatus.PENDING },
+      include: {
+        club: {
+          select: { id: true, slug: true, name: true, image: true },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+            gender: true,
+            level: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getJoinRequests(clubId: string, hostId: string, userRole?: Role) {
     const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
+      where: userRole === Role.ADMIN ? { id: clubId } : { id: clubId, hostId },
     });
 
     if (!club) {
@@ -1304,9 +1326,14 @@ export class ClubsService {
   /**
    * Approve a join request
    */
-  async approveJoinRequest(clubId: string, requestId: string, hostId: string) {
+  async approveJoinRequest(
+    clubId: string,
+    requestId: string,
+    hostId: string,
+    userRole?: Role
+  ) {
     const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
+      where: userRole === Role.ADMIN ? { id: clubId } : { id: clubId, hostId },
     });
 
     if (!club) {
@@ -1362,10 +1389,11 @@ export class ClubsService {
     clubId: string,
     requestId: string,
     hostId: string,
-    response?: string
+    response?: string,
+    userRole?: Role
   ) {
     const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
+      where: userRole === Role.ADMIN ? { id: clubId } : { id: clubId, hostId },
     });
 
     if (!club) {

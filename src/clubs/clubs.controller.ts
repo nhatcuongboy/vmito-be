@@ -212,6 +212,13 @@ export class ClubsController {
   // Join Request Management Endpoints
   // ===========================================
 
+  @Get('admin/join-requests')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  async getAllPendingJoinRequests() {
+    return this.clubsService.getAllPendingJoinRequests();
+  }
+
   @Get(':id/join-requests')
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
   @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
@@ -219,7 +226,7 @@ export class ClubsController {
     @Param('id') clubId: string,
     @CurrentUser() user: JwtUser
   ) {
-    return this.clubsService.getJoinRequests(clubId, user.userId);
+    return this.clubsService.getJoinRequests(clubId, user.userId, user.role);
   }
 
   @Post(':id/join-requests/:requestId/approve')
@@ -230,7 +237,12 @@ export class ClubsController {
     @Param('requestId') requestId: string,
     @CurrentUser() user: JwtUser
   ) {
-    return this.clubsService.approveJoinRequest(clubId, requestId, user.userId);
+    return this.clubsService.approveJoinRequest(
+      clubId,
+      requestId,
+      user.userId,
+      user.role
+    );
   }
 
   @Post(':id/join-requests/:requestId/reject')
@@ -246,7 +258,8 @@ export class ClubsController {
       clubId,
       requestId,
       user.userId,
-      dto.response
+      dto.response,
+      user.role
     );
   }
 
