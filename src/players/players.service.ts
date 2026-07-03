@@ -516,6 +516,7 @@ export class PlayersService {
             isClubMember: clubMembership.isClubMember,
             clubId: clubMembership.clubId,
             clubFeeApplied: clubMembership.clubFeeApplied,
+            customFee: playerData.customFee ?? null,
             status: 'WAITING',
             waitingSince: new Date(),
           },

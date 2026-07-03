@@ -58,4 +58,9 @@ export class CreatePlayerDto {
   @IsString()
   @IsOptional()
   clubId?: string | null;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  customFee?: number | null;
 }
