@@ -233,7 +233,6 @@ export class FeeService {
         createdByUserId: true,
         isClubMember: true,
         clubId: true,
-        customFee: true,
       },
     });
 
@@ -310,7 +309,6 @@ export class FeeService {
         userId: true,
         isClubMember: true,
         clubId: true,
-        customFee: true,
       },
     });
 
@@ -391,7 +389,6 @@ export class FeeService {
             userId: true,
             isClubMember: true,
             clubId: true,
-            customFee: true,
           },
         },
       },
@@ -467,52 +464,33 @@ export class FeeService {
     },
     player: {
       id: string;
-      userId?: string | null;
       gender?: Gender | null;
       isClubMember?: boolean;
       clubId?: string | null;
-      customFee?: number | null;
     },
     session: { startTime?: Date | null }
   ): Promise<{ amount: number; clubFeeApplied: boolean }> {
     const gender = player.gender || Gender.MALE;
     const fallbackAmount = this.calculatePlayerFee(feeConfig, gender);
 
-    // Priority 1: Custom fee (highest priority - overrides everything)
-    if (player.customFee !== null && player.customFee !== undefined) {
-      return { amount: player.customFee, clubFeeApplied: false };
-    }
-
-    // Priority 2: Club fee (monthly member)
-    if (
-      player.userId &&
-      player.isClubMember &&
-      player.clubId &&
-      session.startTime
-    ) {
-      const isMonthlyMember = await this.clubsService.isMonthlyMember(
+    // Priority 1: Club fixed fee — applies to any player assigned to a club
+    // that has a per-session fee configured for the session's month.
+    if (player.isClubMember && player.clubId && session.startTime) {
+      const fixedMemberFee = await this.clubsService.getPerSessionFee(
         player.clubId,
-        player.userId,
+        gender,
         session.startTime
       );
 
-      if (isMonthlyMember) {
-        const fixedMemberFee = await this.clubsService.getPerSessionFee(
-          player.clubId,
-          gender,
-          session.startTime
-        );
-
-        if (fixedMemberFee !== null) {
-          return {
-            amount: fixedMemberFee,
-            clubFeeApplied: true,
-          };
-        }
+      if (fixedMemberFee !== null) {
+        return {
+          amount: fixedMemberFee,
+          clubFeeApplied: true,
+        };
       }
     }
 
-    // Priority 3: Session default fee
+    // Priority 2: Session default fee
     return { amount: fallbackAmount, clubFeeApplied: false };
   }
 
@@ -558,7 +536,6 @@ export class FeeService {
         createdByUserId: true,
         isClubMember: true,
         clubId: true,
-        customFee: true,
       },
     });
 
@@ -610,7 +587,6 @@ export class FeeService {
             userId: true,
             isClubMember: true,
             clubId: true,
-            customFee: true,
           },
         },
       },

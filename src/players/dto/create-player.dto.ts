@@ -59,8 +59,8 @@ export class CreatePlayerDto {
   @IsOptional()
   clubId?: string | null;
 
-  @IsNumber()
-  @Min(0)
+  // Deprecated: kept only so older clients that still send it don't get 400.
+  // The value is ignored — the club's fixed per-session fee is applied instead.
   @IsOptional()
-  customFee?: number | null;
+  customFee?: unknown;
 }

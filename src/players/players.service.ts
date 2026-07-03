@@ -516,7 +516,6 @@ export class PlayersService {
             isClubMember: clubMembership.isClubMember,
             clubId: clubMembership.clubId,
             clubFeeApplied: clubMembership.clubFeeApplied,
-            customFee: playerData.customFee ?? null,
             status: 'WAITING',
             waitingSince: new Date(),
           },
@@ -612,7 +611,8 @@ export class PlayersService {
       requireConfirmInfo?: boolean;
       isClubMember?: boolean;
       clubId?: string | null;
-      customFee?: number | null;
+      // Deprecated: accepted from older clients but never written
+      customFee?: unknown;
     }>
   ) {
     // Check if session exists
@@ -634,7 +634,7 @@ export class PlayersService {
     // Update all players in parallel
     const updatedPlayers = await Promise.all(
       players.map(async (playerData) => {
-        const { id, ...updateData } = playerData;
+        const { id, customFee: _customFee, ...updateData } = playerData;
 
         // Verify player belongs to this session
         const existingPlayer = await this.prisma.player.findFirst({
@@ -1273,7 +1273,6 @@ export class PlayersService {
       isClubMember?: boolean;
       clubId?: string | null;
       userId?: string | null;
-      customFee?: number | null;
     }
   ) {
     // Check if session exists
@@ -1344,10 +1343,6 @@ export class PlayersService {
         isClubMember: clubMembership.isClubMember,
         clubId: clubMembership.clubId,
         clubFeeApplied: clubMembership.clubFeeApplied,
-        customFee:
-          updateData.customFee !== undefined
-            ? updateData.customFee
-            : existingPlayer.customFee,
       },
     });
 
