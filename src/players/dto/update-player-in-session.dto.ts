@@ -56,6 +56,12 @@ export class UpdatePlayerInSessionDto {
   @IsString()
   clubId?: string | null;
 
+  @IsOptional()
+  @ValidateIf((o: UpdatePlayerInSessionDto) => o.customFee !== null)
+  @IsNumber()
+  @Min(0)
+  customFee?: number | null;
+
   // ============ Fields to ignore (sent by FE but not used) ============
   // These fields are allowed in the request body but will be ignored
   @IsOptional()

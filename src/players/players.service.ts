@@ -611,6 +611,7 @@ export class PlayersService {
       requireConfirmInfo?: boolean;
       isClubMember?: boolean;
       clubId?: string | null;
+      customFee?: number | null;
     }>
   ) {
     // Check if session exists
@@ -1271,6 +1272,7 @@ export class PlayersService {
       isClubMember?: boolean;
       clubId?: string | null;
       userId?: string | null;
+      customFee?: number | null;
     }
   ) {
     // Check if session exists
@@ -1341,6 +1343,10 @@ export class PlayersService {
         isClubMember: clubMembership.isClubMember,
         clubId: clubMembership.clubId,
         clubFeeApplied: clubMembership.clubFeeApplied,
+        customFee:
+          updateData.customFee !== undefined
+            ? updateData.customFee
+            : existingPlayer.customFee,
       },
     });
 
