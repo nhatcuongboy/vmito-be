@@ -71,4 +71,25 @@ export class FeeController {
   ) {
     return this.feeService.delete(sessionId, user.userId, user.role);
   }
+
+  @Post('recalculate')
+  @ApiOperation({
+    summary: 'Recalculate all payment amounts based on latest fee config',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Payments recalculated successfully',
+  })
+  @ApiResponse({ status: 403, description: 'Not session host' })
+  @ApiResponse({ status: 404, description: 'Session or fee config not found' })
+  async recalculatePayments(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    return this.feeService.recalculateAllPayments(
+      sessionId,
+      user.userId,
+      user.role
+    );
+  }
 }

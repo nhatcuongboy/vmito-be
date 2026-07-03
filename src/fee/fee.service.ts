@@ -344,6 +344,96 @@ export class FeeService {
     }
   }
 
+  /**
+   * Recalculate all payment records for a session based on latest fee config
+   * This will apply the latest club fee config for monthly members
+   */
+  async recalculateAllPayments(
+    sessionId: string,
+    userId: string,
+    role?: string
+  ): Promise<{ updated: number; message: string }> {
+    // Verify session exists and user is the host
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { id: true, hostId: true, startTime: true },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    if (role !== 'ADMIN' && session.hostId !== userId) {
+      throw new ForbiddenException(
+        'Only session host can recalculate payments'
+      );
+    }
+
+    // Check if fee config exists
+    const feeConfig = await this.prisma.sessionFeeConfig.findUnique({
+      where: { sessionId },
+    });
+
+    if (!feeConfig) {
+      throw new NotFoundException('Fee config not found for this session');
+    }
+
+    // Get all payment records with player info
+    const payments = await this.prisma.paymentRecord.findMany({
+      where: { sessionId },
+      include: {
+        player: {
+          select: {
+            id: true,
+            gender: true,
+            userId: true,
+            isClubMember: true,
+            clubId: true,
+          },
+        },
+      },
+    });
+
+    let updatedCount = 0;
+
+    // Recalculate each payment
+    for (const payment of payments) {
+      const { amount: newAmount, clubFeeApplied } =
+        await this.calculatePaymentAmountForPlayer(
+          feeConfig,
+          payment.player,
+          session
+        );
+      await this.syncPlayerClubFeeApplied(payment.player.id, clubFeeApplied);
+
+      if (payment.amount !== newAmount) {
+        const shouldResetStatus =
+          payment.status === PaymentStatus.APPROVED ||
+          payment.status === PaymentStatus.SUBMITTED;
+
+        await this.prisma.paymentRecord.update({
+          where: { id: payment.id },
+          data: {
+            amount: newAmount,
+            ...(shouldResetStatus && {
+              status: PaymentStatus.PENDING,
+              submittedAt: null,
+              approvedAt: null,
+              rejectedAt: null,
+            }),
+          },
+        });
+
+        updatedCount++;
+      }
+    }
+
+    return {
+      updated: updatedCount,
+      message: `Successfully recalculated ${updatedCount} payment(s)`,
+    };
+  }
+
   // Helper: Calculate fee for a player based on gender
   calculatePlayerFee(
     feeConfig: {
