@@ -75,9 +75,16 @@ export class ClubsService {
     }
   }
 
-  private async ensureManagedClub(clubId: string, hostId: string) {
+  private async ensureManagedClub(
+    clubId: string,
+    hostId: string,
+    userRole?: Role
+  ) {
     const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
+      where: {
+        id: clubId,
+        ...(userRole === Role.ADMIN ? {} : { hostId }),
+      },
       select: { id: true },
     });
 
@@ -1155,9 +1162,12 @@ export class ClubsService {
   /**
    * Get all members of a club
    */
-  async getClubMembers(clubId: string, hostId: string) {
+  async getClubMembers(clubId: string, hostId: string, userRole?: Role) {
     const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
+      where: {
+        id: clubId,
+        ...(userRole === Role.ADMIN ? {} : { hostId }),
+      },
     });
 
     if (!club) {
@@ -1504,8 +1514,8 @@ export class ClubsService {
   // Fee Configuration
   // ===========================================
 
-  async getClubFees(clubId: string, hostId: string) {
-    await this.ensureManagedClub(clubId, hostId);
+  async getClubFees(clubId: string, hostId: string, userRole?: Role) {
+    await this.ensureManagedClub(clubId, hostId, userRole);
 
     return this.prisma.clubFeeConfig.findMany({
       where: { clubId },
@@ -1517,9 +1527,10 @@ export class ClubsService {
     clubId: string,
     hostId: string,
     year: number,
-    month: number
+    month: number,
+    userRole?: Role
   ) {
-    await this.ensureManagedClub(clubId, hostId);
+    await this.ensureManagedClub(clubId, hostId, userRole);
     this.validateMonthYear(year, month);
 
     return this.prisma.clubFeeConfig.findUnique({
@@ -1529,8 +1540,13 @@ export class ClubsService {
     });
   }
 
-  async upsertClubFee(clubId: string, hostId: string, dto: CreateClubFeeDto) {
-    await this.ensureManagedClub(clubId, hostId);
+  async upsertClubFee(
+    clubId: string,
+    hostId: string,
+    dto: CreateClubFeeDto,
+    userRole?: Role
+  ) {
+    await this.ensureManagedClub(clubId, hostId, userRole);
     this.validateMonthYear(dto.year, dto.month);
 
     if (!dto.maleFeePerSession && !dto.femaleFeePerSession) {
@@ -1561,11 +1577,11 @@ export class ClubsService {
     });
   }
 
-  async deleteClubFee(feeId: string, hostId: string) {
+  async deleteClubFee(feeId: string, hostId: string, userRole?: Role) {
     const fee = await this.prisma.clubFeeConfig.findFirst({
       where: {
         id: feeId,
-        club: { hostId },
+        ...(userRole === Role.ADMIN ? {} : { club: { hostId } }),
       },
     });
 
@@ -1584,9 +1600,10 @@ export class ClubsService {
     clubId: string,
     hostId: string,
     year: number,
-    month: number
+    month: number,
+    userRole?: Role
   ) {
-    await this.ensureManagedClub(clubId, hostId);
+    await this.ensureManagedClub(clubId, hostId, userRole);
     this.validateMonthYear(year, month);
 
     return this.prisma.clubMonthlyMember.findMany({
@@ -1611,9 +1628,10 @@ export class ClubsService {
   async upsertClubMonthlyMember(
     clubId: string,
     hostId: string,
-    dto: UpsertClubMonthlyMemberDto
+    dto: UpsertClubMonthlyMemberDto,
+    userRole?: Role
   ) {
-    await this.ensureManagedClub(clubId, hostId);
+    await this.ensureManagedClub(clubId, hostId, userRole);
     this.validateMonthYear(dto.year, dto.month);
 
     const membership = await this.prisma.clubMember.findUnique({
@@ -1664,9 +1682,10 @@ export class ClubsService {
     hostId: string,
     userId: string,
     year: number,
-    month: number
+    month: number,
+    userRole?: Role
   ) {
-    await this.ensureManagedClub(clubId, hostId);
+    await this.ensureManagedClub(clubId, hostId, userRole);
     this.validateMonthYear(year, month);
 
     await this.prisma.clubMonthlyMember.deleteMany({
