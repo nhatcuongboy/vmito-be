@@ -233,6 +233,7 @@ export class FeeService {
         createdByUserId: true,
         isClubMember: true,
         clubId: true,
+        customFee: true,
       },
     });
 
@@ -309,6 +310,7 @@ export class FeeService {
         userId: true,
         isClubMember: true,
         clubId: true,
+        customFee: true,
       },
     });
 
@@ -389,6 +391,7 @@ export class FeeService {
             userId: true,
             isClubMember: true,
             clubId: true,
+            customFee: true,
           },
         },
       },
@@ -468,41 +471,49 @@ export class FeeService {
       gender?: Gender | null;
       isClubMember?: boolean;
       clubId?: string | null;
+      customFee?: number | null;
     },
     session: { startTime?: Date | null }
   ): Promise<{ amount: number; clubFeeApplied: boolean }> {
     const gender = player.gender || Gender.MALE;
     const fallbackAmount = this.calculatePlayerFee(feeConfig, gender);
 
+    // Priority 1: Custom fee (highest priority - overrides everything)
+    if (player.customFee !== null && player.customFee !== undefined) {
+      return { amount: player.customFee, clubFeeApplied: false };
+    }
+
+    // Priority 2: Club fee (monthly member)
     if (
-      !player.userId ||
-      !player.isClubMember ||
-      !player.clubId ||
-      !session.startTime
+      player.userId &&
+      player.isClubMember &&
+      player.clubId &&
+      session.startTime
     ) {
-      return { amount: fallbackAmount, clubFeeApplied: false };
+      const isMonthlyMember = await this.clubsService.isMonthlyMember(
+        player.clubId,
+        player.userId,
+        session.startTime
+      );
+
+      if (isMonthlyMember) {
+        const fixedMemberFee = await this.clubsService.getPerSessionFee(
+          player.clubId,
+          gender,
+          session.startTime
+        );
+
+        if (fixedMemberFee !== null) {
+          return {
+            amount: fixedMemberFee,
+            clubFeeApplied: true,
+          };
+        }
+      }
     }
 
-    const isMonthlyMember = await this.clubsService.isMonthlyMember(
-      player.clubId,
-      player.userId,
-      session.startTime
-    );
-
-    if (!isMonthlyMember) {
-      return { amount: fallbackAmount, clubFeeApplied: false };
-    }
-
-    const fixedMemberFee = await this.clubsService.getPerSessionFee(
-      player.clubId,
-      gender,
-      session.startTime
-    );
-
-    return {
-      amount: fixedMemberFee ?? fallbackAmount,
-      clubFeeApplied: fixedMemberFee !== null,
-    };
+    // Priority 3: Session default fee
+    return { amount: fallbackAmount, clubFeeApplied: false };
   }
 
   private async syncPlayerClubFeeApplied(
@@ -547,6 +558,7 @@ export class FeeService {
         createdByUserId: true,
         isClubMember: true,
         clubId: true,
+        customFee: true,
       },
     });
 
@@ -598,6 +610,7 @@ export class FeeService {
             userId: true,
             isClubMember: true,
             clubId: true,
+            customFee: true,
           },
         },
       },

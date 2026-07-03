@@ -409,6 +409,7 @@ model Player {
   isClubMember   Boolean @default(false)
   clubId         String? // Which club's fee to apply
   clubFeeApplied Boolean @default(false)
+  customFee      Int? // Custom fee override for this player in this session only
 
   // Player-specific join fields
   joinCode   String    @unique // Unique join code for this player slot
