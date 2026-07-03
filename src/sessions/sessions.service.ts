@@ -720,6 +720,13 @@ export class SessionsService {
           },
         },
         feeConfig: true,
+        club: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
         _count: {
           select: {
             players: {
@@ -807,6 +814,7 @@ export class SessionsService {
       location,
       hostName,
       hostPhone,
+      clubId,
       venue,
       courtColor,
       courts: courtsConfig,
@@ -926,6 +934,7 @@ export class SessionsService {
         location: finalLocation,
         hostName,
         hostPhone,
+        clubId: clubId || null,
         venueId,
         courtColor: courtColor || '#179a3b',
         defaultMatchType: defaultMatchType || 'DOUBLES',
@@ -946,6 +955,13 @@ export class SessionsService {
           },
         },
         venue: true,
+        club: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
       },
     });
 
@@ -1042,6 +1058,13 @@ export class SessionsService {
           },
         },
         feeConfig: true,
+        club: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
         _count: {
           select: {
             players: { where: { registrationStatus: 'APPROVED' as const } },
@@ -1295,6 +1318,12 @@ export class SessionsService {
         hostName: updateSessionDto.hostName,
         searchTerms: updatedSearchTerms,
         hostPhone: updateSessionDto.hostPhone,
+        club:
+          updateSessionDto.clubId !== undefined
+            ? updateSessionDto.clubId
+              ? { connect: { id: updateSessionDto.clubId } }
+              : { disconnect: true }
+            : undefined,
         courtColor: updateSessionDto.courtColor,
         defaultMatchType: updateSessionDto.defaultMatchType,
         shuttlecock: updateSessionDto.shuttlecock,
@@ -1331,6 +1360,13 @@ export class SessionsService {
         },
         feeConfig: true,
         venue: true,
+        club: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
       },
     });
 
@@ -2900,6 +2936,7 @@ export class SessionsService {
       location,
       hostName,
       hostPhone,
+      clubId,
       venue,
       courtColor,
       courts: courtsConfig,
@@ -3002,6 +3039,7 @@ export class SessionsService {
         location: finalLocation,
         hostName,
         hostPhone,
+        clubId: clubId || null,
         venueId,
         courtColor: courtColor || '#179a3b',
         defaultMatchType: defaultMatchType || 'DOUBLES',
@@ -3022,6 +3060,13 @@ export class SessionsService {
           },
         },
         venue: true,
+        club: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
       },
     });
 
@@ -3090,6 +3135,13 @@ export class SessionsService {
         },
         venue: true,
         feeConfig: true,
+        club: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
         _count: {
           select: {
             players: { where: { registrationStatus: 'APPROVED' as const } },

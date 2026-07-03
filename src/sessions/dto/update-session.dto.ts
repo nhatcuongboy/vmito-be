@@ -42,6 +42,10 @@ export class UpdateSessionDto {
   @IsOptional()
   venue?: VenueDto;
 
+  @IsString()
+  @IsOptional()
+  clubId?: string | null;
+
   @IsNumber()
   @Min(1)
   @IsOptional()

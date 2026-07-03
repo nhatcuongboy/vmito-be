@@ -116,6 +116,10 @@ export class CreateSessionDto {
   @IsOptional()
   hostId?: string;
 
+  @IsString()
+  @IsOptional()
+  clubId?: string | null;
+
   @IsNumber()
   @Min(1)
   @IsOptional()

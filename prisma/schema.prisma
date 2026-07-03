@@ -181,6 +181,7 @@ model Session {
   hostPhone          String?
   location           String? // Keeping for backward compatibility
   venueId            String?
+  clubId             String?
   hostId             String
   numberOfCourts     Int           @default(2)
   searchTerms        String? // Normalized search string
@@ -236,6 +237,7 @@ model Session {
   players   Player[]
   host      User     @relation("HostedSessions", fields: [hostId], references: [id])
   venue     Venue?   @relation(fields: [venueId], references: [id])
+  club      Club?    @relation(fields: [clubId], references: [id], onDelete: SetNull)
 
   // Fee & Payment relations
   feeConfig      SessionFeeConfig?
@@ -245,6 +247,7 @@ model Session {
   clubSessions   ClubSession[]
 
   @@index([isCrawled])
+  @@index([clubId])
   @@map("sessions")
 }
 
@@ -1188,6 +1191,7 @@ model Club {
   members       ClubMember[]
   feeConfigs    ClubFeeConfig[]
   players       Player[]
+  sessions      Session[]
   joinRequests  ClubJoinRequest[]
   announcements ClubAnnouncement[]
   clubSessions  ClubSession[]

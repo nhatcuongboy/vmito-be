@@ -57,5 +57,5 @@ export class CreatePlayerDto {
 
   @IsString()
   @IsOptional()
-  clubId?: string;
+  clubId?: string | null;
 }
