@@ -58,7 +58,7 @@ export class PlayersService {
       return {
         isClubMember,
         clubId,
-        clubFeeApplied: Boolean(isClubMember && clubId),
+        clubFeeApplied: false,
       };
     }
 
@@ -68,7 +68,7 @@ export class PlayersService {
       return {
         isClubMember,
         clubId,
-        clubFeeApplied: Boolean(isClubMember && clubId),
+        clubFeeApplied: false,
       };
     }
 
@@ -94,7 +94,7 @@ export class PlayersService {
     return {
       isClubMember,
       clubId: isClubMember ? input.sessionClubId : null,
-      clubFeeApplied: isClubMember,
+      clubFeeApplied: false,
     };
   }
 

@@ -45,10 +45,11 @@ model User {
   notifications      Notification[]
 
   // Club relations
-  hostedClubs       Club[]             @relation("HostClubs")
-  clubMemberships   ClubMember[]       @relation("UserClubs")
-  clubJoinRequests  ClubJoinRequest[]  @relation("UserClubJoinRequests")
-  clubAnnouncements ClubAnnouncement[] @relation("UserClubAnnouncements")
+  hostedClubs        Club[]              @relation("HostClubs")
+  clubMemberships    ClubMember[]        @relation("UserClubs")
+  clubMonthlyMembers ClubMonthlyMember[] @relation("UserClubMonthlyMembers")
+  clubJoinRequests   ClubJoinRequest[]   @relation("UserClubJoinRequests")
+  clubAnnouncements  ClubAnnouncement[]  @relation("UserClubAnnouncements")
 
   // Image gallery
   uploadedImages UserImage[] @relation("UserImages")
@@ -1186,16 +1187,17 @@ model Club {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  host          User               @relation("HostClubs", fields: [hostId], references: [id], onDelete: Cascade)
-  defaultVenue  Venue?             @relation(fields: [defaultVenueId], references: [id], onDelete: SetNull)
-  members       ClubMember[]
-  feeConfigs    ClubFeeConfig[]
-  players       Player[]
-  sessions      Session[]
-  joinRequests  ClubJoinRequest[]
-  announcements ClubAnnouncement[]
-  clubSessions  ClubSession[]
-  schedules     ClubSchedule[]
+  host           User                @relation("HostClubs", fields: [hostId], references: [id], onDelete: Cascade)
+  defaultVenue   Venue?              @relation(fields: [defaultVenueId], references: [id], onDelete: SetNull)
+  members        ClubMember[]
+  feeConfigs     ClubFeeConfig[]
+  monthlyMembers ClubMonthlyMember[]
+  players        Player[]
+  sessions       Session[]
+  joinRequests   ClubJoinRequest[]
+  announcements  ClubAnnouncement[]
+  clubSessions   ClubSession[]
+  schedules      ClubSchedule[]
 
   @@unique([hostId, name])
   @@index([hostId])
@@ -1248,6 +1250,24 @@ model ClubFeeConfig {
   @@unique([clubId, month, year])
   @@index([clubId])
   @@map("club_fee_configs")
+}
+
+model ClubMonthlyMember {
+  id        String   @id @default(cuid())
+  clubId    String
+  userId    String
+  month     Int
+  year      Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user User @relation("UserClubMonthlyMembers", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clubId, userId, month, year])
+  @@index([clubId, month, year])
+  @@index([userId])
+  @@map("club_monthly_members")
 }
 
 // ===========================================

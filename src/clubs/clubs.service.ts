@@ -9,6 +9,7 @@ import {
   CreateClubDto,
   UpdateClubDto,
   CreateClubFeeDto,
+  UpsertClubMonthlyMemberDto,
   BrowseClubsDto,
 } from './dto';
 import {
@@ -62,6 +63,29 @@ export class ClubsService {
     });
     if (existing) return this.uniqueClubSlug(name);
     return candidate;
+  }
+
+  private validateMonthYear(year: number, month: number) {
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      throw new BadRequestException('month must be between 1 and 12');
+    }
+
+    if (!Number.isInteger(year) || year < 2020 || year > 2100) {
+      throw new BadRequestException('year must be between 2020 and 2100');
+    }
+  }
+
+  private async ensureManagedClub(clubId: string, hostId: string) {
+    const club = await this.prisma.club.findFirst({
+      where: { id: clubId, hostId },
+      select: { id: true },
+    });
+
+    if (!club) {
+      throw new NotFoundException('Club not found');
+    }
+
+    return club;
   }
 
   // ===========================================
@@ -1481,13 +1505,7 @@ export class ClubsService {
   // ===========================================
 
   async getClubFees(clubId: string, hostId: string) {
-    const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found');
-    }
+    await this.ensureManagedClub(clubId, hostId);
 
     return this.prisma.clubFeeConfig.findMany({
       where: { clubId },
@@ -1501,13 +1519,8 @@ export class ClubsService {
     year: number,
     month: number
   ) {
-    const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found');
-    }
+    await this.ensureManagedClub(clubId, hostId);
+    this.validateMonthYear(year, month);
 
     return this.prisma.clubFeeConfig.findUnique({
       where: {
@@ -1517,13 +1530,8 @@ export class ClubsService {
   }
 
   async upsertClubFee(clubId: string, hostId: string, dto: CreateClubFeeDto) {
-    const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found');
-    }
+    await this.ensureManagedClub(clubId, hostId);
+    this.validateMonthYear(dto.year, dto.month);
 
     if (!dto.maleFeePerSession && !dto.femaleFeePerSession) {
       throw new BadRequestException(
@@ -1572,9 +1580,123 @@ export class ClubsService {
     return { success: true };
   }
 
+  async getClubMonthlyMembers(
+    clubId: string,
+    hostId: string,
+    year: number,
+    month: number
+  ) {
+    await this.ensureManagedClub(clubId, hostId);
+    this.validateMonthYear(year, month);
+
+    return this.prisma.clubMonthlyMember.findMany({
+      where: { clubId, year, month },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            gender: true,
+            image: true,
+            phone: true,
+            level: true,
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }],
+    });
+  }
+
+  async upsertClubMonthlyMember(
+    clubId: string,
+    hostId: string,
+    dto: UpsertClubMonthlyMemberDto
+  ) {
+    await this.ensureManagedClub(clubId, hostId);
+    this.validateMonthYear(dto.year, dto.month);
+
+    const membership = await this.prisma.clubMember.findUnique({
+      where: { clubId_userId: { clubId, userId: dto.userId } },
+      select: { status: true },
+    });
+
+    if (membership?.status !== MemberStatus.ACTIVE) {
+      throw new BadRequestException(
+        'User must be an active club member before being assigned as a monthly member'
+      );
+    }
+
+    return this.prisma.clubMonthlyMember.upsert({
+      where: {
+        clubId_userId_month_year: {
+          clubId,
+          userId: dto.userId,
+          month: dto.month,
+          year: dto.year,
+        },
+      },
+      create: {
+        clubId,
+        userId: dto.userId,
+        month: dto.month,
+        year: dto.year,
+      },
+      update: {},
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            gender: true,
+            image: true,
+            phone: true,
+            level: true,
+          },
+        },
+      },
+    });
+  }
+
+  async deleteClubMonthlyMember(
+    clubId: string,
+    hostId: string,
+    userId: string,
+    year: number,
+    month: number
+  ) {
+    await this.ensureManagedClub(clubId, hostId);
+    this.validateMonthYear(year, month);
+
+    await this.prisma.clubMonthlyMember.deleteMany({
+      where: { clubId, userId, year, month },
+    });
+
+    return { success: true };
+  }
+
   // ===========================================
   // Helper Methods
   // ===========================================
+
+  async isMonthlyMember(
+    clubId: string,
+    userId: string,
+    sessionDate: Date
+  ): Promise<boolean> {
+    const month = sessionDate.getMonth() + 1;
+    const year = sessionDate.getFullYear();
+
+    const monthlyMember = await this.prisma.clubMonthlyMember.findUnique({
+      where: {
+        clubId_userId_month_year: { clubId, userId, month, year },
+      },
+      select: { id: true },
+    });
+
+    return Boolean(monthlyMember);
+  }
 
   async getPerSessionFee(
     clubId: string,

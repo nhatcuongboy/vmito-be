@@ -48,6 +48,7 @@ export class PaymentsService {
         gender: true,
         isClubMember: true,
         clubId: true,
+        clubFeeApplied: true,
         club: {
           select: {
             id: true,

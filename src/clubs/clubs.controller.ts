@@ -14,6 +14,7 @@ import {
   CreateClubDto,
   UpdateClubDto,
   CreateClubFeeDto,
+  UpsertClubMonthlyMemberDto,
   BrowseClubsDto,
   UpdateMemberRoleDto,
   RejectJoinRequestDto,
@@ -310,6 +311,57 @@ export class ClubsController {
     @CurrentUser() user: JwtUser
   ) {
     return this.clubsService.deleteClubFee(feeId, user.userId);
+  }
+
+  @Get(':id/monthly-members/:year/:month')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async getClubMonthlyMembers(
+    @Param('id') clubId: string,
+    @Param('year') year: string,
+    @Param('month') month: string,
+    @CurrentUser() user: JwtUser
+  ) {
+    return this.clubsService.getClubMonthlyMembers(
+      clubId,
+      user.userId,
+      parseInt(year, 10),
+      parseInt(month, 10)
+    );
+  }
+
+  @Post(':id/monthly-members')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async upsertClubMonthlyMember(
+    @Param('id') clubId: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: UpsertClubMonthlyMemberDto
+  ) {
+    return this.clubsService.upsertClubMonthlyMember(
+      clubId,
+      user.userId,
+      dto
+    );
+  }
+
+  @Delete(':id/monthly-members/:userId/:year/:month')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async deleteClubMonthlyMember(
+    @Param('id') clubId: string,
+    @Param('userId') memberUserId: string,
+    @Param('year') year: string,
+    @Param('month') month: string,
+    @CurrentUser() user: JwtUser
+  ) {
+    return this.clubsService.deleteClubMonthlyMember(
+      clubId,
+      user.userId,
+      memberUserId,
+      parseInt(year, 10),
+      parseInt(month, 10)
+    );
   }
 
   // ===========================================
