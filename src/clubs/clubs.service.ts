@@ -717,8 +717,17 @@ export class ClubsService {
       joinedAt: club.createdAt,
     }));
 
-    // Merge and return all lists
-    return [...memberClubs, ...hostedClubsData, ...pendingClubsData];
+    // Merge all lists, deduplicating clubs where the user is both host and
+    // member of the same club (host entry wins so role stays ADMIN)
+    const mergedClubs = new Map<string, (typeof memberClubs)[number]>();
+    for (const club of [
+      ...memberClubs,
+      ...hostedClubsData,
+      ...pendingClubsData,
+    ]) {
+      mergedClubs.set(club.id, club);
+    }
+    return Array.from(mergedClubs.values());
   }
 
   /**
