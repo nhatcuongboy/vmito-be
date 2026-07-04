@@ -304,6 +304,7 @@ model Venue {
   tournamentVenues TournamentVenue[]
   venueRequests    VenueRequest[]    @relation("RequestedVenue")
   appliedRequests  VenueRequest[]    @relation("AppliedVenue")
+  priceBooks       VenuePriceBook[]
 
   // Amenities
   hasCarParking Boolean?
@@ -340,6 +341,71 @@ enum ClosureStatus {
   OPERATING
   PERMANENTLY_CLOSED
   TEMPORARILY_CLOSED
+}
+
+enum VenueDayType {
+  EVERYDAY
+  WEEKDAY
+  WEEKEND
+  HOLIDAY
+  SPECIFIC_DATE
+}
+
+enum VenueCustomerType {
+  FIXED
+  WALK_IN
+  STUDENT
+  MEMBER
+  CUSTOM
+}
+
+model VenuePriceBook {
+  id                 String   @id @default(cuid())
+  venueId            String
+  name               String
+  currency           String   @default("VND")
+  effectiveFrom      DateTime
+  effectiveTo        DateTime?
+  isActive           Boolean  @default(true)
+  priority           Int      @default(0)
+  notes              String?
+  priceImageUrl      String?
+  priceImagePublicId String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  venue Venue            @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  rules VenuePriceRule[]
+
+  @@index([venueId])
+  @@index([isActive])
+  @@index([effectiveFrom, effectiveTo])
+  @@map("venue_price_books")
+}
+
+model VenuePriceRule {
+  id                 String            @id @default(cuid())
+  priceBookId        String
+  dayType            VenueDayType
+  daysOfWeek         Int[]             @default([])
+  specificDate       DateTime?
+  startMinute        Int
+  endMinute          Int
+  customerType       VenueCustomerType
+  pricePerHour       Int
+  minimumMinutes     Int?
+  billingStepMinutes Int?
+  priority           Int               @default(0)
+  notes              String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  priceBook VenuePriceBook @relation(fields: [priceBookId], references: [id], onDelete: Cascade)
+
+  @@index([priceBookId])
+  @@index([dayType])
+  @@index([customerType])
+  @@map("venue_price_rules")
 }
 
 enum VenueRequestType {
