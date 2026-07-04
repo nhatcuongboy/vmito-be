@@ -316,7 +316,6 @@ export class ClubsService {
             },
           },
           orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
-          take: 20,
         },
         announcements: {
           orderBy: [{ pinnedUntil: 'desc' }, { createdAt: 'desc' }],
