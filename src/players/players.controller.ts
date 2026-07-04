@@ -92,6 +92,19 @@ export class PlayersController {
     return this.playersService.countPendingRequests(user.userId, user.role);
   }
 
+  @Get('pending-requests/:id')
+  @ApiOperation({ summary: 'Get a pending player request detail for host' })
+  getPendingRequestById(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    return this.playersService.findPendingRequestById(
+      id,
+      user.userId,
+      user.role
+    );
+  }
+
   @Post('pending-requests/batch')
   @ApiOperation({ summary: 'Batch approve or reject pending player requests' })
   batchUpdateStatus(

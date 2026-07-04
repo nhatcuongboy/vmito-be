@@ -230,6 +230,22 @@ export class ClubsController {
     return this.clubsService.getJoinRequests(clubId, user.userId, user.role);
   }
 
+  @Get(':id/join-requests/:requestId')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async getJoinRequestById(
+    @Param('id') clubId: string,
+    @Param('requestId') requestId: string,
+    @CurrentUser() user: JwtUser
+  ) {
+    return this.clubsService.getJoinRequestById(
+      clubId,
+      requestId,
+      user.userId,
+      user.role
+    );
+  }
+
   @Post(':id/join-requests/:requestId/approve')
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
   @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)

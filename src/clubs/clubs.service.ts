@@ -1357,6 +1357,46 @@ export class ClubsService {
     });
   }
 
+  async getJoinRequestById(
+    clubId: string,
+    requestId: string,
+    hostId: string,
+    userRole?: Role
+  ) {
+    const club = await this.prisma.club.findFirst({
+      where: userRole === Role.ADMIN ? { id: clubId } : { id: clubId, hostId },
+    });
+
+    if (!club) {
+      throw new NotFoundException('Club not found');
+    }
+
+    const request = await this.prisma.clubJoinRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        club: {
+          select: { id: true, slug: true, name: true, image: true },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+            gender: true,
+            level: true,
+          },
+        },
+      },
+    });
+
+    if (!request || request.clubId !== clubId) {
+      throw new NotFoundException('Join request not found');
+    }
+
+    return request;
+  }
+
   /**
    * Approve a join request
    */

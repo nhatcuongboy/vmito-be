@@ -90,6 +90,19 @@ export class VenueRequestsService {
     });
   }
 
+  async findOneAdmin(id: string) {
+    const request = await this.prisma.venueRequest.findUnique({
+      where: { id },
+      include: VENUE_REQUEST_INCLUDE,
+    });
+
+    if (!request) {
+      throw new NotFoundException('Venue request not found');
+    }
+
+    return request;
+  }
+
   async approve(id: string, adminUserId: string) {
     const request = await this.getPendingRequest(id);
     const payload = this.sanitizePayload(

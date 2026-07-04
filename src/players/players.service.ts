@@ -1016,6 +1016,63 @@ export class PlayersService {
     return { count };
   }
 
+  async findPendingRequestById(
+    playerId: string,
+    hostId: string,
+    role?: string
+  ) {
+    const where: Prisma.PlayerWhereInput = {
+      id: playerId,
+      registrationStatus: 'PENDING',
+    };
+
+    if (role !== 'ADMIN') {
+      where.session = {
+        hostId: hostId,
+      };
+    }
+
+    const player = await this.prisma.player.findFirst({
+      where,
+      include: {
+        session: {
+          select: {
+            id: true,
+            name: true,
+            startTime: true,
+            venue: { select: { name: true } },
+          },
+        },
+      },
+    });
+
+    if (!player) {
+      throw new NotFoundException('Pending request not found');
+    }
+
+    // Collect ids of all pending slots registered by the same user in this
+    // session so the client can approve/reject them as one group
+    const groupId = player.createdByUserId ?? player.userId;
+    let relatedPlayerIds = [player.id];
+    if (groupId) {
+      const siblings = await this.prisma.player.findMany({
+        where: {
+          sessionId: player.sessionId,
+          registrationStatus: 'PENDING',
+          OR: [
+            { createdByUserId: groupId },
+            { createdByUserId: null, userId: groupId },
+          ],
+        },
+        select: { id: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      relatedPlayerIds = siblings.map((s) => s.id);
+    }
+
+    return { ...player, relatedPlayerIds };
+  }
+
   async batchUpdatePlayerStatus(
     playerIds: string[],
     status: 'APPROVED' | 'REJECTED',
