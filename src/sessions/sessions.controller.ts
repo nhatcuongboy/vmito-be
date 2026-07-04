@@ -37,6 +37,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { ConfigService } from '@nestjs/config';
 import { SessionStatus } from '@prisma/client';
+import { SessionAccessService } from '../common/session-access/session-access.service';
 
 @ApiTags('sessions')
 @ApiBearerAuth('JWT-auth')
@@ -45,7 +46,8 @@ import { SessionStatus } from '@prisma/client';
 export class SessionsController {
   constructor(
     private readonly sessionsService: SessionsService,
-    private configService: ConfigService
+    private configService: ConfigService,
+    private readonly sessionAccess: SessionAccessService
   ) {}
 
   @Get()
@@ -319,12 +321,20 @@ export class SessionsController {
   }
 
   @Post(':id/start')
-  start(@Param('id') id: string) {
+  async start(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    await this.sessionAccess.assertSessionHost(id, user.userId, user.role);
     return this.sessionsService.start(id);
   }
 
   @Post(':id/end')
-  end(@Param('id') id: string) {
+  async end(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    await this.sessionAccess.assertSessionHost(id, user.userId, user.role);
     return this.sessionsService.end(id);
   }
 
@@ -342,10 +352,16 @@ export class SessionsController {
   }
 
   @Patch('bulk/status')
-  updateBulkStatus(
+  async updateBulkStatus(
     @Body()
-    updateBulkStatusDto: import('./dto/update-bulk-status.dto').UpdateBulkStatusDto
+    updateBulkStatusDto: import('./dto/update-bulk-status.dto').UpdateBulkStatusDto,
+    @CurrentUser() user: { userId: string; role: string }
   ) {
+    await this.sessionAccess.assertSessionsHost(
+      updateBulkStatusDto.sessionIds,
+      user.userId,
+      user.role
+    );
     return this.sessionsService.updateBulkStatus(
       updateBulkStatusDto.sessionIds,
       updateBulkStatusDto.status
@@ -353,10 +369,12 @@ export class SessionsController {
   }
 
   @Patch(':id/status')
-  updateStatus(
+  async updateStatus(
     @Param('id') id: string,
-    @Body() updateStatusDto: UpdateStatusDto
+    @Body() updateStatusDto: UpdateStatusDto,
+    @CurrentUser() user: { userId: string; role: string }
   ) {
+    await this.sessionAccess.assertSessionHost(id, user.userId, user.role);
     return this.sessionsService.updateStatus(id, updateStatusDto.status);
   }
 
@@ -386,7 +404,11 @@ export class SessionsController {
   // ============ Phase 3 Missing Endpoints ============
 
   @Post(':id/auto-assign')
-  autoAssign(@Param('id') id: string) {
+  async autoAssign(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    await this.sessionAccess.assertSessionHost(id, user.userId, user.role);
     return this.sessionsService.autoAssign(id);
   }
 
@@ -396,10 +418,12 @@ export class SessionsController {
   }
 
   @Put(':id/wait-times')
-  updateWaitTimes(
+  async updateWaitTimes(
     @Param('id') id: string,
-    @Body() updateWaitTimesDto: UpdateWaitTimesDto
+    @Body() updateWaitTimesDto: UpdateWaitTimesDto,
+    @CurrentUser() user: { userId: string; role: string }
   ) {
+    await this.sessionAccess.assertSessionHost(id, user.userId, user.role);
     return this.sessionsService.updateWaitTimes(id, updateWaitTimesDto);
   }
 

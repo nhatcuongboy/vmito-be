@@ -5,9 +5,10 @@ import {
 } from './matches.controller';
 import { MatchesService } from './matches.service';
 import { PrismaModule } from '../prisma/prisma.module';
+import { SessionAccessModule } from '../common/session-access/session-access.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, SessionAccessModule],
   controllers: [MatchesController, SessionMatchesController],
   providers: [MatchesService],
   exports: [MatchesService],

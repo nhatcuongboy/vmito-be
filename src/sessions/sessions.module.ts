@@ -9,6 +9,7 @@ import { UserImagesModule } from '../user-images/user-images.module';
 import { SessionExpensesModule } from './expenses/session-expenses.module';
 import { SessionSchedulerService } from './session-scheduler.service';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { SessionAccessModule } from '../common/session-access/session-access.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     SessionExpensesModule,
     SessionsGatewayModule,
     NotificationsModule,
+    SessionAccessModule,
   ],
   controllers: [SessionsController],
   providers: [SessionsService, SessionSchedulerService],
