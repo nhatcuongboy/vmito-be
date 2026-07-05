@@ -1393,6 +1393,9 @@ export class ClubsService {
             image: true,
             gender: true,
             level: true,
+            phone: true,
+            emailVerified: true,
+            createdAt: true,
           },
         },
       },
@@ -1402,7 +1405,17 @@ export class ClubsService {
       throw new NotFoundException('Join request not found');
     }
 
-    return request;
+    // Count past sessions the requester has actually played, to help the
+    // host judge the request (shown only if > 0 on the client)
+    const sessionsPlayedCount = await this.prisma.player.count({
+      where: {
+        userId: request.userId,
+        registrationStatus: 'APPROVED',
+        session: { status: 'FINISHED' },
+      },
+    });
+
+    return { ...request, sessionsPlayedCount };
   }
 
   /**
