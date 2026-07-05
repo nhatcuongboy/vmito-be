@@ -1043,6 +1043,9 @@ export class PlayersService {
             venue: { select: { name: true } },
           },
         },
+        user: {
+          select: { id: true, name: true, image: true },
+        },
       },
     });
 
@@ -1070,7 +1073,19 @@ export class PlayersService {
       relatedPlayerIds = siblings.map((s) => s.id);
     }
 
-    return { ...player, relatedPlayerIds };
+    // Count past sessions the requester has actually played, to help the
+    // host judge the request (shown only if > 0 on the client)
+    const sessionsPlayedCount = groupId
+      ? await this.prisma.player.count({
+          where: {
+            userId: groupId,
+            registrationStatus: 'APPROVED',
+            session: { status: 'FINISHED' },
+          },
+        })
+      : 0;
+
+    return { ...player, relatedPlayerIds, sessionsPlayedCount };
   }
 
   async batchUpdatePlayerStatus(
@@ -1079,72 +1094,74 @@ export class PlayersService {
     currentUserId: string,
     role?: string
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      // Fetch all players with their sessions
-      const players = await tx.player.findMany({
-        where: {
-          id: { in: playerIds },
-          registrationStatus: 'PENDING',
-        },
-        include: {
-          session: { select: { id: true, hostId: true, name: true } },
-        },
-      });
-
-      if (players.length === 0) {
-        throw new NotFoundException('No pending players found');
-      }
-
-      // Verify authorization for all sessions
-      if (role !== 'ADMIN') {
-        const unauthorized = players.find(
-          (p) => p.session.hostId !== currentUserId
-        );
-        if (unauthorized) {
-          throw new ForbiddenException(
-            'Only the host or admin can approve/reject players'
-          );
-        }
-      }
-
-      // Batch update
-      await tx.player.updateMany({
-        where: { id: { in: playerIds } },
-        data: { registrationStatus: status },
-      });
-
-      // Send notifications and create payment records per player
-      for (const player of players) {
-        this.sessionsGateway.notifyEvent(
-          player.sessionId,
-          SessionEventType.PLAYER_UPDATED,
-          { playerId: player.id, registrationStatus: status }
-        );
-
-        if (player.userId) {
-          this.sessionsGateway.notifyUser(
-            player.userId,
-            SessionEventType.REGISTRATION_STATUS_UPDATED,
-            {
-              sessionId: player.sessionId,
-              sessionName: player.session.name || 'Badminton Session',
-              status,
-              playerId: player.id,
-            }
-          );
-        }
-
-        if (status === 'APPROVED') {
-          await this.feeService.createPaymentRecordForPlayer(
-            player.sessionId,
-            player.id,
-            player.session.hostId
-          );
-        }
-      }
-
-      return { updated: players.length, status };
+    // Fetch all players with their sessions
+    const players = await this.prisma.player.findMany({
+      where: {
+        id: { in: playerIds },
+        registrationStatus: 'PENDING',
+      },
+      include: {
+        session: { select: { id: true, hostId: true, name: true } },
+      },
     });
+
+    if (players.length === 0) {
+      throw new NotFoundException('No pending players found');
+    }
+
+    // Verify authorization for all sessions
+    if (role !== 'ADMIN') {
+      const unauthorized = players.find(
+        (p) => p.session.hostId !== currentUserId
+      );
+      if (unauthorized) {
+        throw new ForbiddenException(
+          'Only the host or admin can approve/reject players'
+        );
+      }
+    }
+
+    // Batch update
+    await this.prisma.player.updateMany({
+      where: { id: { in: players.map((p) => p.id) } },
+      data: { registrationStatus: status },
+    });
+
+    // Send notifications and create payment records per player.
+    // Done outside the update above (not wrapped in a $transaction) because
+    // feeService.createPaymentRecordForPlayer runs its own queries on the
+    // shared prisma client; nesting them inside an interactive transaction
+    // starved the connection pool and made bulk approve/reject fail.
+    for (const player of players) {
+      this.sessionsGateway.notifyEvent(
+        player.sessionId,
+        SessionEventType.PLAYER_UPDATED,
+        { playerId: player.id, registrationStatus: status }
+      );
+
+      if (player.userId) {
+        this.sessionsGateway.notifyUser(
+          player.userId,
+          SessionEventType.REGISTRATION_STATUS_UPDATED,
+          {
+            sessionId: player.sessionId,
+            sessionName: player.session.name || 'Badminton Session',
+            status,
+            playerId: player.id,
+          }
+        );
+      }
+
+      if (status === 'APPROVED') {
+        await this.feeService.createPaymentRecordForPlayer(
+          player.sessionId,
+          player.id,
+          player.session.hostId
+        );
+      }
+    }
+
+    return { updated: players.length, status };
   }
 
   async checkCode(code: string) {
