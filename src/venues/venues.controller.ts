@@ -54,6 +54,12 @@ export class VenuesController {
     return this.venuesService.backfillSlugs();
   }
 
+  @Post('backfill-search-terms')
+  @UseGuards(AdminGuard)
+  backfillSearchTerms() {
+    return this.venuesService.backfillSearchTerms();
+  }
+
   @Post('migrate-addresses')
   @UseGuards(AdminGuard)
   migrateAddresses() {

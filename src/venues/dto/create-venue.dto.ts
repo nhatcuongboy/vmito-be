@@ -8,7 +8,7 @@ import {
   Min,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import { VenueStatus, ClosureStatus } from '@prisma/client';
+import { VenueStatus, ClosureStatus, SportType } from '@prisma/client';
 
 export class CreateVenueDto {
   @ApiProperty({ required: false })
@@ -19,6 +19,15 @@ export class CreateVenueDto {
   @ApiProperty()
   @IsString()
   name!: string;
+
+  @ApiProperty({
+    required: false,
+    enum: SportType,
+    description: 'Sport played at the venue (default BADMINTON)',
+  })
+  @IsOptional()
+  @IsEnum(SportType)
+  sportType?: SportType;
 
   @ApiProperty({ required: false, description: 'Venue acronym' })
   @IsOptional()

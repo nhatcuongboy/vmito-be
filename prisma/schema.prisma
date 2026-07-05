@@ -278,6 +278,7 @@ model Venue {
   slug             String?           @unique
   placeId          String?           @unique // Google Place ID
   name             String
+  sportType        SportType         @default(BADMINTON)
   acronym          String? // Venue acronym
   description      String? // Venue description
   searchTerms      String? // Normalized search string

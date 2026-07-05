@@ -7,6 +7,7 @@ import {
 import {
   ClosureStatus,
   Prisma,
+  SportType,
   VenueCustomerType,
   VenueDayType,
   VenueStatus,
@@ -28,6 +29,18 @@ import {
 } from '../common/utils/string.utils';
 import { AddressMappingService } from './address-mapping.service';
 
+/**
+ * Per-sport display/search prefixes. Raw venue names don't include the
+ * sport prefix ("Nhật Cường" not "Sân cầu lông Nhật Cường"), so it is
+ * prepended when generating slugs and searchTerms.
+ * - label: Vietnamese display prefix (used for slugs)
+ * - search: normalized (tone-less, lowercase) tokens for searchTerms
+ */
+const SPORT_PREFIX: Record<SportType, { label: string; search: string }> = {
+  [SportType.BADMINTON]: { label: 'Sân cầu lông', search: 'san cau long' },
+  [SportType.PICKLEBALL]: { label: 'Sân pickleball', search: 'san pickleball' },
+};
+
 @Injectable()
 export class VenuesService {
   constructor(
@@ -37,12 +50,16 @@ export class VenuesService {
 
   /**
    * Generate a unique venue slug from the venue name.
-   * Prepends "Sân cầu lông" since raw venue names don't include it.
+   * Prepends the sport prefix (e.g. "Sân cầu lông") since raw venue names
+   * don't include it.
    * Format: "san-cau-long-" + generateSlug(name) + "-" + random5chars
    * If a collision occurs, regenerate with a new random suffix.
    */
-  private async generateUniqueSlug(name: string): Promise<string> {
-    const base = generateSlug(`Sân cầu lông ${name}`);
+  private async generateUniqueSlug(
+    name: string,
+    sportType: SportType = SportType.BADMINTON
+  ): Promise<string> {
+    const base = generateSlug(`${SPORT_PREFIX[sportType].label} ${name}`);
     let slug = base;
     let attempts = 0;
 
@@ -61,6 +78,39 @@ export class VenuesService {
     }
 
     return slug;
+  }
+
+  /**
+   * Build the normalized searchTerms string for a venue. Includes the
+   * sport prefix tokens (e.g. "san cau long") so keyword searches like
+   * "Sân cầu lông Nhật Cường" or "Sân Nhật Cường" match venues whose
+   * stored name is just "Nhật Cường".
+   */
+  private buildSearchTerms(venue: {
+    name: string;
+    sportType?: SportType | null;
+    address?: string | null;
+    district?: string | null;
+    city?: string | null;
+    newAddress?: string | null;
+    newDistrict?: string | null;
+    newCity?: string | null;
+  }): string {
+    const prefix = SPORT_PREFIX[venue.sportType ?? SportType.BADMINTON].search;
+    return removeVietnameseTones(
+      [
+        prefix,
+        venue.name,
+        venue.address,
+        venue.district,
+        venue.city,
+        venue.newAddress,
+        venue.newDistrict,
+        venue.newCity,
+      ]
+        .filter(Boolean)
+        .join(' ')
+    ).toLowerCase();
   }
 
   async searchVenues(filters: SearchVenueDto) {
@@ -239,31 +289,46 @@ export class VenuesService {
       const normalizedKeyword = removeVietnameseTones(keyword).toLowerCase();
       const keywordTokens = normalizedKeyword.split(/\s+/).filter(Boolean);
 
+      // Score against both the bare name and the sport-prefixed name
+      // ("sân cầu lông nhật cường"), so queries that include the prefix
+      // still get the exact/starts-with bonuses.
+      const scoreVenue = (venue: {
+        name: string;
+        sportType?: SportType | null;
+        address: string | null;
+      }) => {
+        const name = venue.name.toLowerCase();
+        const normalized = removeVietnameseTones(venue.name).toLowerCase();
+        const address = (venue.address || '').toLowerCase();
+        const prefix = SPORT_PREFIX[venue.sportType ?? SportType.BADMINTON];
+
+        return Math.max(
+          this.calculateRelevanceScore(
+            name,
+            normalized,
+            address,
+            lowerKeyword,
+            normalizedKeyword,
+            keywordTokens
+          ),
+          this.calculateRelevanceScore(
+            `${prefix.label.toLowerCase()} ${name}`,
+            `${prefix.search} ${normalized}`,
+            address,
+            lowerKeyword,
+            normalizedKeyword,
+            keywordTokens
+          )
+        );
+      };
+
       result.sort((a, b) => {
         const aName = a.name.toLowerCase();
         const bName = b.name.toLowerCase();
-        const aNormalized = removeVietnameseTones(a.name).toLowerCase();
-        const bNormalized = removeVietnameseTones(b.name).toLowerCase();
-        const aAddress = (a.address || '').toLowerCase();
-        const bAddress = (b.address || '').toLowerCase();
 
         // Calculate relevance scores
-        const aScore = this.calculateRelevanceScore(
-          aName,
-          aNormalized,
-          aAddress,
-          lowerKeyword,
-          normalizedKeyword,
-          keywordTokens
-        );
-        const bScore = this.calculateRelevanceScore(
-          bName,
-          bNormalized,
-          bAddress,
-          lowerKeyword,
-          normalizedKeyword,
-          keywordTokens
-        );
+        const aScore = scoreVenue(a);
+        const bScore = scoreVenue(b);
 
         // Sort by score descending
         if (aScore !== bScore) return bScore - aScore;
@@ -688,7 +753,10 @@ export class VenuesService {
       if (resolved?.newCity) autoNewCity = resolved.newCity;
     }
 
-    const slug = await this.generateUniqueSlug(createVenueDto.name);
+    const slug = await this.generateUniqueSlug(
+      createVenueDto.name,
+      createVenueDto.sportType
+    );
 
     return this.prisma.venue.create({
       data: {
@@ -699,9 +767,16 @@ export class VenuesService {
         newAddress: autoNewAddress,
         newDistrict: autoNewDistrict,
         newCity: autoNewCity,
-        searchTerms: removeVietnameseTones(
-          `${createVenueDto.name} ${createVenueDto.address} ${district || ''} ${city || ''} ${autoNewAddress || ''} ${autoNewDistrict || ''} ${autoNewCity || ''}`
-        ).toLowerCase(),
+        searchTerms: this.buildSearchTerms({
+          name: createVenueDto.name,
+          sportType: createVenueDto.sportType,
+          address: createVenueDto.address,
+          district,
+          city,
+          newAddress: autoNewAddress,
+          newDistrict: autoNewDistrict,
+          newCity: autoNewCity,
+        }),
       },
     });
   }
@@ -717,7 +792,7 @@ export class VenuesService {
         ? this.normalizeAdminUnit(venue.city)
         : venue.city;
 
-      const slug = await this.generateUniqueSlug(venue.name);
+      const slug = await this.generateUniqueSlug(venue.name, venue.sportType);
 
       // Auto-resolve new address from CSV mapping if not explicitly provided
       let autoNewAddress = venue.newAddress;
@@ -746,9 +821,16 @@ export class VenuesService {
             newAddress: autoNewAddress,
             newDistrict: autoNewDistrict,
             newCity: autoNewCity,
-            searchTerms: removeVietnameseTones(
-              `${venue.name} ${venue.address} ${district || ''} ${city || ''} ${autoNewAddress || ''} ${autoNewDistrict || ''} ${autoNewCity || ''}`
-            ).toLowerCase(),
+            searchTerms: this.buildSearchTerms({
+              name: venue.name,
+              sportType: venue.sportType,
+              address: venue.address,
+              district,
+              city,
+              newAddress: autoNewAddress,
+              newDistrict: autoNewDistrict,
+              newCity: autoNewCity,
+            }),
           },
         });
         results.push(created);
@@ -790,10 +872,39 @@ export class VenuesService {
       if (resolved?.newCity) resolvedNewCity = resolved.newCity;
     }
 
-    const effectiveNewAddress = updateVenueDto.newAddress ?? resolvedNewAddress;
-    const effectiveNewDistrict =
-      updateVenueDto.newDistrict ?? resolvedNewDistrict;
-    const effectiveNewCity = updateVenueDto.newCity ?? resolvedNewCity;
+    const existing = await this.prisma.venue.findUnique({
+      where: { id },
+      select: {
+        name: true,
+        sportType: true,
+        address: true,
+        district: true,
+        city: true,
+        newAddress: true,
+        newDistrict: true,
+        newCity: true,
+      },
+    });
+    if (!existing) {
+      throw new NotFoundException('Venue not found');
+    }
+
+    // Rebuild searchTerms from the merged (DTO over stored) values so
+    // partial updates never drop existing fields from the search index.
+    const searchTerms = this.buildSearchTerms({
+      name: updateVenueDto.name ?? existing.name,
+      sportType: updateVenueDto.sportType ?? existing.sportType,
+      address: updateVenueDto.address ?? existing.address,
+      district: district ?? existing.district,
+      city: city ?? existing.city,
+      newAddress:
+        updateVenueDto.newAddress ?? resolvedNewAddress ?? existing.newAddress,
+      newDistrict:
+        updateVenueDto.newDistrict ??
+        resolvedNewDistrict ??
+        existing.newDistrict,
+      newCity: updateVenueDto.newCity ?? resolvedNewCity ?? existing.newCity,
+    });
 
     return this.prisma.venue.update({
       where: { id },
@@ -805,13 +916,7 @@ export class VenuesService {
           ? { newAddress: resolvedNewAddress, newDistrict: resolvedNewDistrict }
           : {}),
         ...(resolvedNewCity ? { newCity: resolvedNewCity } : {}),
-        ...(updateVenueDto.name || updateVenueDto.address
-          ? {
-              searchTerms: removeVietnameseTones(
-                `${updateVenueDto.name || ''} ${updateVenueDto.address || ''} ${district || ''} ${city || ''} ${effectiveNewAddress || ''} ${effectiveNewDistrict || ''} ${effectiveNewCity || ''}`
-              ).toLowerCase(),
-            }
-          : {}),
+        searchTerms,
       },
     });
   }
@@ -1018,6 +1123,7 @@ export class VenuesService {
         district: true,
         city: true,
         name: true,
+        sportType: true,
         searchTerms: true,
       },
     });
@@ -1043,18 +1149,16 @@ export class VenuesService {
       if (resolved.newAddress) {
         updateData.newAddress = resolved.newAddress;
         updateData.newDistrict = resolved.newDistrict;
-        updateData.searchTerms = [
-          venue.name,
-          venue.address,
-          venue.district,
-          venue.city,
-          resolved.newAddress,
-          resolved.newDistrict,
-          resolved.newCity,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
+        updateData.searchTerms = this.buildSearchTerms({
+          name: venue.name,
+          sportType: venue.sportType,
+          address: venue.address,
+          district: venue.district,
+          city: venue.city,
+          newAddress: resolved.newAddress,
+          newDistrict: resolved.newDistrict,
+          newCity: resolved.newCity,
+        });
         matched++;
       }
 
@@ -1083,12 +1187,12 @@ export class VenuesService {
   async backfillSlugs() {
     const venues = await this.prisma.venue.findMany({
       where: { slug: null },
-      select: { id: true, name: true },
+      select: { id: true, name: true, sportType: true },
     });
 
     let updated = 0;
     for (const venue of venues) {
-      const slug = await this.generateUniqueSlug(venue.name);
+      const slug = await this.generateUniqueSlug(venue.name, venue.sportType);
       await this.prisma.venue.update({
         where: { id: venue.id },
         data: { slug },
@@ -1098,6 +1202,40 @@ export class VenuesService {
 
     return {
       message: `Backfilled ${updated} venue slugs`,
+      count: updated,
+    };
+  }
+
+  /**
+   * Rebuild searchTerms for all venues (adds the sport prefix tokens).
+   * This is an admin-only one-time operation.
+   */
+  async backfillSearchTerms() {
+    const venues = await this.prisma.venue.findMany({
+      select: {
+        id: true,
+        name: true,
+        sportType: true,
+        address: true,
+        district: true,
+        city: true,
+        newAddress: true,
+        newDistrict: true,
+        newCity: true,
+      },
+    });
+
+    let updated = 0;
+    for (const venue of venues) {
+      await this.prisma.venue.update({
+        where: { id: venue.id },
+        data: { searchTerms: this.buildSearchTerms(venue) },
+      });
+      updated++;
+    }
+
+    return {
+      message: `Backfilled ${updated} venue search terms`,
       count: updated,
     };
   }
