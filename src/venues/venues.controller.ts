@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { VenuesService } from './venues.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
@@ -34,12 +35,14 @@ export class VenuesController {
   constructor(private readonly venuesService: VenuesService) {}
 
   @Public()
+  @Throttle({ default: { limit: 40, ttl: 60000 } })
   @Get('search')
   search(@Query() searchVenueDto: SearchVenueDto) {
     return this.venuesService.searchVenues(searchVenueDto);
   }
 
   @Public()
+  @Throttle({ default: { limit: 40, ttl: 60000 } })
   @Get()
   findAll(@Query('page') page?: string, @Query('limit') limit?: string) {
     return this.venuesService.findAll({

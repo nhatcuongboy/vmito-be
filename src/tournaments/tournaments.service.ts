@@ -17,6 +17,7 @@ import {
 } from './dto/create-tournament-player.dto';
 import { ScoreboardQueryDto } from './dto/scoreboard-query.dto';
 import { SaveTournamentPairDto } from './dto/tournament-pair.dto';
+import { VENUE_PUBLIC_OMIT } from '../venues/venues.service';
 import {
   TournamentStatus,
   ScheduleType,
@@ -1006,7 +1007,7 @@ export class TournamentsService {
     return (this.prisma as any).tournamentVenue.findMany({
       where: { tournamentId },
       include: {
-        venue: true,
+        venue: { omit: VENUE_PUBLIC_OMIT },
         courts: { orderBy: { courtNumber: 'asc' } },
       },
       orderBy: { createdAt: 'asc' },

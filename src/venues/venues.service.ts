@@ -41,6 +41,24 @@ const SPORT_PREFIX: Record<SportType, { label: string; search: string }> = {
   [SportType.PICKLEBALL]: { label: 'Sân pickleball', search: 'san pickleball' },
 };
 
+/**
+ * Fields to hide from bulk/public venue listings (search, findAll) and from
+ * nested `venue` includes on other public endpoints (session/tournament
+ * detail). Excludes credentials (wifi) and internal-only fields never read
+ * by list/card UI — kept separate from `findOne`, which still needs these
+ * for the public venue detail page and the admin edit form.
+ */
+export const VENUE_PUBLIC_OMIT = {
+  wifiName: true,
+  wifiPassword: true,
+  searchTerms: true,
+  imagePublicIds: true,
+  coverPhotoPublicId: true,
+  courtLayoutImagePublicId: true,
+  bookingPolicy: true,
+  locatedWithin: true,
+} satisfies Prisma.VenueOmit;
+
 @Injectable()
 export class VenuesService {
   constructor(
@@ -246,10 +264,14 @@ export class VenuesService {
       this.prisma.venue.findMany({
         where,
         skip: isRelevanceSort ? undefined : skip,
-        take: isRelevanceSort ? undefined : limit,
+        // Relevance sort ranks in JS after fetching, so it can't use skip/take
+        // for pagination — but still needs a hard ceiling so a broad keyword
+        // can't pull the entire table in one request.
+        take: isRelevanceSort ? 1000 : limit,
         orderBy: isRelevanceSort
           ? undefined
           : this.buildOrderBy(sortBy, sortOrder),
+        omit: VENUE_PUBLIC_OMIT,
       }),
       this.prisma.venue.count({ where }),
     ]);
@@ -366,6 +388,7 @@ export class VenuesService {
         orderBy: { name: 'asc' },
         skip,
         take: limit,
+        omit: VENUE_PUBLIC_OMIT,
       }),
       this.prisma.venue.count(),
     ]);

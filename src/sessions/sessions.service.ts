@@ -26,6 +26,7 @@ import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { ClubsService } from '../clubs/clubs.service';
 import { UserImagesService } from '../user-images/user-images.service';
 import { ScoringEngine } from './utils/scoring-engine';
+import { VENUE_PUBLIC_OMIT } from '../venues/venues.service';
 import {
   generateSlug,
   removeVietnameseTones,
@@ -613,7 +614,7 @@ export class SessionsService {
             image: true,
           },
         },
-        venue: true,
+        venue: { omit: VENUE_PUBLIC_OMIT },
         courts: {
           orderBy: {
             courtNumber: 'asc',
