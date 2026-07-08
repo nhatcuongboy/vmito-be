@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -83,7 +84,22 @@ export class ClubsService {
     const club = await this.prisma.club.findFirst({
       where: {
         id: clubId,
-        ...(userRole === Role.ADMIN ? {} : { hostId }),
+        ...(userRole === Role.ADMIN
+          ? {}
+          : {
+              OR: [
+                { hostId },
+                {
+                  members: {
+                    some: {
+                      userId: hostId,
+                      role: MemberRole.ADMIN,
+                      status: MemberStatus.ACTIVE,
+                    },
+                  },
+                },
+              ],
+            }),
       },
       select: { id: true },
     });
@@ -1171,16 +1187,7 @@ export class ClubsService {
    * Get all members of a club
    */
   async getClubMembers(clubId: string, hostId: string, userRole?: Role) {
-    const club = await this.prisma.club.findFirst({
-      where: {
-        id: clubId,
-        ...(userRole === Role.ADMIN ? {} : { hostId }),
-      },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found');
-    }
+    await this.ensureManagedClub(clubId, hostId, userRole);
 
     return this.prisma.clubMember.findMany({
       where: { clubId },
@@ -1203,14 +1210,13 @@ export class ClubsService {
   /**
    * Add a user to a club
    */
-  async addMemberToClub(clubId: string, userId: string, hostId: string) {
-    const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found');
-    }
+  async addMemberToClub(
+    clubId: string,
+    userId: string,
+    hostId: string,
+    userRole?: Role
+  ) {
+    await this.ensureManagedClub(clubId, hostId, userRole);
 
     // Check if user exists
     const user = await this.prisma.user.findUnique({
@@ -1254,14 +1260,13 @@ export class ClubsService {
   /**
    * Remove a user from a club
    */
-  async removeMemberFromClub(clubId: string, userId: string, hostId: string) {
-    const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found');
-    }
+  async removeMemberFromClub(
+    clubId: string,
+    userId: string,
+    hostId: string,
+    userRole?: Role
+  ) {
+    await this.ensureManagedClub(clubId, hostId, userRole);
 
     const member = await this.prisma.clubMember.findUnique({
       where: {
@@ -1287,15 +1292,10 @@ export class ClubsService {
     clubId: string,
     userId: string,
     hostId: string,
-    role: MemberRole
+    role: MemberRole,
+    userRole?: Role
   ) {
-    const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found');
-    }
+    await this.ensureManagedClub(clubId, hostId, userRole);
 
     const member = await this.prisma.clubMember.findUnique({
       where: {
@@ -1515,26 +1515,88 @@ export class ClubsService {
   /**
    * Search users for a club
    */
-  async searchUsersForClub(hostId: string, query: string) {
-    const users = await this.prisma.user.findMany({
-      where: {
-        AND: [
-          {
-            OR: [
-              { name: { contains: query, mode: 'insensitive' } },
-              { email: { contains: query, mode: 'insensitive' } },
-              { phone: { contains: query, mode: 'insensitive' } },
-            ],
-          },
-          {
-            playerRecords: {
-              some: {
-                session: {
-                  hostId,
+  async searchUsersForClub(
+    hostId: string,
+    query: string,
+    userRole?: Role,
+    clubId?: string
+  ) {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      return [];
+    }
+
+    if (clubId) {
+      await this.ensureManagedClub(clubId, hostId, userRole);
+    } else if (userRole !== Role.ADMIN) {
+      const canManageAnyClub = await this.prisma.club.count({
+        where: {
+          OR: [
+            { hostId },
+            {
+              members: {
+                some: {
+                  userId: hostId,
+                  role: MemberRole.ADMIN,
+                  status: MemberStatus.ACTIVE,
                 },
               },
             },
-          },
+          ],
+        },
+      });
+
+      if (canManageAnyClub === 0) {
+        throw new ForbiddenException('Not authorized to search club users');
+      }
+    }
+
+    const searchWhere: Prisma.UserWhereInput = {
+      OR: [
+        { name: { contains: trimmedQuery, mode: 'insensitive' } },
+        { email: { contains: trimmedQuery, mode: 'insensitive' } },
+        { phone: { contains: trimmedQuery, mode: 'insensitive' } },
+      ],
+    };
+
+    const membershipFilter: Prisma.ClubMemberWhereInput | undefined = clubId
+      ? { clubId }
+      : userRole === Role.ADMIN
+        ? undefined
+        : {
+            club: {
+              OR: [
+                { hostId },
+                {
+                  members: {
+                    some: {
+                      userId: hostId,
+                      role: MemberRole.ADMIN,
+                      status: MemberStatus.ACTIVE,
+                    },
+                  },
+                },
+              ],
+            },
+          };
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        AND: [
+          searchWhere,
+          ...(clubId || userRole === Role.ADMIN
+            ? []
+            : [
+                {
+                  playerRecords: {
+                    some: {
+                      session: {
+                        hostId,
+                      },
+                    },
+                  },
+                },
+              ]),
         ],
       },
       select: {
@@ -1545,11 +1607,7 @@ export class ClubsService {
         image: true,
         phone: true,
         clubMemberships: {
-          where: {
-            club: {
-              hostId,
-            },
-          },
+          ...(membershipFilter ? { where: membershipFilter } : {}),
           include: {
             club: {
               select: {

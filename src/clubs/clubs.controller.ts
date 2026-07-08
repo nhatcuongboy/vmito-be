@@ -178,7 +178,12 @@ export class ClubsController {
     @Param('userId') userId: string,
     @CurrentUser() user: JwtUser
   ) {
-    return this.clubsService.addMemberToClub(clubId, userId, user.userId);
+    return this.clubsService.addMemberToClub(
+      clubId,
+      userId,
+      user.userId,
+      user.role
+    );
   }
 
   @Delete(':id/members/:userId')
@@ -189,7 +194,12 @@ export class ClubsController {
     @Param('userId') userId: string,
     @CurrentUser() user: JwtUser
   ) {
-    return this.clubsService.removeMemberFromClub(clubId, userId, user.userId);
+    return this.clubsService.removeMemberFromClub(
+      clubId,
+      userId,
+      user.userId,
+      user.role
+    );
   }
 
   @Put(':id/members/:userId/role')
@@ -205,7 +215,8 @@ export class ClubsController {
       clubId,
       userId,
       user.userId,
-      dto.role
+      dto.role,
+      user.role
     );
   }
 
@@ -391,8 +402,17 @@ export class ClubsController {
   @Get('search-users')
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
   @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
-  async searchUsers(@CurrentUser() user: JwtUser, @Query('q') query: string) {
-    return this.clubsService.searchUsersForClub(user.userId, query || '');
+  async searchUsers(
+    @CurrentUser() user: JwtUser,
+    @Query('q') query: string,
+    @Query('clubId') clubId?: string
+  ) {
+    return this.clubsService.searchUsersForClub(
+      user.userId,
+      query || '',
+      user.role,
+      clubId
+    );
   }
 
   @Get('user/:userId/clubs-for-host')
