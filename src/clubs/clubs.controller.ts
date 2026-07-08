@@ -131,6 +131,22 @@ export class ClubsController {
     return this.clubsService.createClub(user.userId, user.role, dto);
   }
 
+  @Get('search-users')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async searchUsers(
+    @CurrentUser() user: JwtUser,
+    @Query('q') query: string,
+    @Query('clubId') clubId?: string
+  ) {
+    return this.clubsService.searchUsersForClub(
+      user.userId,
+      query || '',
+      user.role,
+      clubId
+    );
+  }
+
   @Get(':id')
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
   @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
@@ -398,22 +414,6 @@ export class ClubsController {
   // ===========================================
   // Helper Endpoints
   // ===========================================
-
-  @Get('search-users')
-  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
-  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
-  async searchUsers(
-    @CurrentUser() user: JwtUser,
-    @Query('q') query: string,
-    @Query('clubId') clubId?: string
-  ) {
-    return this.clubsService.searchUsersForClub(
-      user.userId,
-      query || '',
-      user.role,
-      clubId
-    );
-  }
 
   @Get('user/:userId/clubs-for-host')
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
