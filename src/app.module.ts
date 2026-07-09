@@ -49,7 +49,10 @@ import configuration from './config';
       load: configuration,
       envFilePath: ['.env.local', '.env'],
     }),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    // 300 req/min per user (or IP for unauthenticated) – generous enough for
+    // normal page navigation (each page loads 3-6 parallel API calls) while
+    // still protecting against scripted abuse.
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 300 }]),
     ScheduleModule.forRoot(),
     PrismaModule,
     HealthModule,

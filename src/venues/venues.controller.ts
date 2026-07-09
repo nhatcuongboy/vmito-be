@@ -39,7 +39,7 @@ export class VenuesController {
 
   @Public()
   @UseGuards(OptionalJwtAuthGuard)
-  @Throttle({ default: { limit: 40, ttl: 60000 } })
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Get('search')
   search(
     @Query() searchVenueDto: SearchVenueDto,
@@ -49,7 +49,7 @@ export class VenuesController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 40, ttl: 60000 } })
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Get()
   findAll(@Query('page') page?: string, @Query('limit') limit?: string) {
     return this.venuesService.findAll({
