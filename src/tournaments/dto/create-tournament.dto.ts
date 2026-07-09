@@ -1,8 +1,12 @@
-import { IsString, IsOptional, IsDateString } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsIn } from 'class-validator';
 
 export class CreateTournamentDto {
   @IsString()
   name: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string | null;
 
   @IsDateString()
   startDate: string;
@@ -13,4 +17,8 @@ export class CreateTournamentDto {
   @IsOptional()
   @IsString()
   venueId?: string;
+
+  @IsOptional()
+  @IsIn(['BADMINTON', 'PICKLEBALL'])
+  sportType?: string;
 }

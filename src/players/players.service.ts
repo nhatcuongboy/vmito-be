@@ -13,6 +13,7 @@ import { ConfirmPlayerDto } from './dto/confirm-player.dto';
 import { generatePlayerJoinCode } from './utils/player-helpers';
 import {
   Gender,
+  MemberStatus,
   PlayerStatus,
   RegistrationStatus,
   Prisma,
@@ -36,6 +37,67 @@ export class PlayersService {
     private notificationsService: NotificationsService
   ) {}
 
+  private async resolveClubMembershipForPlayer(input: {
+    sessionClubId?: string | null;
+    userId?: string | null;
+    isClubMember?: boolean;
+    clubId?: string | null;
+    currentIsClubMember?: boolean;
+    currentClubId?: string | null;
+  }): Promise<{
+    isClubMember: boolean;
+    clubId: string | null;
+    clubFeeApplied: boolean;
+  }> {
+    const hasExplicitClubOverride =
+      input.isClubMember !== undefined || input.clubId !== undefined;
+
+    if (hasExplicitClubOverride) {
+      const isClubMember = input.isClubMember ?? Boolean(input.clubId);
+      const clubId = isClubMember ? input.clubId || null : null;
+      return {
+        isClubMember,
+        clubId,
+        clubFeeApplied: false,
+      };
+    }
+
+    if (input.currentIsClubMember || input.currentClubId) {
+      const isClubMember = Boolean(input.currentIsClubMember);
+      const clubId = isClubMember ? input.currentClubId || null : null;
+      return {
+        isClubMember,
+        clubId,
+        clubFeeApplied: false,
+      };
+    }
+
+    if (!input.sessionClubId || !input.userId) {
+      return {
+        isClubMember: false,
+        clubId: null,
+        clubFeeApplied: false,
+      };
+    }
+
+    const clubMember = await this.prisma.clubMember.findUnique({
+      where: {
+        clubId_userId: {
+          clubId: input.sessionClubId,
+          userId: input.userId,
+        },
+      },
+      select: { status: true },
+    });
+
+    const isClubMember = clubMember?.status === MemberStatus.ACTIVE;
+    return {
+      isClubMember,
+      clubId: isClubMember ? input.sessionClubId : null,
+      clubFeeApplied: false,
+    };
+  }
+
   async findOne(id: string) {
     const player = await this.prisma.player.findUnique({
       where: { id },
@@ -46,6 +108,7 @@ export class PlayersService {
             name: true,
             status: true,
             requirePlayerInfo: true,
+            clubId: true,
           },
         },
         currentCourt: {
@@ -107,6 +170,15 @@ export class PlayersService {
       }
     }
 
+    const clubMembership = await this.resolveClubMembershipForPlayer({
+      sessionClubId: existingPlayer.session.clubId,
+      userId: existingPlayer.userId,
+      isClubMember: updatePlayerDto.isClubMember,
+      clubId: updatePlayerDto.clubId,
+      currentIsClubMember: existingPlayer.isClubMember,
+      currentClubId: existingPlayer.clubId,
+    });
+
     const updatedPlayer = await this.prisma.player.update({
       where: { id },
       data: {
@@ -119,8 +191,9 @@ export class PlayersService {
         confirmedByPlayer: updatePlayerDto.confirmedByPlayer,
         preFilledByHost: updatePlayerDto.preFilledByHost,
         requireConfirmInfo: updatePlayerDto.requireConfirmInfo,
-        isClubMember: updatePlayerDto.isClubMember,
-        clubId: updatePlayerDto.clubId,
+        isClubMember: clubMembership.isClubMember,
+        clubId: clubMembership.clubId,
+        clubFeeApplied: clubMembership.clubFeeApplied,
       },
     });
 
@@ -232,6 +305,7 @@ export class PlayersService {
         id: true,
         name: true,
         hostId: true,
+        clubId: true,
         requiredLevels: true,
         players: {
           select: { playerNumber: true },
@@ -280,6 +354,13 @@ export class PlayersService {
       }
     }
 
+    const clubMembership = await this.resolveClubMembershipForPlayer({
+      sessionClubId: session.clubId,
+      userId: createPlayerDto.userId,
+      isClubMember: createPlayerDto.isClubMember,
+      clubId: createPlayerDto.clubId,
+    });
+
     // Create player
     const newPlayer = await this.prisma.player.create({
       data: {
@@ -295,6 +376,9 @@ export class PlayersService {
         preFilledByHost: createPlayerDto.preFilledByHost || false,
         confirmedByPlayer: createPlayerDto.confirmedByPlayer || false,
         requireConfirmInfo: createPlayerDto.requireConfirmInfo || false,
+        isClubMember: clubMembership.isClubMember,
+        clubId: clubMembership.clubId,
+        clubFeeApplied: clubMembership.clubFeeApplied,
         status: 'WAITING',
         waitingSince: new Date(), // Set waitingSince for realtime wait time calculation
       },
@@ -397,7 +481,7 @@ export class PlayersService {
 
     // Create players
     const createdPlayers = await Promise.all(
-      playersData.map((playerData) => {
+      playersData.map(async (playerData) => {
         let playerNumber = playerData.playerNumber;
 
         if (!playerNumber) {
@@ -407,6 +491,13 @@ export class PlayersService {
           );
           currentlyTakenNumbers.add(playerNumber);
         }
+
+        const clubMembership = await this.resolveClubMembershipForPlayer({
+          sessionClubId: session.clubId,
+          userId: playerData.userId,
+          isClubMember: playerData.isClubMember,
+          clubId: playerData.clubId,
+        });
 
         return this.prisma.player.create({
           data: {
@@ -422,8 +513,9 @@ export class PlayersService {
             preFilledByHost: playerData.preFilledByHost || false,
             confirmedByPlayer: playerData.confirmedByPlayer || false,
             requireConfirmInfo: playerData.requireConfirmInfo || false,
-            isClubMember: playerData.isClubMember || false,
-            clubId: playerData.clubId || null,
+            isClubMember: clubMembership.isClubMember,
+            clubId: clubMembership.clubId,
+            clubFeeApplied: clubMembership.clubFeeApplied,
             status: 'WAITING',
             waitingSince: new Date(),
           },
@@ -518,7 +610,9 @@ export class PlayersService {
       confirmedByPlayer?: boolean;
       requireConfirmInfo?: boolean;
       isClubMember?: boolean;
-      clubId?: string;
+      clubId?: string | null;
+      // Deprecated: accepted from older clients but never written
+      customFee?: unknown;
     }>
   ) {
     // Check if session exists
@@ -540,7 +634,7 @@ export class PlayersService {
     // Update all players in parallel
     const updatedPlayers = await Promise.all(
       players.map(async (playerData) => {
-        const { id, ...updateData } = playerData;
+        const { id, customFee: _customFee, ...updateData } = playerData;
 
         // Verify player belongs to this session
         const existingPlayer = await this.prisma.player.findFirst({
@@ -588,6 +682,8 @@ export class PlayersService {
         id: true,
         name: true,
         hostId: true,
+        clubId: true,
+        isCrawled: true,
         host: {
           select: {
             role: true,
@@ -605,6 +701,13 @@ export class PlayersService {
 
     if (!session) {
       throw new NotFoundException('Session does not exist');
+    }
+
+    // Crawled (vãng lai) sessions are view-only — no registration/player mgmt
+    if (session.isCrawled) {
+      throw new ForbiddenException(
+        'Crawled (vãng lai) sessions are view-only; registration is disabled.'
+      );
     }
 
     // Determine initial status
@@ -667,7 +770,7 @@ export class PlayersService {
 
     // Create players with auto-assigned numbers
     const createdPlayers = await Promise.all(
-      playersData.map((playerData) => {
+      playersData.map(async (playerData) => {
         let playerNumber = playerData.playerNumber;
 
         // Auto-assign if not provided OR if already taken
@@ -678,6 +781,13 @@ export class PlayersService {
           );
         }
         currentlyTakenNumbers.add(playerNumber);
+
+        const clubMembership = await this.resolveClubMembershipForPlayer({
+          sessionClubId: fullSession.clubId,
+          userId: playerData.userId || currentUserId,
+          isClubMember: playerData.isClubMember,
+          clubId: playerData.clubId,
+        });
 
         return this.prisma.player.create({
           data: {
@@ -694,8 +804,9 @@ export class PlayersService {
             preFilledByHost: playerData.preFilledByHost || false,
             confirmedByPlayer: playerData.confirmedByPlayer || false,
             requireConfirmInfo: playerData.requireConfirmInfo || false,
-            isClubMember: playerData.isClubMember || false,
-            clubId: playerData.clubId || null,
+            isClubMember: clubMembership.isClubMember,
+            clubId: clubMembership.clubId,
+            clubFeeApplied: clubMembership.clubFeeApplied,
             status: 'WAITING',
             registrationStatus: registrationStatus,
             waitingSince: new Date(),
@@ -905,78 +1016,152 @@ export class PlayersService {
     return { count };
   }
 
+  async findPendingRequestById(
+    playerId: string,
+    hostId: string,
+    role?: string
+  ) {
+    const where: Prisma.PlayerWhereInput = {
+      id: playerId,
+      registrationStatus: 'PENDING',
+    };
+
+    if (role !== 'ADMIN') {
+      where.session = {
+        hostId: hostId,
+      };
+    }
+
+    const player = await this.prisma.player.findFirst({
+      where,
+      include: {
+        session: {
+          select: {
+            id: true,
+            name: true,
+            startTime: true,
+            venue: { select: { name: true } },
+          },
+        },
+        user: {
+          select: { id: true, name: true, image: true },
+        },
+      },
+    });
+
+    if (!player) {
+      throw new NotFoundException('Pending request not found');
+    }
+
+    // Collect ids of all pending slots registered by the same user in this
+    // session so the client can approve/reject them as one group
+    const groupId = player.createdByUserId ?? player.userId;
+    let relatedPlayerIds = [player.id];
+    if (groupId) {
+      const siblings = await this.prisma.player.findMany({
+        where: {
+          sessionId: player.sessionId,
+          registrationStatus: 'PENDING',
+          OR: [
+            { createdByUserId: groupId },
+            { createdByUserId: null, userId: groupId },
+          ],
+        },
+        select: { id: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      relatedPlayerIds = siblings.map((s) => s.id);
+    }
+
+    // Count past sessions the requester has actually played, to help the
+    // host judge the request (shown only if > 0 on the client)
+    const sessionsPlayedCount = groupId
+      ? await this.prisma.player.count({
+          where: {
+            userId: groupId,
+            registrationStatus: 'APPROVED',
+            session: { status: 'FINISHED' },
+          },
+        })
+      : 0;
+
+    return { ...player, relatedPlayerIds, sessionsPlayedCount };
+  }
+
   async batchUpdatePlayerStatus(
     playerIds: string[],
     status: 'APPROVED' | 'REJECTED',
     currentUserId: string,
     role?: string
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      // Fetch all players with their sessions
-      const players = await tx.player.findMany({
-        where: {
-          id: { in: playerIds },
-          registrationStatus: 'PENDING',
-        },
-        include: {
-          session: { select: { id: true, hostId: true, name: true } },
-        },
-      });
-
-      if (players.length === 0) {
-        throw new NotFoundException('No pending players found');
-      }
-
-      // Verify authorization for all sessions
-      if (role !== 'ADMIN') {
-        const unauthorized = players.find(
-          (p) => p.session.hostId !== currentUserId
-        );
-        if (unauthorized) {
-          throw new ForbiddenException(
-            'Only the host or admin can approve/reject players'
-          );
-        }
-      }
-
-      // Batch update
-      await tx.player.updateMany({
-        where: { id: { in: playerIds } },
-        data: { registrationStatus: status },
-      });
-
-      // Send notifications and create payment records per player
-      for (const player of players) {
-        this.sessionsGateway.notifyEvent(
-          player.sessionId,
-          SessionEventType.PLAYER_UPDATED,
-          { playerId: player.id, registrationStatus: status }
-        );
-
-        if (player.userId) {
-          this.sessionsGateway.notifyUser(
-            player.userId,
-            SessionEventType.REGISTRATION_STATUS_UPDATED,
-            {
-              sessionId: player.sessionId,
-              sessionName: player.session.name || 'Badminton Session',
-              status,
-              playerId: player.id,
-            }
-          );
-        }
-
-        if (status === 'APPROVED') {
-          await this.feeService.createPaymentRecordForPlayer(
-            player.sessionId,
-            player.id,
-            player.session.hostId
-          );
-        }
-      }
-
-      return { updated: players.length, status };
+    // Fetch all players with their sessions
+    const players = await this.prisma.player.findMany({
+      where: {
+        id: { in: playerIds },
+        registrationStatus: 'PENDING',
+      },
+      include: {
+        session: { select: { id: true, hostId: true, name: true } },
+      },
     });
+
+    if (players.length === 0) {
+      throw new NotFoundException('No pending players found');
+    }
+
+    // Verify authorization for all sessions
+    if (role !== 'ADMIN') {
+      const unauthorized = players.find(
+        (p) => p.session.hostId !== currentUserId
+      );
+      if (unauthorized) {
+        throw new ForbiddenException(
+          'Only the host or admin can approve/reject players'
+        );
+      }
+    }
+
+    // Batch update
+    await this.prisma.player.updateMany({
+      where: { id: { in: players.map((p) => p.id) } },
+      data: { registrationStatus: status },
+    });
+
+    // Send notifications and create payment records per player.
+    // Done outside the update above (not wrapped in a $transaction) because
+    // feeService.createPaymentRecordForPlayer runs its own queries on the
+    // shared prisma client; nesting them inside an interactive transaction
+    // starved the connection pool and made bulk approve/reject fail.
+    for (const player of players) {
+      this.sessionsGateway.notifyEvent(
+        player.sessionId,
+        SessionEventType.PLAYER_UPDATED,
+        { playerId: player.id, registrationStatus: status }
+      );
+
+      if (player.userId) {
+        this.sessionsGateway.notifyUser(
+          player.userId,
+          SessionEventType.REGISTRATION_STATUS_UPDATED,
+          {
+            sessionId: player.sessionId,
+            sessionName: player.session.name || 'Badminton Session',
+            status,
+            playerId: player.id,
+          }
+        );
+      }
+
+      if (status === 'APPROVED') {
+        await this.feeService.createPaymentRecordForPlayer(
+          player.sessionId,
+          player.id,
+          player.session.hostId
+        );
+      }
+    }
+
+    return { updated: players.length, status };
   }
 
   async checkCode(code: string) {
@@ -1160,7 +1345,8 @@ export class PlayersService {
       confirmedByPlayer?: boolean;
       requireConfirmInfo?: boolean;
       isClubMember?: boolean;
-      clubId?: string;
+      clubId?: string | null;
+      userId?: string | null;
     }
   ) {
     // Check if session exists
@@ -1188,6 +1374,15 @@ export class PlayersService {
     if (updateData.name !== undefined && updateData.name.trim() === '') {
       throw new BadRequestException('Player name is required');
     }
+
+    const clubMembership = await this.resolveClubMembershipForPlayer({
+      sessionClubId: session.clubId,
+      userId: updateData.userId ?? existingPlayer.userId,
+      isClubMember: updateData.isClubMember,
+      clubId: updateData.clubId,
+      currentIsClubMember: existingPlayer.isClubMember,
+      currentClubId: existingPlayer.clubId,
+    });
 
     // Update the player
     const updatedPlayer = await this.prisma.player.update({
@@ -1218,14 +1413,10 @@ export class PlayersService {
           updateData.requireConfirmInfo !== undefined
             ? updateData.requireConfirmInfo
             : existingPlayer.requireConfirmInfo,
-        isClubMember:
-          updateData.isClubMember !== undefined
-            ? updateData.isClubMember
-            : existingPlayer.isClubMember,
-        clubId:
-          updateData.clubId !== undefined
-            ? updateData.clubId
-            : existingPlayer.clubId,
+        userId: updateData.userId !== undefined ? updateData.userId : undefined,
+        isClubMember: clubMembership.isClubMember,
+        clubId: clubMembership.clubId,
+        clubFeeApplied: clubMembership.clubFeeApplied,
       },
     });
 

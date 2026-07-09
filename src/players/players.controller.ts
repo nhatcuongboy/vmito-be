@@ -22,13 +22,17 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Public } from '../auth/decorators/public.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { SessionStatus } from '@prisma/client';
+import { SessionAccessService } from '../common/session-access/session-access.service';
 
 @ApiTags('players')
 @ApiBearerAuth('JWT-auth')
 @Controller('players')
 @UseGuards(JwtAuthGuard)
 export class PlayersController {
-  constructor(private readonly playersService: PlayersService) {}
+  constructor(
+    private readonly playersService: PlayersService,
+    private readonly sessionAccess: SessionAccessService
+  ) {}
 
   // ============ Public Endpoints (must come before :id routes) ============
 
@@ -92,6 +96,19 @@ export class PlayersController {
     return this.playersService.countPendingRequests(user.userId, user.role);
   }
 
+  @Get('pending-requests/:id')
+  @ApiOperation({ summary: 'Get a pending player request detail for host' })
+  getPendingRequestById(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    return this.playersService.findPendingRequestById(
+      id,
+      user.userId,
+      user.role
+    );
+  }
+
   @Post('pending-requests/batch')
   @ApiOperation({ summary: 'Batch approve or reject pending player requests' })
   batchUpdateStatus(
@@ -149,7 +166,19 @@ export class PlayersController {
   }
 
   @Post('link-account')
-  linkAccount(@Body() body: { playerId: string; userId: string }) {
+  async linkAccount(
+    @Body() body: { playerId: string; userId: string },
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    // A user may link a player slot to their own account; anything else is a
+    // host/admin action on the owning session.
+    if (body.userId !== user.userId) {
+      await this.sessionAccess.assertPlayerSessionHost(
+        body.playerId,
+        user.userId,
+        user.role
+      );
+    }
     return this.playersService.linkAccount(body.playerId, body.userId);
   }
 
@@ -161,12 +190,29 @@ export class PlayersController {
   }
 
   @Put(':id')
-  update(@Param('id') id: string, @Body() updatePlayerDto: UpdatePlayerDto) {
+  async update(
+    @Param('id') id: string,
+    @Body() updatePlayerDto: UpdatePlayerDto,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    await this.sessionAccess.assertPlayerSelfOrSessionHost(
+      id,
+      user.userId,
+      user.role
+    );
     return this.playersService.update(id, updatePlayerDto);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
+  async remove(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    await this.sessionAccess.assertPlayerSelfOrSessionHost(
+      id,
+      user.userId,
+      user.role
+    );
     return this.playersService.remove(id);
   }
 
@@ -182,36 +228,65 @@ export class PlayersController {
 @Controller('sessions/:sessionId/players')
 @UseGuards(JwtAuthGuard)
 export class SessionPlayersController {
-  constructor(private readonly playersService: PlayersService) {}
+  constructor(
+    private readonly playersService: PlayersService,
+    private readonly sessionAccess: SessionAccessService
+  ) {}
 
   @Post()
-  create(
+  async create(
     @Param('sessionId') sessionId: string,
-    @Body() createPlayerDto: CreatePlayerDto
+    @Body() createPlayerDto: CreatePlayerDto,
+    @CurrentUser() user: { userId: string; role: string }
   ) {
+    await this.sessionAccess.assertSessionHost(
+      sessionId,
+      user.userId,
+      user.role
+    );
     return this.playersService.createInSession(sessionId, createPlayerDto);
   }
 
   @Post('bulk')
-  createBulk(
+  async createBulk(
     @Param('sessionId') sessionId: string,
-    @Body() playersData: CreatePlayerDto[]
+    @Body() playersData: CreatePlayerDto[],
+    @CurrentUser() user: { userId: string; role: string }
   ) {
+    await this.sessionAccess.assertSessionHost(
+      sessionId,
+      user.userId,
+      user.role
+    );
     return this.playersService.createBulkInSession(sessionId, playersData);
   }
 
   @Get('bulk')
   @ApiOperation({ summary: 'Get bulk players info for a session' })
-  getBulkPlayersInfo(@Param('sessionId') sessionId: string) {
+  async getBulkPlayersInfo(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    await this.sessionAccess.assertSessionHost(
+      sessionId,
+      user.userId,
+      user.role
+    );
     return this.playersService.getBulkPlayersInfo(sessionId);
   }
 
   @Patch('bulk-update')
   @ApiOperation({ summary: 'Bulk update players in a session' })
-  bulkUpdatePlayers(
+  async bulkUpdatePlayers(
     @Param('sessionId') sessionId: string,
-    @Body() body: { players: UpdatePlayerInSessionDto[] }
+    @Body() body: { players: UpdatePlayerInSessionDto[] },
+    @CurrentUser() user: { userId: string; role: string }
   ) {
+    await this.sessionAccess.assertSessionHost(
+      sessionId,
+      user.userId,
+      user.role
+    );
     return this.playersService.bulkUpdatePlayers(sessionId, body.players);
   }
 
@@ -230,10 +305,16 @@ export class SessionPlayersController {
   }
 
   @Patch('toggle-inactive')
-  toggleInactive(
+  async toggleInactive(
     @Param('sessionId') sessionId: string,
-    @Body() body: { playerId: string }
+    @Body() body: { playerId: string },
+    @CurrentUser() user: { userId: string; role: string }
   ) {
+    await this.sessionAccess.assertSessionHost(
+      sessionId,
+      user.userId,
+      user.role
+    );
     return this.playersService.toggleInactive(sessionId, body.playerId);
   }
 
@@ -255,11 +336,17 @@ export class SessionPlayersController {
   }
 
   @Patch(':playerId')
-  updatePlayerInSession(
+  async updatePlayerInSession(
     @Param('sessionId') sessionId: string,
     @Param('playerId') playerId: string,
-    @Body() updateDto: UpdatePlayerInSessionDto
+    @Body() updateDto: UpdatePlayerInSessionDto,
+    @CurrentUser() user: { userId: string; role: string }
   ) {
+    await this.sessionAccess.assertSessionHost(
+      sessionId,
+      user.userId,
+      user.role
+    );
     return this.playersService.updatePlayerInSession(
       sessionId,
       playerId,
@@ -268,10 +355,16 @@ export class SessionPlayersController {
   }
 
   @Delete(':playerId')
-  removePlayerFromSession(
+  async removePlayerFromSession(
     @Param('sessionId') sessionId: string,
-    @Param('playerId') playerId: string
+    @Param('playerId') playerId: string,
+    @CurrentUser() user: { userId: string; role: string }
   ) {
+    await this.sessionAccess.assertPlayerSelfOrSessionHost(
+      playerId,
+      user.userId,
+      user.role
+    );
     return this.playersService.removePlayerFromSession(sessionId, playerId);
   }
 

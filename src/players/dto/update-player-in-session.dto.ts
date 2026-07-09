@@ -54,10 +54,13 @@ export class UpdatePlayerInSessionDto {
 
   @IsOptional()
   @IsString()
-  clubId?: string;
+  clubId?: string | null;
 
   // ============ Fields to ignore (sent by FE but not used) ============
   // These fields are allowed in the request body but will be ignored
+  @IsOptional()
+  customFee?: unknown;
+
   @IsOptional()
   id?: string;
 

@@ -52,5 +52,5 @@ export class UpdatePlayerDto {
 
   @IsString()
   @IsOptional()
-  clubId?: string;
+  clubId?: string | null;
 }

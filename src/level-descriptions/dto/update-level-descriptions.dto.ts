@@ -4,7 +4,6 @@ import {
   IsArray,
   IsInt,
   IsString,
-  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -12,7 +11,6 @@ import {
 export class LevelDescriptionInputDto {
   @IsInt()
   @Min(1)
-  @Max(8)
   level: number;
 
   @IsString()
@@ -21,7 +19,7 @@ export class LevelDescriptionInputDto {
 
 export class UpdateLevelDescriptionsDto {
   @IsArray()
-  @ArrayMinSize(8)
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => LevelDescriptionInputDto)
   descriptions: LevelDescriptionInputDto[];

@@ -15,7 +15,10 @@ import {
   Prisma,
   SessionStatus,
 } from '@prisma/client';
-import { VALID_LEVELS } from '../common/constants/level.constants';
+import {
+  VALID_LEVELS,
+  getLevelDistance,
+} from '../common/constants/level.constants';
 
 import { SessionsGateway } from './sessions.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -23,10 +26,12 @@ import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { ClubsService } from '../clubs/clubs.service';
 import { UserImagesService } from '../user-images/user-images.service';
 import { ScoringEngine } from './utils/scoring-engine';
+import { VENUE_PUBLIC_OMIT } from '../venues/venues.service';
 import {
   generateSlug,
   removeVietnameseTones,
 } from '../common/utils/string.utils';
+import { ExtractedSessionDto } from '../ai/dto/extract-session.dto';
 
 @Injectable()
 export class SessionsService {
@@ -45,6 +50,28 @@ export class SessionsService {
     PREPARING: 1,
     FINISHED: 2,
   };
+
+  private normalizeReferenceVideoUrl(
+    value: string | null | undefined
+  ): string | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    try {
+      const url = new URL(trimmed);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new Error('Invalid protocol');
+      }
+      return trimmed;
+    } catch {
+      throw new BadRequestException(
+        'referenceVideoUrl must be a valid http or https URL'
+      );
+    }
+  }
 
   private buildOrderBy(
     sortBy?: string,
@@ -95,6 +122,7 @@ export class SessionsService {
       excludeStatuses?: SessionStatus[];
       endTimeBefore?: string;
       endTimeAfter?: string;
+      sessionType?: 'all' | 'regular' | 'facebook';
     }
   ) {
     const page = filters?.page || 1;
@@ -136,6 +164,12 @@ export class SessionsService {
       where.endTime = { lt: new Date(filters.endTimeBefore) };
     } else if (filters?.endTimeAfter) {
       where.endTime = { gte: new Date(filters.endTimeAfter) };
+    }
+
+    if (filters?.sessionType === 'regular') {
+      where.isCrawled = false;
+    } else if (filters?.sessionType === 'facebook') {
+      where.isCrawled = true;
     }
 
     const total = await this.prisma.session.count({ where });
@@ -200,6 +234,7 @@ export class SessionsService {
       excludeStatuses?: SessionStatus[];
       sortBy?: string;
       sortOrder?: 'asc' | 'desc';
+      sessionType?: 'all' | 'regular' | 'facebook';
     }
   ) {
     return this.findAll(undefined, { ...filters, hostId });
@@ -224,6 +259,7 @@ export class SessionsService {
     hostId?: string;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
+    sessionType?: 'all' | 'regular' | 'facebook';
   }) {
     const page = filters?.page || 1;
     const limit = filters?.limit || 12;
@@ -346,6 +382,12 @@ export class SessionsService {
       andConditions.push({
         hostId: filters.hostId,
       });
+    }
+
+    if (filters?.sessionType === 'regular') {
+      andConditions.push({ isCrawled: false });
+    } else if (filters?.sessionType === 'facebook') {
+      andConditions.push({ isCrawled: true });
     }
 
     if (andConditions.length > 0) {
@@ -572,7 +614,7 @@ export class SessionsService {
             image: true,
           },
         },
-        venue: true,
+        venue: { omit: VENUE_PUBLIC_OMIT },
         courts: {
           orderBy: {
             courtNumber: 'asc',
@@ -679,6 +721,13 @@ export class SessionsService {
           },
         },
         feeConfig: true,
+        club: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
         _count: {
           select: {
             players: {
@@ -766,6 +815,7 @@ export class SessionsService {
       location,
       hostName,
       hostPhone,
+      clubId,
       venue,
       courtColor,
       courts: courtsConfig,
@@ -774,6 +824,7 @@ export class SessionsService {
       coverPhotoPublicId,
       images,
       imagePublicIds,
+      referenceVideoUrl,
       defaultMatchType,
     } = createSessionDto;
 
@@ -792,6 +843,8 @@ export class SessionsService {
         `Invalid level values: ${invalidLevels.join(', ')}. Valid levels are: ${validLevels.join(', ')}`
       );
     }
+    const normalizedReferenceVideoUrl =
+      this.normalizeReferenceVideoUrl(referenceVideoUrl);
 
     // Determine actual number of courts
     const finalNumberOfCourts =
@@ -882,6 +935,7 @@ export class SessionsService {
         location: finalLocation,
         hostName,
         hostPhone,
+        clubId: clubId || null,
         venueId,
         courtColor: courtColor || '#179a3b',
         defaultMatchType: defaultMatchType || 'DOUBLES',
@@ -890,6 +944,7 @@ export class SessionsService {
         coverPhotoPublicId,
         images: images || [],
         imagePublicIds: imagePublicIds || [],
+        referenceVideoUrl: normalizedReferenceVideoUrl,
       },
       include: {
         host: {
@@ -901,6 +956,13 @@ export class SessionsService {
           },
         },
         venue: true,
+        club: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
       },
     });
 
@@ -997,12 +1059,161 @@ export class SessionsService {
           },
         },
         feeConfig: true,
+        club: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
         _count: {
           select: {
             players: { where: { registrationStatus: 'APPROVED' as const } },
             courts: true,
           },
         },
+      },
+    });
+  }
+
+  /**
+   * Create a view-only "kèo vãng lai" session imported from a public Facebook
+   * post (via Apify webhook + Gemini extraction).
+   *
+   * Unlike {@link create}, this deliberately freezes all interaction logic:
+   * it does NOT create Court / Player records and does NOT send notifications.
+   * The session is hosted by the system bot user (CRAWLER_BOT_USER_ID) and
+   * flagged with isCrawled=true so the frontend renders a read-only variant.
+   *
+   * Deduplication is enforced by the unique externalUrl column: re-ingesting
+   * the same post is a no-op that returns null (nothing created).
+   */
+  async createCrawledSession(
+    extracted: ExtractedSessionDto,
+    externalUrl: string,
+    externalSource?: string,
+    meta?: {
+      authorName?: string;
+      authorUrl?: string;
+      authorAvatar?: string;
+      groupUrl?: string;
+      coverPhoto?: string;
+    }
+  ) {
+    // Dedup: skip if this Facebook post was already imported
+    const existing = await this.prisma.session.findUnique({
+      where: { externalUrl },
+      select: { id: true },
+    });
+    if (existing) {
+      return null;
+    }
+
+    const botUserId = this.configService.get<string>('crawler.botUserId');
+    if (!botUserId) {
+      throw new BadRequestException(
+        'CRAWLER_BOT_USER_ID is not configured; cannot import crawled sessions.'
+      );
+    }
+    const botUser = await this.prisma.user.findUnique({
+      where: { id: botUserId },
+    });
+    if (!botUser) {
+      throw new NotFoundException(
+        `Crawler bot user "${botUserId}" not found; seed it before importing.`
+      );
+    }
+
+    const name = extracted.name?.trim() || 'Kèo vãng lai';
+    const sessionDuration = extracted.sessionDuration ?? 120;
+
+    // Only keep valid level IDs; ignore anything else
+    const requiredLevels = (extracted.requiredLevels || []).filter((level) =>
+      VALID_LEVELS.includes(level)
+    );
+
+    const matchedVenueId = extracted.venueId?.trim();
+
+    // Prefer the AI's explicit location; otherwise compose "<venue name>,
+    // <address>" so the court/venue name is never dropped.
+    const composedVenue = [extracted.venue?.name, extracted.venue?.address]
+      .map((s) => s?.trim())
+      .filter(Boolean)
+      .join(', ');
+    const finalLocation =
+      extracted.location?.trim() || composedVenue || undefined;
+
+    const scheduledStart = extracted.startTime
+      ? new Date(extracted.startTime)
+      : new Date();
+    const scheduledEnd = extracted.endTime
+      ? new Date(extracted.endTime)
+      : new Date(scheduledStart.getTime() + sessionDuration * 60 * 1000);
+    const gracePeriodEnd = new Date(scheduledEnd.getTime() + 30 * 60 * 1000);
+
+    const sessionSlug = `${generateSlug(name)}-${Math.random().toString(36).substring(2, 7)}`;
+    const sessionSearchTerms = removeVietnameseTones(
+      `${name} ${finalLocation || ''} ${extracted.hostName || ''} ${
+        extracted.venue
+          ? `${extracted.venue.name || ''} ${extracted.venue.address || ''}`
+          : ''
+      }`
+    ).toLowerCase();
+
+    return this.prisma.session.create({
+      data: {
+        name,
+        slug: sessionSlug,
+        hostId: botUserId,
+        venueId: matchedVenueId || undefined,
+        isCrawled: true,
+        externalUrl,
+        externalSource,
+        externalAuthorUrl: meta?.authorUrl,
+        externalAuthorAvatar: meta?.authorAvatar,
+        externalGroupUrl: meta?.groupUrl,
+        coverPhoto: meta?.coverPhoto,
+        // View-only: no player management, keep guest/new-player flags off
+        allowGuestJoin: false,
+        allowNewPlayers: false,
+        numberOfCourts: extracted.numberOfCourts ?? 1,
+        sessionDuration,
+        maxPlayersPerCourt: extracted.maxPlayersPerCourt ?? 8,
+        requiredLevels,
+        searchTerms: sessionSearchTerms,
+        scheduledStartTime: scheduledStart,
+        scheduledEndTime: scheduledEnd,
+        gracePeriodEnd,
+        startTime: scheduledStart,
+        endTime: scheduledEnd,
+        status: 'PREPARING',
+        description: extracted.description,
+        notes: extracted.notes ?? null,
+        location: finalLocation,
+        hostName: meta?.authorName || extracted.hostName,
+        hostPhone: extracted.hostPhone,
+        defaultMatchType: extracted.defaultMatchType || 'DOUBLES',
+        shuttlecock: extracted.shuttlecock,
+        // Fee (display only) — created inline via nested write
+        ...(extracted.feeConfig
+          ? {
+              feeConfig: {
+                create: {
+                  feeType: extracted.feeConfig.feeType,
+                  maleFee: extracted.feeConfig.maleFee ?? null,
+                  femaleFee: extracted.feeConfig.femaleFee ?? null,
+                  notes: extracted.feeConfig.notes ?? null,
+                },
+              },
+            }
+          : {}),
+      },
+      include: {
+        host: {
+          select: { id: true, name: true, email: true, image: true },
+        },
+        venue: true,
+        feeConfig: true,
       },
     });
   }
@@ -1019,6 +1230,12 @@ export class SessionsService {
 
     if (!existingSession) {
       throw new NotFoundException('Session not found');
+    }
+
+    if (existingSession.isCrawled) {
+      throw new ForbiddenException(
+        'Crawled (vãng lai) sessions are view-only and cannot be modified.'
+      );
     }
 
     // Authorization check: only session owner or admin can update
@@ -1071,6 +1288,9 @@ export class SessionsService {
         `${updatedName} ${updatedLocation || ''} ${updatedHostName || ''} ${venueNameAddress}`
       ).toLowerCase();
     }
+    const normalizedReferenceVideoUrl = this.normalizeReferenceVideoUrl(
+      updateSessionDto.referenceVideoUrl
+    );
 
     const session = await this.prisma.session.update({
       where: { id },
@@ -1099,6 +1319,12 @@ export class SessionsService {
         hostName: updateSessionDto.hostName,
         searchTerms: updatedSearchTerms,
         hostPhone: updateSessionDto.hostPhone,
+        club:
+          updateSessionDto.clubId !== undefined
+            ? updateSessionDto.clubId
+              ? { connect: { id: updateSessionDto.clubId } }
+              : { disconnect: true }
+            : undefined,
         courtColor: updateSessionDto.courtColor,
         defaultMatchType: updateSessionDto.defaultMatchType,
         shuttlecock: updateSessionDto.shuttlecock,
@@ -1106,6 +1332,7 @@ export class SessionsService {
         coverPhotoPublicId: updateSessionDto.coverPhotoPublicId,
         images: updateSessionDto.images,
         imagePublicIds: updateSessionDto.imagePublicIds,
+        referenceVideoUrl: normalizedReferenceVideoUrl,
         venue: updateSessionDto.venue
           ? {
               connectOrCreate: {
@@ -1134,16 +1361,84 @@ export class SessionsService {
         },
         feeConfig: true,
         venue: true,
+        club: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
       },
     });
 
-    // If number of courts changed, adjust courts
-    if (
+    // Handle court sync when courts array is explicitly provided.
+    // Uses id-based matching to safely create, update, and delete courts
+    // without conflicts from custom court numbers.
+    if (updateSessionDto.courts && Array.isArray(updateSessionDto.courts)) {
+      const existingCourts = await this.prisma.court.findMany({
+        where: { sessionId: id },
+        orderBy: { courtNumber: 'asc' },
+      });
+
+      const existingCourtMap = new Map(existingCourts.map((c) => [c.id, c]));
+
+      const courtsWithId = updateSessionDto.courts.filter(
+        (c) => c.id && existingCourtMap.has(c.id)
+      );
+      const courtsToCreate = updateSessionDto.courts.filter((c) => !c.id);
+      const keptIds = new Set(courtsWithId.map((c) => c.id));
+      const courtsToDelete = existingCourts.filter((c) => !keptIds.has(c.id));
+
+      // Delete removed courts (only if they have no active match)
+      if (courtsToDelete.length > 0) {
+        await this.prisma.court.deleteMany({
+          where: {
+            id: { in: courtsToDelete.map((c) => c.id) },
+            status: 'EMPTY',
+          },
+        });
+      }
+
+      // Two-pass rename to avoid unique constraint conflicts during renaming
+      if (courtsWithId.length > 0) {
+        // Pass 1: assign temp courtNumbers
+        for (let i = 0; i < courtsWithId.length; i++) {
+          await this.prisma.court.update({
+            where: { id: courtsWithId[i].id as string },
+            data: { courtNumber: 100000 + i },
+          });
+        }
+        // Pass 2: set final values
+        for (const courtConfig of courtsWithId) {
+          await this.prisma.court.update({
+            where: { id: courtConfig.id as string },
+            data: {
+              courtNumber: courtConfig.courtNumber,
+              courtName: courtConfig.courtName ?? null,
+              direction: courtConfig.direction,
+            },
+          });
+        }
+      }
+
+      // Create new courts (those without an id)
+      if (courtsToCreate.length > 0) {
+        await this.prisma.court.createMany({
+          data: courtsToCreate.map((c) => ({
+            sessionId: id,
+            courtNumber: c.courtNumber,
+            courtName: c.courtName || null,
+            direction: c.direction || CourtDirection.HORIZONTAL,
+            status: 'EMPTY' as const,
+          })),
+        });
+      }
+    } else if (
+      // Count-only change (no courts array provided): add/remove courts sequentially
       updateSessionDto.numberOfCourts !== undefined &&
       updateSessionDto.numberOfCourts !== existingSession.numberOfCourts
     ) {
       if (updateSessionDto.numberOfCourts > existingSession.numberOfCourts) {
-        // Add new courts
         const newCourts: Array<{
           sessionId: string;
           courtNumber: number;
@@ -1164,58 +1459,15 @@ export class SessionsService {
             status: 'EMPTY' as const,
           });
         }
-
-        await this.prisma.court.createMany({
-          data: newCourts,
-        });
+        await this.prisma.court.createMany({ data: newCourts });
       } else if (
         updateSessionDto.numberOfCourts < existingSession.numberOfCourts
       ) {
-        // Remove excess courts (only if they're empty)
         await this.prisma.court.deleteMany({
           where: {
             sessionId: id,
-            courtNumber: {
-              gt: updateSessionDto.numberOfCourts,
-            },
+            courtNumber: { gt: updateSessionDto.numberOfCourts },
             status: 'EMPTY',
-          },
-        });
-      }
-    }
-
-    // Handle specific court updates (courtNumber, names, directions)
-    // Match by positional index (ordered by current courtNumber) so renaming courtNumber works correctly.
-    // Two-pass update to avoid unique constraint violations on (sessionId, courtNumber):
-    //   Pass 1 – set courtNumber to a temporary large offset (index + 100000)
-    //   Pass 2 – set courtNumber to the final desired value
-    if (updateSessionDto.courts && Array.isArray(updateSessionDto.courts)) {
-      const existingCourts = await this.prisma.court.findMany({
-        where: { sessionId: id },
-        orderBy: { courtNumber: 'asc' },
-      });
-
-      // Pass 1: assign temp courtNumbers to avoid conflicts
-      for (let i = 0; i < updateSessionDto.courts.length; i++) {
-        const existingCourt = existingCourts[i];
-        if (!existingCourt) continue;
-        await this.prisma.court.update({
-          where: { id: existingCourt.id },
-          data: { courtNumber: 100000 + i },
-        });
-      }
-
-      // Pass 2: set final values
-      for (let i = 0; i < updateSessionDto.courts.length; i++) {
-        const courtConfig = updateSessionDto.courts[i];
-        const existingCourt = existingCourts[i];
-        if (!existingCourt) continue;
-        await this.prisma.court.update({
-          where: { id: existingCourt.id },
-          data: {
-            courtNumber: courtConfig.courtNumber,
-            courtName: courtConfig.courtName ?? null,
-            direction: courtConfig.direction,
           },
         });
       }
@@ -1338,6 +1590,12 @@ export class SessionsService {
       throw new NotFoundException('Session not found');
     }
 
+    if (existingSession.isCrawled) {
+      throw new ForbiddenException(
+        'Crawled (vãng lai) sessions are view-only and cannot be cancelled.'
+      );
+    }
+
     // Authorization check
     if (role !== 'ADMIN' && existingSession.hostId !== userId) {
       throw new ForbiddenException('Not authorized to cancel this session');
@@ -1415,6 +1673,14 @@ export class SessionsService {
 
     if (!existingSession) {
       throw new NotFoundException('Session not found');
+    }
+
+    // Crawled (vãng lai) sessions are view-only; only admins may remove a bad
+    // import manually (the cleanup cron deletes them directly, bypassing this).
+    if (existingSession.isCrawled && role !== 'ADMIN') {
+      throw new ForbiddenException(
+        'Crawled (vãng lai) sessions are view-only and cannot be deleted.'
+      );
     }
 
     // Authorization check: only session owner or admin can delete
@@ -1507,6 +1773,12 @@ export class SessionsService {
       throw new NotFoundException('Session not found');
     }
 
+    if (existingSession.isCrawled) {
+      throw new ForbiddenException(
+        'Crawled (vãng lai) sessions are view-only and cannot be started.'
+      );
+    }
+
     if (existingSession.status !== 'PREPARING') {
       throw new BadRequestException(
         'Session has already been started or finished'
@@ -1572,6 +1844,12 @@ export class SessionsService {
 
     if (!sessionData) {
       throw new NotFoundException('Session not found');
+    }
+
+    if (sessionData.isCrawled) {
+      throw new ForbiddenException(
+        'Crawled (vãng lai) sessions are view-only and cannot be ended.'
+      );
     }
 
     if (sessionData.status !== 'IN_PROGRESS') {
@@ -2659,6 +2937,7 @@ export class SessionsService {
       location,
       hostName,
       hostPhone,
+      clubId,
       venue,
       courtColor,
       courts: courtsConfig,
@@ -2667,6 +2946,7 @@ export class SessionsService {
       coverPhotoPublicId,
       images,
       imagePublicIds,
+      referenceVideoUrl,
       defaultMatchType,
     } = createSessionDto;
 
@@ -2685,6 +2965,8 @@ export class SessionsService {
         `Invalid level values: ${invalidLevels.join(', ')}. Valid levels are: ${validLevels.join(', ')}`
       );
     }
+    const normalizedReferenceVideoUrl =
+      this.normalizeReferenceVideoUrl(referenceVideoUrl);
 
     // Determine actual number of courts
     const finalNumberOfCourts =
@@ -2758,6 +3040,7 @@ export class SessionsService {
         location: finalLocation,
         hostName,
         hostPhone,
+        clubId: clubId || null,
         venueId,
         courtColor: courtColor || '#179a3b',
         defaultMatchType: defaultMatchType || 'DOUBLES',
@@ -2766,6 +3049,7 @@ export class SessionsService {
         coverPhotoPublicId,
         images: images || [],
         imagePublicIds: imagePublicIds || [],
+        referenceVideoUrl: normalizedReferenceVideoUrl,
       },
       include: {
         host: {
@@ -2777,6 +3061,13 @@ export class SessionsService {
           },
         },
         venue: true,
+        club: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
       },
     });
 
@@ -2845,6 +3136,13 @@ export class SessionsService {
         },
         venue: true,
         feeConfig: true,
+        club: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
         _count: {
           select: {
             players: { where: { registrationStatus: 'APPROVED' as const } },
@@ -3076,7 +3374,9 @@ export class SessionsService {
         matchReasons.push('level_match');
       } else if (
         user.level &&
-        session.requiredLevels.some((l) => Math.abs(l - user.level!) <= 1)
+        session.requiredLevels.some(
+          (level) => getLevelDistance(level, user.level!) <= 1
+        )
       ) {
         levelScore = 0.5;
       } else {

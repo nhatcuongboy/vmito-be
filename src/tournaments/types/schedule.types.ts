@@ -10,6 +10,26 @@ export interface ScheduleConfig {
 }
 
 /**
+ * Match participant summary (display name) used by queue / court views.
+ */
+export interface MatchParticipantSummary {
+  id: string;
+  name: string;
+}
+
+/**
+ * Summary of the match currently occupying a court.
+ */
+export interface CourtCurrentMatch {
+  matchId: string;
+  categoryId: string;
+  round: string;
+  matchNumber: number;
+  status: string;
+  participants: MatchParticipantSummary[];
+}
+
+/**
  * Court availability info for Next Available Court mode
  */
 export interface CourtAvailability {
@@ -18,6 +38,7 @@ export interface CourtAvailability {
   courtName?: string;
   status: TournamentCourtStatus;
   currentMatchId?: string;
+  currentMatch?: CourtCurrentMatch;
   estimatedAvailableAt?: Date;
 }
 

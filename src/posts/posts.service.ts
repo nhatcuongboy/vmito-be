@@ -3,9 +3,11 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
@@ -40,10 +42,58 @@ export type NormalizedPost<T extends NormalizablePost> = Omit<
 
 @Injectable()
 export class PostsService {
+  private readonly logger = new Logger(PostsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
-    private readonly cloudinary: CloudinaryService
+    private readonly cloudinary: CloudinaryService,
+    private readonly notificationsService: NotificationsService
   ) {}
+
+  private async notifyPostInteraction(
+    post: { id: string; authorId: string },
+    actorId: string,
+    action: 'post_liked' | 'post_commented',
+    actorName: string,
+    extraData: Record<string, string> = {}
+  ) {
+    if (post.authorId === actorId) return;
+
+    try {
+      await this.notificationsService.createForUser(
+        post.authorId,
+        'POST',
+        action,
+        actorName,
+        { postId: post.id, actorId, actorName, action, ...extraData }
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to send ${action} notification for post ${post.id}: ${error}`
+      );
+    }
+  }
+
+  private async hasUnreadLikeNotification(
+    ownerId: string,
+    postId: string,
+    actorId: string
+  ) {
+    const existing = await this.prisma.notification.findFirst({
+      where: {
+        userId: ownerId,
+        type: 'POST',
+        isRead: false,
+        AND: [
+          { data: { path: ['postId'], equals: postId } },
+          { data: { path: ['actorId'], equals: actorId } },
+          { data: { path: ['action'], equals: 'post_liked' } },
+        ],
+      },
+      select: { id: true },
+    });
+    return Boolean(existing);
+  }
 
   private normalizePost<T extends NormalizablePost>(
     post: T,
@@ -71,18 +121,30 @@ export class PostsService {
   }
 
   async create(userId: string, createPostDto: CreatePostDto) {
+    const images = createPostDto.images ?? [];
+
     return this.prisma.post.create({
       data: {
         content: createPostDto.content,
         videoUrl: createPostDto.videoUrl,
         location: createPostDto.location,
         authorId: userId,
+        images:
+          images.length > 0
+            ? {
+                create: images.map((image, index) => ({
+                  url: image.url,
+                  publicId: image.publicId,
+                  order: image.order ?? index,
+                })),
+              }
+            : undefined,
       },
       include: {
         author: {
           select: { id: true, name: true, image: true },
         },
-        images: true,
+        images: { orderBy: { order: 'asc' } },
         _count: {
           select: { likes: true, comments: true, shares: true },
         },
@@ -190,12 +252,25 @@ export class PostsService {
       throw new ForbiddenException('You can only delete your own posts');
     }
 
-    // Delete images from Cloudinary
+    // Delete post-only images from Cloudinary. Images selected from the user's
+    // shared gallery are owned by user_images and should remain reusable.
     if (post.images.length > 0) {
+      const reusableImages = await this.prisma.userImage.findMany({
+        where: {
+          publicId: { in: post.images.map((image) => image.publicId) },
+        },
+        select: { publicId: true },
+      });
+      const reusablePublicIds = new Set(
+        reusableImages.map((image) => image.publicId)
+      );
+
       await Promise.all(
-        post.images.map((img) =>
-          this.cloudinary.deleteImage(img.publicId).catch(() => {})
-        )
+        post.images
+          .filter((img) => !reusablePublicIds.has(img.publicId))
+          .map((img) =>
+            this.cloudinary.deleteImage(img.publicId).catch(() => {})
+          )
       );
     }
 
@@ -275,6 +350,28 @@ export class PostsService {
       const likeCount = await this.prisma.postLike.count({
         where: { postId },
       });
+
+      if (post.authorId !== userId) {
+        // Repeated like/unlike keeps at most one unread notification per actor
+        const alreadyNotified = await this.hasUnreadLikeNotification(
+          post.authorId,
+          postId,
+          userId
+        );
+        if (!alreadyNotified) {
+          const actor = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { name: true },
+          });
+          await this.notifyPostInteraction(
+            post,
+            userId,
+            'post_liked',
+            actor?.name || ''
+          );
+        }
+      }
+
       return { liked: true, likeCount };
     }
   }
@@ -289,7 +386,7 @@ export class PostsService {
       throw new NotFoundException('Post not found');
     }
 
-    return this.prisma.postComment.create({
+    const comment = await this.prisma.postComment.create({
       data: {
         postId,
         userId,
@@ -301,6 +398,16 @@ export class PostsService {
         },
       },
     });
+
+    await this.notifyPostInteraction(
+      post,
+      userId,
+      'post_commented',
+      comment.user.name || '',
+      { commentId: comment.id }
+    );
+
+    return comment;
   }
 
   async getComments(postId: string, page = 1, limit = 20) {

@@ -7,9 +7,15 @@ import {
   ExtractedSessionDto,
   ExtractedVenue,
 } from './dto/extract-session.dto';
+import { ExtractedScheduleEntry } from './dto/extract-schedule.dto';
 import { Language, DEFAULT_LANGUAGE } from '../common/constants/language.enum';
 import { PrismaService } from '../prisma/prisma.service';
 import { removeVietnameseTones } from '../common/utils/string.utils';
+import {
+  getLevelsInRange,
+  isValidLevel,
+  sortLevelsByRank,
+} from '../common/constants/level.constants';
 
 const MODEL = 'gemini-3.1-flash-lite';
 const VIETNAM_TIME_ZONE = 'Asia/Ho_Chi_Minh';
@@ -204,12 +210,79 @@ const SESSION_EXTRACTION_SCHEMA = {
   ],
 };
 
+const SCHEDULE_EXTRACTION_SCHEMA = {
+  type: GenAIType.OBJECT,
+  properties: {
+    entries: {
+      type: GenAIType.ARRAY,
+      items: {
+        type: GenAIType.OBJECT,
+        properties: {
+          categoryName: nullableStringSchema,
+          matchNumber: nullableIntegerSchema,
+          matchCode: nullableStringSchema,
+          team1Code: nullableStringSchema,
+          team2Code: nullableStringSchema,
+          courtName: nullableStringSchema,
+          date: nullableStringSchema,
+          startTime: nullableStringSchema,
+          durationMinutes: nullableIntegerSchema,
+          rawLine: nullableStringSchema,
+        },
+        required: [
+          'categoryName',
+          'matchNumber',
+          'matchCode',
+          'team1Code',
+          'team2Code',
+          'courtName',
+          'date',
+          'startTime',
+          'durationMinutes',
+          'rawLine',
+        ],
+        propertyOrdering: [
+          'categoryName',
+          'matchNumber',
+          'matchCode',
+          'team1Code',
+          'team2Code',
+          'courtName',
+          'date',
+          'startTime',
+          'durationMinutes',
+          'rawLine',
+        ],
+      },
+    },
+  },
+  required: ['entries'],
+  propertyOrdering: ['entries'],
+};
+
+type RawExtractedScheduleEntry = {
+  categoryName?: string | null;
+  matchNumber?: number | string | null;
+  matchCode?: string | null;
+  team1Code?: string | null;
+  team2Code?: string | null;
+  courtName?: string | null;
+  date?: string | null;
+  startTime?: string | null;
+  durationMinutes?: number | string | null;
+  rawLine?: string | null;
+};
+
 /**
- * Maps AI-returned short name strings to numeric level IDs (1-8).
- * Aligned with FE levelShorts: 1=Yếu, 2=TBY, 3=TB-, 4=TB, 5=TB+, 6=Khá, 7=BC, 8=CN
+ * Maps AI-returned short name strings to stable numeric level IDs.
  */
 const LEVEL_SHORT_NAME_MAP: Record<string, number> = {
+  'Y-': 9,
+  'Yếu-': 9,
   Y: 1,
+  Yếu: 1,
+  'Y+': 10,
+  'Yếu+': 10,
   TBY: 2,
   'TB-': 3,
   TB: 4,
@@ -265,7 +338,9 @@ Core capabilities:
 
 ## Skill levels
 When discussing player skill levels, prefer these short labels instead of raw numbers:
+- Y- = Beginner minus
 - Y = Beginner
+- Y+ = Beginner plus
 - TBY = Advanced beginner
 - TB- = Low intermediate
 - TB = Intermediate
@@ -412,7 +487,24 @@ Only use another language if the user explicitly asks you to translate, compare 
       if (!matches.includes(level)) matches.push(level);
     };
 
-    if (/\bY\b|YEU|BEGINNER/.test(normalized)) add(1);
+    const hasBeginnerMinus =
+      compact.includes('Y-') ||
+      compact.includes('YEU-') ||
+      compact.includes('BEGINNER-');
+    const hasBeginnerPlus =
+      compact.includes('Y+') ||
+      compact.includes('YEU+') ||
+      compact.includes('BEGINNER+');
+    const hasPlainBeginner =
+      /\bY\b/.test(normalized) ||
+      /(^|[^A-Z])YEU($|[^A-Z+-])/.test(normalized) ||
+      /(^|[^A-Z])BEGINNER($|[^A-Z+-])/.test(normalized);
+
+    if (hasBeginnerMinus) add(9);
+    if (hasPlainBeginner) {
+      add(1);
+    }
+    if (hasBeginnerPlus) add(10);
     if (compact.includes('TBY') || compact.includes('TRUNGBINHYEU')) add(2);
     if (compact.includes('TB-') || compact.includes('TRUNGBINH-')) add(3);
     if (compact.includes('TB+') || compact.includes('TRUNGBINH+')) add(5);
@@ -435,9 +527,7 @@ Only use another language if the user explicitly asks you to translate, compare 
       matches.length >= 2 &&
       /\b(DEN|TO|THRU|THROUGH)\b|[-–—]/.test(normalized)
     ) {
-      const start = Math.min(...matches);
-      const end = Math.max(...matches);
-      return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+      return getLevelsInRange(matches[0], matches[matches.length - 1]);
     }
 
     return matches;
@@ -449,16 +539,14 @@ Only use another language if the user explicitly asks you to translate, compare 
     if (value === null || value === undefined) return undefined;
     const values = Array.isArray(value) ? value : [value];
     const levels = values.flatMap((item) => {
-      if (typeof item === 'number' && item >= 1 && item <= 8) return [item];
+      if (typeof item === 'number' && isValidLevel(item)) return [item];
       if (typeof item !== 'string') return [];
       const direct = LEVEL_SHORT_NAME_MAP[item];
       if (direct) return [direct];
       return this.normalizeLevelToken(item);
     });
-    const unique = [...new Set(levels)].filter(
-      (level) => level >= 1 && level <= 8
-    );
-    return unique.length > 0 ? unique.sort((a, b) => a - b) : undefined;
+    const unique = [...new Set(levels)].filter(isValidLevel);
+    return unique.length > 0 ? sortLevelsByRank(unique) : undefined;
   }
 
   private normalizeVenue(
@@ -721,10 +809,20 @@ Only use another language if the user explicitly asks you to translate, compare 
           contains: 70,
           token: 55,
         }) +
+        this.scoreTextMatch(searchCombined, venueName, {
+          exact: 80,
+          contains: 60,
+          token: 45,
+        }) +
         this.scoreTextMatch(searchName, venueAcronym, {
           exact: 85,
           contains: 55,
           token: 25,
+        }) +
+        this.scoreTextMatch(searchCombined, venueAcronym, {
+          exact: 70,
+          contains: 45,
+          token: 20,
         }) +
         this.scoreTextMatch(searchAddress, venueAddress, {
           exact: 45,
@@ -860,7 +958,7 @@ Field guidance:
 - venue: Structured venue data for matching against the database. venue.name is the court/venue name only; venue.address is the full address if available; district/city are administrative areas.
 - startTime/endTime: ISO 8601 datetime strings. If only time is given (e.g. "18h-20h") and no calendar date is mentioned, combine it with current date ${currentDate.date}. If date is mentioned without year, use year ${currentDate.year}. Use Vietnam time.
 - sessionDuration: Duration in minutes if explicitly stated or computable from startTime/endTime.
-- requiredLevels: Array of level short labels. Use only: Y, TBY, TB-, TB, TB+, K, BC, CN. For ranges, include every level in the range, e.g. "TB- đến Khá" -> ["TB-","TB","TB+","K"]. Return null if all levels are welcome or no level is mentioned.
+- requiredLevels: Array of level short labels. Use only: Y-, Y, Y+, TBY, TB-, TB, TB+, K, BC, CN. For ranges, include every level in the range, e.g. "Yếu- đến TBY" -> ["Y-","Y","Y+","TBY"] and "TB- đến Khá" -> ["TB-","TB","TB+","K"]. Return null if all levels are welcome or no level is mentioned.
 - numberOfCourts: Number of courts if mentioned. For "2 sân (3 và 4)", this is 2.
 - courtNames: Actual specific court numbers/names from the post, not generated sequence numbers. For "2 sân (3 và 4)", return ["3","4"]; for "sân A và B", return ["A","B"].
 - courts: If specific courts are known, return matching court objects. Numeric court names should use that actual number as courtNumber; non-numeric court names can use sequential courtNumber with courtName set.
@@ -905,8 +1003,11 @@ Important rules:
     const extracted = this.normalizeExtractedSession(rawExtracted);
 
     // Try to match venue in database
-    if (extracted.venue) {
-      const match = await this.findMatchingVenue(extracted.venue);
+    const venueForMatching =
+      extracted.venue ||
+      (extracted.location ? { name: extracted.location } : undefined);
+    if (venueForMatching) {
+      const match = await this.findMatchingVenue(venueForMatching);
       if (match) {
         extracted.venueId = match.venue.id;
         extracted.venue = this.canonicalVenue(match.venue);
@@ -918,6 +1019,244 @@ Important rules:
     }
 
     return extracted;
+  }
+
+  async extractScheduleFromText(
+    tournamentId: string,
+    text: string,
+    language: Language = DEFAULT_LANGUAGE
+  ): Promise<ExtractedScheduleEntry[]> {
+    if (!this.ai) throw new Error('Gemini API key is missing.');
+
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId },
+      select: {
+        id: true,
+        name: true,
+        startDate: true,
+        endDate: true,
+      },
+    });
+    if (!tournament) {
+      throw new Error('Tournament not found.');
+    }
+
+    const [categories, courts] = await Promise.all([
+      this.prisma.category.findMany({
+        where: { tournamentId },
+        select: { id: true, name: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.tournamentCourt.findMany({
+        where: { tournamentId },
+        select: { id: true, courtNumber: true, courtName: true },
+        orderBy: { courtNumber: 'asc' },
+      }),
+    ]);
+
+    const categoryHint = categories.map((c) => `- ${c.name}`).join('\n');
+    const courtHint = courts
+      .map((c) => {
+        const label = c.courtName?.trim()
+          ? c.courtName
+          : `Sân ${c.courtNumber}`;
+        return `- ${label} (#${c.courtNumber})`;
+      })
+      .join('\n');
+
+    const currentDate = getDatePartsInVietnam();
+    const languageInstruction = this.getLanguageInstruction(language);
+    const fallbackYear = (() => {
+      const start = tournament.startDate
+        ? new Date(tournament.startDate)
+        : null;
+      const year =
+        start && !Number.isNaN(start.getTime())
+          ? start.getUTCFullYear()
+          : Number.parseInt(currentDate.year, 10);
+      return Number.isFinite(year) ? year : new Date().getUTCFullYear();
+    })();
+
+    const prompt = `You extract a badminton tournament schedule from a free-form text/spreadsheet pasted by a tournament host for Vmito.
+
+${languageInstruction}
+
+Tournament: "${tournament.name}".
+Available categories (use the exact name):
+${categoryHint || '(none)'}
+
+Available courts (host may reference any of these names or the court number):
+${courtHint || '(none)'}
+
+Today (Vietnam timezone): ${currentDate.date}. If the input mentions a date without a year, assume year ${fallbackYear}.
+
+Input the host pasted (may be a table, CSV-like rows, or a plain text list):
+"""
+${text}
+"""
+
+A row may identify the match by ANY of: a match code (e.g. "MD-VB01"), a match number ("Trận N"), or the two opposing teams (e.g. "MD01 vs MD02", "Đội A - Đội B"). Common formats are:
+"<category>, <round/group>, <startTime> <date> (<duration>) - <team1> vs <team2> - <court>"
+"<category>, <round/group>, <startTime> - <endTime> <date>, <matchCode>, <team1> vs <team2>, <court>"
+for example "Đôi nam, Vòng bảng, 13:00 - 13:15 6/6/2026, MD-VB01, MD01 vs MD02, 5" (matchCode = "MD-VB01", court = "5").
+
+For every match assignment that you can clearly identify, return one entry with:
+- categoryName: must match one of the listed categories above (copy the exact spelling).
+- matchNumber: integer — the "Trận N" / "Match N" number within that category. If only a global match index is mentioned, treat it as the matchNumber. Set to null when the row has no plain match number.
+- matchCode: the human-readable match code exactly as written (e.g. "MD-VB01", "M01", "XD-VB03"), typically an alphanumeric token with letters, an optional dash, and digits. This is NOT a team name and NOT a court. Otherwise null.
+- team1Code: the first team's name/code exactly as written (e.g. "MD01"), when the row names the two opponents around "vs", "v", "-", "đấu", "gặp". Otherwise null.
+- team2Code: the second team's name/code exactly as written (e.g. "MD02"). Otherwise null.
+- courtName: the court label exactly as the host wrote it (e.g. "Sân 1", "Court A", or a bare number like "5"). Keep it short.
+- date: ISO date string YYYY-MM-DD.
+- startTime: 24-hour clock HH:mm (zero-padded). Convert "9h", "9:00 AM", "09h00" to 09:00. Convert "2 PM" to 14:00. For a time range like "13:00 - 13:15", startTime is the first time ("13:00").
+- durationMinutes: integer minutes (e.g. 60). For a time range like "13:00 - 13:15", compute the difference (15). Read values like "(10 phút)" / "10 minutes" as 10. If nothing is mentioned, use 60.
+- rawLine: copy the source line/row text verbatim so the host can debug.
+
+Strict rules:
+- Return JSON only matching the provided schema.
+- Do not confuse the three identifiers: matchCode is a code like "MD-VB01"; team1Code/team2Code are the two opponents around "vs"; matchNumber is a plain integer. A row may carry several of them — fill each field independently.
+- The round/group label (e.g. "Vòng bảng", "Bán kết", "Group", "Semi Final") is informational only — do not put it in any field, but still use it to locate the match if helpful.
+- If a row is a header, a divider, an empty line, or clearly not a match, skip it (do not include it).
+- Do not invent matchCode, matchNumber, team names, court, or categoryName. If a field is missing in the source, set it to null.
+- Do not include matches that are missing BOTH startTime and date.
+- Do not include a row that has none of: matchCode, matchNumber, or both team names (there would be nothing to match it to).
+- Preserve the source language for any text values.`;
+
+    const response = await this.withRetry(
+      () =>
+        this.ai!.models.generateContent({
+          model: MODEL,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: SCHEDULE_EXTRACTION_SCHEMA,
+            temperature: 0.1,
+          },
+        }),
+      'extract-schedule'
+    );
+
+    const responseText = response.text ?? '';
+    let parsed: { entries?: RawExtractedScheduleEntry[] };
+    try {
+      parsed = JSON.parse(responseText) as {
+        entries?: RawExtractedScheduleEntry[];
+      };
+    } catch (error) {
+      console.error('[AI] Failed to parse extract-schedule JSON:', {
+        error: error instanceof Error ? error.message : String(error),
+        text: responseText,
+      });
+      throw new Error('AI returned invalid schedule extraction JSON.');
+    }
+
+    const rawEntries = Array.isArray(parsed.entries) ? parsed.entries : [];
+    return rawEntries
+      .map((entry) => this.normalizeScheduleEntry(entry, fallbackYear))
+      .filter((entry): entry is ExtractedScheduleEntry => entry !== null);
+  }
+
+  private normalizeScheduleEntry(
+    raw: RawExtractedScheduleEntry,
+    fallbackYear: number
+  ): ExtractedScheduleEntry | null {
+    const categoryName = this.normalizeTextValue(raw.categoryName);
+    const matchNumber = this.normalizeInteger(raw.matchNumber);
+    const matchCode = this.normalizeTextValue(raw.matchCode);
+    const team1Code = this.normalizeTextValue(raw.team1Code);
+    const team2Code = this.normalizeTextValue(raw.team2Code);
+    const courtName = this.normalizeTextValue(raw.courtName);
+    const date = this.normalizeIsoDate(raw.date, fallbackYear);
+    const startTime = this.normalizeClockTime(raw.startTime);
+    const durationMinutes =
+      this.normalizeInteger(raw.durationMinutes) ?? undefined;
+    const rawLine = this.normalizeTextValue(raw.rawLine);
+
+    // Drop entries that have nothing actionable.
+    const hasTeams = Boolean(team1Code && team2Code);
+    if (
+      !categoryName &&
+      !matchNumber &&
+      !matchCode &&
+      !hasTeams &&
+      !startTime &&
+      !date
+    ) {
+      return null;
+    }
+
+    return {
+      categoryName,
+      matchNumber,
+      matchCode,
+      team1Code,
+      team2Code,
+      courtName,
+      date,
+      startTime,
+      durationMinutes,
+      rawLine,
+    };
+  }
+
+  private normalizeClockTime(value: unknown): string | undefined {
+    const raw = this.normalizeTextValue(value);
+    if (!raw) return undefined;
+    const match = raw.match(
+      /^(\d{1,2})\s*(?:[:hH]\s*(\d{1,2}))?\s*(am|pm|AM|PM)?$/
+    );
+    if (!match) return undefined;
+    let hour = Number.parseInt(match[1], 10);
+    const minute = match[2] ? Number.parseInt(match[2], 10) : 0;
+    const meridiem = match[3]?.toLowerCase();
+    if (meridiem === 'pm' && hour < 12) hour += 12;
+    if (meridiem === 'am' && hour === 12) hour = 0;
+    if (
+      !Number.isFinite(hour) ||
+      !Number.isFinite(minute) ||
+      hour < 0 ||
+      hour > 23 ||
+      minute < 0 ||
+      minute > 59
+    ) {
+      return undefined;
+    }
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  }
+
+  private normalizeIsoDate(
+    value: unknown,
+    fallbackYear: number
+  ): string | undefined {
+    const raw = this.normalizeTextValue(value);
+    if (!raw) return undefined;
+
+    // Already ISO yyyy-mm-dd
+    const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+    // dd/mm/yyyy or dd-mm-yyyy or dd/mm (without year)
+    const dmy = raw.match(/^(\d{1,2})[/\-.](\d{1,2})(?:[/\-.](\d{2,4}))?$/);
+    if (dmy) {
+      const day = Number.parseInt(dmy[1], 10);
+      const month = Number.parseInt(dmy[2], 10);
+      let year = dmy[3] ? Number.parseInt(dmy[3], 10) : fallbackYear;
+      if (year < 100) year += 2000;
+      if (
+        !Number.isFinite(day) ||
+        !Number.isFinite(month) ||
+        !Number.isFinite(year) ||
+        day < 1 ||
+        day > 31 ||
+        month < 1 ||
+        month > 12
+      ) {
+        return undefined;
+      }
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+
+    return undefined;
   }
 
   async chatWithAssistant(

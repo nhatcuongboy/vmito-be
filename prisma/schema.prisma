@@ -20,7 +20,7 @@ model User {
 
   // Player related information
   gender           Gender?
-  level            Int? // 1-8 (Beginner to Pro)
+  level            Int? // Stable level ID from level_definitions
   levelDescription String?
   phone            String?
   searchTerms      String? // Normalized search string
@@ -34,6 +34,7 @@ model User {
   accounts           Account[]
   sessions           AuthSession[]
   hostedTournaments  Tournament[]          @relation("HostedTournaments")
+  managedTournaments TournamentManager[]   @relation("ManagedTournaments")
   tournamentPlayers  TournamentPlayer[]    @relation("TournamentPlayers")
   refreshTokens      RefreshToken[]
   paymentSettings    HostPaymentSettings[]
@@ -44,13 +45,17 @@ model User {
   notifications      Notification[]
 
   // Club relations
-  hostedClubs       Club[]             @relation("HostClubs")
-  clubMemberships   ClubMember[]       @relation("UserClubs")
-  clubJoinRequests  ClubJoinRequest[]  @relation("UserClubJoinRequests")
-  clubAnnouncements ClubAnnouncement[] @relation("UserClubAnnouncements")
+  hostedClubs        Club[]              @relation("HostClubs")
+  clubMemberships    ClubMember[]        @relation("UserClubs")
+  clubMonthlyMembers ClubMonthlyMember[] @relation("UserClubMonthlyMembers")
+  clubJoinRequests   ClubJoinRequest[]   @relation("UserClubJoinRequests")
+  clubAnnouncements  ClubAnnouncement[]  @relation("UserClubAnnouncements")
 
   // Image gallery
   uploadedImages UserImage[] @relation("UserImages")
+
+  // Tournament referee (umpire accounts linked to this user)
+  refereeUmpires TournamentUmpire[] @relation("RefereeUmpires")
 
   // Feedback
   feedbacks              Feedback[]     @relation("UserFeedbacks")
@@ -73,6 +78,7 @@ enum NotificationType {
   REGISTRATION // Registration status updates
   PAYMENT // Payment-related notifications
   CLUB // Club-related notifications
+  POST // Post interactions (like, comment)
 }
 
 model Notification {
@@ -154,6 +160,19 @@ model LevelDescription {
   @@map("level_descriptions")
 }
 
+model LevelDefinition {
+  id         Int      @id
+  code       String   @unique
+  shortLabel String
+  sortOrder  Int
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([active, sortOrder])
+  @@map("level_definitions")
+}
+
 model Session {
   id                 String        @id @default(cuid())
   slug               String?       @unique
@@ -164,6 +183,7 @@ model Session {
   hostPhone          String?
   location           String? // Keeping for backward compatibility
   venueId            String?
+  clubId             String?
   hostId             String
   numberOfCourts     Int           @default(2)
   searchTerms        String? // Normalized search string
@@ -193,7 +213,7 @@ model Session {
   allowZaloContact Boolean @default(false) // Allow players to contact host via Zalo
 
   // Player level requirements (empty array = all levels allowed)
-  requiredLevels Int[] @default([]) // Array of level IDs (1-8)
+  requiredLevels Int[] @default([]) // Array of level IDs (empty = all)
 
   courtColor         String    @default("#179a3b")
   defaultMatchType   MatchType @default(DOUBLES) // Default match type for courts in this session
@@ -202,6 +222,15 @@ model Session {
   images             String[]  @default([]) // Additional session images (max 5)
   imagePublicIds     String[]  @default([]) // Cloudinary public IDs for additional images
   shuttlecock        String?
+  referenceVideoUrl  String?
+
+  // Crawled (vãng lai) sessions imported from public Facebook posts — view-only
+  isCrawled            Boolean @default(false) // cờ phân biệt kèo cào Facebook
+  externalUrl          String? @unique // link bài FB gốc — chống trùng + điều hướng
+  externalSource       String? // nguồn: tên group Facebook / "facebook"
+  externalAuthorUrl    String? // link trang cá nhân FB của chủ bài đăng
+  externalAuthorAvatar String? // ảnh đại diện FB của chủ bài (hotlink)
+  externalGroupUrl     String? // link group Facebook nguồn
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -210,6 +239,7 @@ model Session {
   players   Player[]
   host      User     @relation("HostedSessions", fields: [hostId], references: [id])
   venue     Venue?   @relation(fields: [venueId], references: [id])
+  club      Club?    @relation(fields: [clubId], references: [id], onDelete: SetNull)
 
   // Fee & Payment relations
   feeConfig      SessionFeeConfig?
@@ -218,6 +248,8 @@ model Session {
   ratings        Rating[]
   clubSessions   ClubSession[]
 
+  @@index([isCrawled])
+  @@index([clubId])
   @@map("sessions")
 }
 
@@ -246,6 +278,7 @@ model Venue {
   slug             String?           @unique
   placeId          String?           @unique // Google Place ID
   name             String
+  sportType        SportType         @default(BADMINTON)
   acronym          String? // Venue acronym
   description      String? // Venue description
   searchTerms      String? // Normalized search string
@@ -273,6 +306,7 @@ model Venue {
   tournamentVenues TournamentVenue[]
   venueRequests    VenueRequest[]    @relation("RequestedVenue")
   appliedRequests  VenueRequest[]    @relation("AppliedVenue")
+  priceBooks       VenuePriceBook[]
 
   // Amenities
   hasCarParking Boolean?
@@ -309,6 +343,71 @@ enum ClosureStatus {
   OPERATING
   PERMANENTLY_CLOSED
   TEMPORARILY_CLOSED
+}
+
+enum VenueDayType {
+  EVERYDAY
+  WEEKDAY
+  WEEKEND
+  HOLIDAY
+  SPECIFIC_DATE
+}
+
+enum VenueCustomerType {
+  FIXED
+  WALK_IN
+  STUDENT
+  MEMBER
+  CUSTOM
+}
+
+model VenuePriceBook {
+  id                 String   @id @default(cuid())
+  venueId            String
+  name               String
+  currency           String   @default("VND")
+  effectiveFrom      DateTime
+  effectiveTo        DateTime?
+  isActive           Boolean  @default(true)
+  priority           Int      @default(0)
+  notes              String?
+  priceImageUrl      String?
+  priceImagePublicId String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  venue Venue            @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  rules VenuePriceRule[]
+
+  @@index([venueId])
+  @@index([isActive])
+  @@index([effectiveFrom, effectiveTo])
+  @@map("venue_price_books")
+}
+
+model VenuePriceRule {
+  id                 String            @id @default(cuid())
+  priceBookId        String
+  dayType            VenueDayType
+  daysOfWeek         Int[]             @default([])
+  specificDate       DateTime?
+  startMinute        Int
+  endMinute          Int
+  customerType       VenueCustomerType
+  pricePerHour       Int
+  minimumMinutes     Int?
+  billingStepMinutes Int?
+  priority           Int               @default(0)
+  notes              String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  priceBook VenuePriceBook @relation(fields: [priceBookId], references: [id], onDelete: Cascade)
+
+  @@index([priceBookId])
+  @@index([dayType])
+  @@index([customerType])
+  @@map("venue_price_rules")
 }
 
 enum VenueRequestType {
@@ -358,7 +457,7 @@ model Player {
   playerNumber       Int
   name               String?
   gender             Gender?
-  level              Int? // 1-7 (Beginner to Pro)
+  level              Int? // Stable level ID from level_definitions
   levelDescription   String?
   desire             String?
   phone              String?
@@ -378,6 +477,7 @@ model Player {
   isClubMember   Boolean @default(false)
   clubId         String? // Which club's fee to apply
   clubFeeApplied Boolean @default(false)
+  customFee      Int? // Custom fee override for this player in this session only
 
   // Player-specific join fields
   joinCode   String    @unique // Unique join code for this player slot
@@ -464,6 +564,7 @@ enum Role {
   HOST
   PLAYER
   ADMIN
+  REFEREE
 }
 
 enum SessionStatus {
@@ -522,23 +623,32 @@ enum MatchStatus {
 // Tournament Management Models
 
 model Tournament {
-  id           String           @id @default(cuid())
-  slug         String           @unique
-  name         String
-  startDate    DateTime
-  endDate      DateTime
-  hostId       String
-  venueId      String?
-  status       TournamentStatus @default(PREPARING)
-  isPublished  Boolean          @default(false)
-  scheduleType ScheduleType?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  id                 String           @id @default(cuid())
+  slug               String           @unique
+  name               String
+  description        String?          @db.Text
+  startDate          DateTime
+  endDate            DateTime
+  hostId             String
+  venueId            String?
+  status             TournamentStatus @default(PREPARING)
+  sportType          SportType        @default(BADMINTON)
+  isPublished        Boolean          @default(false)
+  scheduleType       ScheduleType?
+  coverPhoto         String?
+  coverPhotoPublicId String?
+  youtubeVideoUrls   String[]         @default([])
+  contactName        String?
+  contactEmail       String?
+  contactPhone       String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
   // Relations
   host             User                      @relation("HostedTournaments", fields: [hostId], references: [id])
   venue            Venue?                    @relation(fields: [venueId], references: [id])
   categories       Category[]
+  managers         TournamentManager[]
   umpires          TournamentUmpire[]
   scoringDevices   TournamentScoringDevice[]
   courts           TournamentCourt[]
@@ -546,8 +656,28 @@ model Tournament {
   pairs            TournamentPair[]
   tournamentVenues TournamentVenue[]
   scheduleConfig   ScheduleConfiguration?
+  sponsors         TournamentSponsor[]
 
   @@map("tournaments")
+}
+
+// A sponsor displayed on a tournament's public page.
+model TournamentSponsor {
+  id           String   @id @default(cuid())
+  tournamentId String
+  name         String
+  logo         String?
+  logoPublicId String?
+  website      String?
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@index([tournamentId])
+  @@map("tournament_sponsors")
 }
 
 enum TournamentStatus {
@@ -555,6 +685,38 @@ enum TournamentStatus {
   IN_PROGRESS
   FINISHED
   CANCELLED
+}
+
+enum SportType {
+  BADMINTON
+  PICKLEBALL
+}
+
+// Per-tournament permission scopes that a host can grant to a manager.
+enum TournamentPermission {
+  RESULTS // Record results, live scoring, start/end matches, recalc standings
+  SCHEDULE // Scheduling, court & referee assignment, umpire management
+  PARTICIPANTS // Players, pairs, registrations, group assignment
+  STRUCTURE // Categories, format, group creation, generate matches/brackets
+}
+
+// A user (other than the host) granted scoped management rights over a tournament.
+model TournamentManager {
+  id           String                 @id @default(cuid())
+  tournamentId String
+  userId       String
+  permissions  TournamentPermission[]
+  addedById    String? // User who granted the access (host or system admin)
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  // Relations
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User       @relation("ManagedTournaments", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, userId])
+  @@index([userId])
+  @@map("tournament_managers")
 }
 
 enum ScheduleType {
@@ -569,22 +731,38 @@ enum TournamentCourtStatus {
 }
 
 model Category {
-  id                     String         @id @default(cuid())
+  id                     String                   @id @default(cuid())
   tournamentId           String
   name                   String
   type                   CategoryType
-  format                 CategoryFormat @default(ROUND_ROBIN_TO_SE)
-  hasGroupStage          Boolean        @default(false)
+  registrationMode       CategoryRegistrationMode @default(TEAM)
+  teamSize               Int                      @default(2)
+  format                 CategoryFormat           @default(ROUND_ROBIN_TO_SE)
+  hasGroupStage          Boolean                  @default(false)
   averageMatchDuration   Int?
   groupCount             Int?
   winnersPerGroup        Int?
   playersPerGroup        Int?
-  matchFormat            MatchFormat    @default(BEST_OF_3)
+  matchFormat            MatchFormat              @default(BEST_OF_3)
   eliminationMatchFormat MatchFormat?
-  thirdPlaceMatch        Boolean        @default(false)
+  thirdPlaceMatch        Boolean                  @default(false)
+  // Per-set scoring rules. Defaults to BWF (rally to 21, win-by-2, cap 30).
+  // pointCap = null means no hard cap (set ends only on winBy gap).
+  // Base fields apply to GROUP stage and as fallback for stages without overrides.
+  pointsToWin            Int                      @default(21)
+  winByTwo               Boolean                  @default(true)
+  pointCap               Int?                     @default(30)
+  // Per-stage scoring overrides. Null = inherit (knockout falls back to base;
+  // final falls back to knockout, then base).
+  knockoutPointsToWin    Int?
+  knockoutWinByTwo       Boolean?
+  knockoutPointCap       Int?
+  finalPointsToWin       Int?
+  finalWinByTwo          Boolean?
+  finalPointCap          Int?
   formatConfig           Json?
-  createdAt              DateTime       @default(now())
-  updatedAt              DateTime       @updatedAt
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
 
   // Relations
   tournament    Tournament             @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
@@ -600,11 +778,13 @@ enum CategoryFormat {
   ROUND_ROBIN
   SINGLE_ELIMINATION
   ROUND_ROBIN_TO_SE
+  DOUBLE_ELIMINATION
 }
 
 enum MatchFormat {
   BEST_OF_1
   BEST_OF_3
+  BEST_OF_5
 }
 
 enum CategoryType {
@@ -614,6 +794,11 @@ enum CategoryType {
   WOMENS_DOUBLE
   MIXED_DOUBLE
   CUSTOM
+}
+
+enum CategoryRegistrationMode {
+  INDIVIDUAL
+  TEAM
 }
 
 model CategoryRegistration {
@@ -667,25 +852,53 @@ model CategoryGroupRegistration {
 }
 
 model CategoryMatch {
-  id           String       @id @default(cuid())
-  categoryId   String
-  groupId      String?
-  round        String
-  matchNumber  Int
-  status       MatchStatus  @default(SCHEDULED)
-  startTime    DateTime?
-  endTime      DateTime?
-  courtId      String?
-  score        String?
-  sets         Json?
-  winnerId     String?
-  isDraw       Boolean      @default(false)
-  player1Score Int?
-  player2Score Int?
-  player3Score Int?
-  player4Score Int?
-  matchFormat  MatchFormat? // Match format for this specific match/round
-  notes        String?
+  id            String       @id @default(cuid())
+  categoryId    String
+  groupId       String?
+  round         String
+  matchNumber   Int
+  matchCode     String? // Optional human-readable code (e.g. "M01", "XD-VB01")
+  status        MatchStatus  @default(SCHEDULED)
+  startTime     DateTime?
+  endTime       DateTime?
+  courtId       String?
+  score         String?
+  sets          Json?
+  winnerId      String?
+  isDraw        Boolean      @default(false)
+  isForfeit     Boolean      @default(false) // Decided by forfeit/walkover; winnerId wins, the other side forfeited
+  player1Score  Int?
+  player2Score  Int?
+  player3Score  Int?
+  player4Score  Int?
+  player1Points Int? // Manually-assigned standings points for side 1 (pointsEarning = 'manual')
+  player2Points Int? // Manually-assigned standings points for side 2 (pointsEarning = 'manual')
+  matchFormat   MatchFormat? // Match format for this specific match/round
+  // Per-match overrides for set scoring rules. Null = inherit from category.
+  pointsToWin   Int?
+  winByTwo      Boolean?
+  pointCap      Int?
+  notes         String?
+  refereeName   String? // Name entered by the referee when ending the match (separate from assigned TournamentUmpire)
+
+  // Double-elimination bracket linkage. bracketType: 'UPPER' | 'LOWER' | 'GF'.
+  // Winner/loser routing is stored explicitly (plain ids, no FK) so advancement
+  // does not rely on positional index math (which only works for single elim).
+  bracketType       String? // null for single-elim/group matches
+  winnerNextMatchId String? // match the winner advances into
+  winnerNextSlot    Int? // participant position (1 or 2) in winnerNextMatch
+  loserNextMatchId  String? // match the loser drops into (lower bracket / 3rd place)
+  loserNextSlot     Int? // participant position (1 or 2) in loserNextMatch
+
+  // Live scoring fields
+  refereeId    String? // Assigned referee (TournamentUmpire) for live scoring
+  scoreVersion Int     @default(0) // Optimistic lock guard for rapid live updates
+  pointLog     Json? // Ordered point history for exact undo (array of { side, setNumber })
+
+  // Pickleball doubles serve state (only used while a PICKLEBALL doubles match
+  // is live; null for badminton, pickleball singles, or non-live matches).
+  servingSide  Int? // 1 = side 1, 2 = side 2 — which team currently serves
+  serverNumber Int? // 1 = first server, 2 = second server
 
   // Schedule management fields
   queueOrder        Int? // Priority order in queue for Next Available Court mode
@@ -703,8 +916,10 @@ model CategoryMatch {
   group             CategoryGroup?             @relation(fields: [groupId], references: [id], onDelete: Cascade)
   court             TournamentCourt?           @relation("CourtMatches", fields: [courtId], references: [id])
   currentCourtMatch TournamentCourt?           @relation("CurrentCourtMatch")
+  referee           TournamentUmpire?          @relation("MatchReferee", fields: [refereeId], references: [id], onDelete: SetNull)
   participants      CategoryMatchParticipant[]
 
+  @@index([refereeId])
   @@map("category_matches")
 }
 
@@ -731,12 +946,17 @@ model TournamentUmpire {
   email        String?
   phone        String?
   notes        String?
+  userId       String? // Linked user account (makes this umpire a login-able referee)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   // Relations
-  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  tournament Tournament      @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User?           @relation("RefereeUmpires", fields: [userId], references: [id], onDelete: SetNull)
+  matches    CategoryMatch[] @relation("MatchReferee")
 
+  @@index([tournamentId])
+  @@index([userId])
   @@map("tournament_umpires")
 }
 
@@ -782,15 +1002,25 @@ model TournamentCourt {
 model TournamentVenue {
   id           String   @id @default(cuid())
   tournamentId String
-  venueId      String
+  /// Null when using inline address mode (no Venue record created)
+  venueId      String?
   createdAt    DateTime @default(now())
+
+  /// Inline address fields — populated when venueId is null
+  name     String?
+  acronym  String?
+  placeId  String?
+  address  String?
+  lat      Float?
+  lng      Float?
+  district String?
+  city     String?
 
   // Relations
   tournament Tournament        @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  venue      Venue             @relation(fields: [venueId], references: [id])
+  venue      Venue?            @relation(fields: [venueId], references: [id])
   courts     TournamentCourt[]
 
-  @@unique([tournamentId, venueId])
   @@map("tournament_venues")
 }
 
@@ -798,12 +1028,15 @@ model TournamentPlayer {
   id               String   @id @default(cuid())
   tournamentId     String
   name             String
+  code             String? // Human-readable player code (e.g. "VDV001", "XD01")
   email            String?
   phone            String?
   gender           Gender?
   level            Int?
   levelDescription String?
   notes            String?
+  image            String? // Cloudinary URL for avatar
+  imagePublicId    String? // Cloudinary public ID for avatar
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -1011,7 +1244,7 @@ model Club {
   imagePublicIds String[]       @default([]) // Multiple image public IDs
   location       String? // Primary location/venue
   defaultVenueId String? // Link to default venue
-  requiredLevels Int[]          @default([]) // Array of level IDs (1-8)
+  requiredLevels Int[]          @default([]) // Array of level IDs (empty = all)
 
   // Statistics (cached for performance)
   sessionCount       Int @default(0)
@@ -1023,15 +1256,17 @@ model Club {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  host          User               @relation("HostClubs", fields: [hostId], references: [id], onDelete: Cascade)
-  defaultVenue  Venue?             @relation(fields: [defaultVenueId], references: [id], onDelete: SetNull)
-  members       ClubMember[]
-  feeConfigs    ClubFeeConfig[]
-  players       Player[]
-  joinRequests  ClubJoinRequest[]
-  announcements ClubAnnouncement[]
-  clubSessions  ClubSession[]
-  schedules     ClubSchedule[]
+  host           User                @relation("HostClubs", fields: [hostId], references: [id], onDelete: Cascade)
+  defaultVenue   Venue?              @relation(fields: [defaultVenueId], references: [id], onDelete: SetNull)
+  members        ClubMember[]
+  feeConfigs     ClubFeeConfig[]
+  monthlyMembers ClubMonthlyMember[]
+  players        Player[]
+  sessions       Session[]
+  joinRequests   ClubJoinRequest[]
+  announcements  ClubAnnouncement[]
+  clubSessions   ClubSession[]
+  schedules      ClubSchedule[]
 
   @@unique([hostId, name])
   @@index([hostId])
@@ -1084,6 +1319,24 @@ model ClubFeeConfig {
   @@unique([clubId, month, year])
   @@index([clubId])
   @@map("club_fee_configs")
+}
+
+model ClubMonthlyMember {
+  id        String   @id @default(cuid())
+  clubId    String
+  userId    String
+  month     Int
+  year      Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user User @relation("UserClubMonthlyMembers", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clubId, userId, month, year])
+  @@index([clubId, month, year])
+  @@index([userId])
+  @@map("club_monthly_members")
 }
 
 // ===========================================

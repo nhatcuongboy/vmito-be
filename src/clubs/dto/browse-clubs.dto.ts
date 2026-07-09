@@ -1,4 +1,11 @@
-import { IsOptional, IsString, IsInt, Min, IsNumber } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsInt,
+  Min,
+  Max,
+  IsNumber,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class BrowseClubsDto {
@@ -45,6 +52,7 @@ export class BrowseClubsDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(500)
   @Type(() => Number)
   limit?: number = 10;
 }

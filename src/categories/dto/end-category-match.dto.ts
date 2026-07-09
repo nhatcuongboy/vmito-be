@@ -45,6 +45,20 @@ export class EndCategoryMatchDto {
   @IsBoolean()
   isDraw?: boolean;
 
+  // Decided by forfeit/walkover: winnerId wins, the other side forfeited.
+  @IsOptional()
+  @IsBoolean()
+  isForfeit?: boolean;
+
+  // Manually-assigned standings points (used when pointsEarning = 'manual').
+  @IsOptional()
+  @IsNumber()
+  player1Points?: number;
+
+  @IsOptional()
+  @IsNumber()
+  player2Points?: number;
+
   @IsOptional()
   @IsNumber()
   player1Score?: number;
@@ -64,4 +78,8 @@ export class EndCategoryMatchDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  refereeName?: string;
 }

@@ -3,22 +3,82 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
 import {
   Prisma,
   CategoryType,
+  CategoryRegistrationMode,
   CategoryFormat,
   MatchFormat,
+  MatchStatus,
+  ScheduleType,
+  SportType,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ScheduleService } from '../tournaments/services/schedule.service';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateCategoryRegistrationDto } from './dto/create-category-registration.dto';
+import { ConvertLegacyRegistrationDto } from '../tournaments/dto/tournament-pair.dto';
 import { CreateCategoryMatchDto } from './dto/create-category-match.dto';
 import { EndCategoryMatchDto } from './dto/end-category-match.dto';
+import { UpdateMatchScoreDto } from './dto/update-match-score.dto';
+import { UpdatePickleballServeDto } from './dto/update-pickleball-serve.dto';
+import { UpdateSetScoreDto } from './dto/update-set-score.dto';
+import {
+  TournamentsGateway,
+  TournamentEventType,
+} from '../tournaments/realtime/tournaments.gateway';
+import {
+  applyDelta,
+  rebuildFromLog,
+  buildScoreString,
+  totalsFromSets,
+  MatchAlreadyDecidedError,
+  ScoringSet,
+  ScoringRules,
+  PointLogEntry,
+  MatchFormatValue,
+  Side,
+  isSetComplete,
+  deriveServeState,
+} from './scoring/badminton-scoring';
+import {
+  normalizeMatchForBroadcast,
+  NormalizableMatch,
+} from './scoring/normalize-match';
+import { MATCH_SCORING_INCLUDE } from './scoring/match-include';
+import {
+  computeStandings,
+  resolveStandingsConfig,
+  StandingsMatchInput,
+} from './scoring/standings';
+import {
+  TournamentAccessService,
+  ManageScope,
+} from '../common/tournament-access/tournament-access.service';
+import { getTournamentSportProfile } from '../tournaments/sport-profiles';
+
+type TScoringStage = 'GROUP' | 'KNOCKOUT' | 'FINAL';
+
+/**
+ * Map a CategoryMatch.round label to its scoring stage.
+ * - 'GROUP' (round-robin pool) → GROUP
+ * - 'F' (final) and 'GF'/'GF2' (double-elim grand final) → FINAL
+ * - everything else (R128/R64/R32/R16/QF/SF/3RD, UB-x/LB-x) → KNOCKOUT
+ */
+const stageOfRound = (round: string): TScoringStage => {
+  if (round === 'GROUP') return 'GROUP';
+  if (round === 'F' || round === 'GF' || round === 'GF2') return 'FINAL';
+  return 'KNOCKOUT';
+};
 
 interface CategoryUpdateData {
   name?: string;
+  type?: CategoryType;
+  registrationMode?: CategoryRegistrationMode;
+  teamSize?: number;
   hasGroupStage?: boolean;
   averageMatchDuration?: number;
   groupCount?: number;
@@ -29,34 +89,89 @@ interface CategoryUpdateData {
   formatConfig?: object;
   eliminationMatchFormat?: MatchFormat;
   thirdPlaceMatch?: boolean;
+  pointsToWin?: number;
+  winByTwo?: boolean;
+  pointCap?: number | null;
+  knockoutPointsToWin?: number | null;
+  knockoutWinByTwo?: boolean | null;
+  knockoutPointCap?: number | null;
+  finalPointsToWin?: number | null;
+  finalWinByTwo?: boolean | null;
+  finalPointCap?: number | null;
 }
+
+export interface MatchGenerationPreview {
+  existingMatches: number;
+  scheduledAssignedMatches: number;
+  inProgressMatches: number;
+  finishedMatches: number;
+  canGenerate: boolean;
+  requiresForceReplaceScheduledMatches: boolean;
+  blockingReason?: 'HAS_STARTED_OR_FINISHED_MATCHES';
+}
+
+const DOUBLES_TYPES: CategoryType[] = [
+  'MENS_DOUBLE',
+  'WOMENS_DOUBLE',
+  'MIXED_DOUBLE',
+];
+
+const registrationConfigForType = (
+  type: CategoryType,
+  mode?: string,
+  teamSize?: number
+) => {
+  if (type === 'MENS_SINGLE' || type === 'WOMENS_SINGLE') {
+    return { registrationMode: 'INDIVIDUAL' as const, teamSize: 1 };
+  }
+  if (DOUBLES_TYPES.includes(type)) {
+    return { registrationMode: 'TEAM' as const, teamSize: 2 };
+  }
+  const registrationMode = (mode ?? 'TEAM') as CategoryRegistrationMode;
+  return {
+    registrationMode,
+    teamSize:
+      registrationMode === 'INDIVIDUAL' ? 1 : Math.max(2, teamSize ?? 2),
+  };
+};
 
 @Injectable()
 export class CategoriesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private tournamentsGateway: TournamentsGateway,
+    private access: TournamentAccessService,
+    private scheduleService: ScheduleService
+  ) {}
 
   // ─── Helpers ───────────────────────────────────────────────
 
   private async getCategoryWithOwnership(
     categoryId: string,
     userId: string,
-    role?: string
+    role: string | undefined,
+    scope: ManageScope
   ) {
     const category = await this.prisma.category.findUnique({
       where: { id: categoryId },
       include: { tournament: { select: { hostId: true } } },
     });
     if (!category) throw new NotFoundException('Category not found');
-    if (category.tournament.hostId !== userId && role !== 'ADMIN') {
-      throw new ForbiddenException('You can only manage your own tournaments');
-    }
+    await this.access.assertManageAccess({
+      tournamentId: category.tournamentId,
+      hostId: category.tournament.hostId,
+      userId,
+      role,
+      scope,
+    });
     return category;
   }
 
   private async getMatchWithOwnership(
     matchId: string,
     userId: string,
-    role?: string
+    role: string | undefined,
+    scope: ManageScope
   ) {
     const match = await this.prisma.categoryMatch.findUnique({
       where: { id: matchId },
@@ -68,10 +183,612 @@ export class CategoriesService {
       },
     });
     if (!match) throw new NotFoundException('Match not found');
-    if (match.category.tournament.hostId !== userId && role !== 'ADMIN') {
-      throw new ForbiddenException('You can only manage your own tournaments');
+    await this.access.assertManageAccess({
+      tournamentId: match.category.tournamentId,
+      hostId: match.category.tournament.hostId,
+      userId,
+      role,
+      scope,
+    });
+    return match;
+  }
+
+  // ─── Live scoring helpers ─────────────────────────────────
+
+  /**
+   * Like getMatchWithOwnership, but also authorizes the referee assigned to the
+   * match (a TournamentUmpire linked to the requesting user). Used for
+   * start/score/undo/end. Destructive/schedule ops keep getMatchWithOwnership.
+   */
+  private async getMatchForScoring(
+    matchId: string,
+    userId: string,
+    role?: string
+  ) {
+    const match = await this.prisma.categoryMatch.findUnique({
+      where: { id: matchId },
+      include: MATCH_SCORING_INCLUDE,
+    });
+    if (!match) throw new NotFoundException('Match not found');
+    const isHost = match.category.tournament.hostId === userId;
+    const isAdmin = role === 'ADMIN';
+    const isAssignedReferee =
+      !!match.referee?.userId && match.referee.userId === userId;
+    const isManager =
+      isHost || isAdmin || isAssignedReferee
+        ? false
+        : await this.access.hasManageAccess({
+            tournamentId: match.category.tournamentId,
+            hostId: match.category.tournament.hostId,
+            userId,
+            role,
+            scope: 'RESULTS',
+          });
+    if (!isHost && !isAdmin && !isAssignedReferee && !isManager) {
+      throw new ForbiddenException(
+        'You are not authorized to score this match'
+      );
     }
     return match;
+  }
+
+  private isDoublesMatch(match: {
+    category: { type: CategoryType };
+    participants: Array<{
+      categoryRegistration?: { pair?: unknown } | null;
+    }>;
+  }): boolean {
+    if (DOUBLES_TYPES.includes(match.category.type)) return true;
+    return match.participants.some((p) => p.categoryRegistration?.pair != null);
+  }
+
+  private matchFormatOf(match: {
+    matchFormat: MatchFormat | null;
+    category: {
+      matchFormat: MatchFormat | null;
+      tournament?: { sportType?: SportType | null } | null;
+    };
+  }): MatchFormatValue {
+    const fallback = getTournamentSportProfile(
+      match.category.tournament?.sportType
+    ).defaultScoring.matchFormat;
+    return (match.matchFormat ??
+      match.category.matchFormat ??
+      fallback) as MatchFormatValue;
+  }
+
+  /**
+   * Resolve the per-set scoring rules for a match. Match-level overrides win
+   * first; otherwise the category's per-stage override for the match's round
+   * applies (final → knockout → base), with the base column as the ultimate
+   * fallback (which itself defaults to BWF rules at the column level).
+   */
+  private scoringRulesOf(match: {
+    round: string;
+    pointsToWin: number | null;
+    winByTwo: boolean | null;
+    pointCap: number | null;
+    category: {
+      pointsToWin: number;
+      winByTwo: boolean;
+      pointCap: number | null;
+      knockoutPointsToWin: number | null;
+      knockoutWinByTwo: boolean | null;
+      knockoutPointCap: number | null;
+      finalPointsToWin: number | null;
+      finalWinByTwo: boolean | null;
+      finalPointCap: number | null;
+      tournament?: { sportType?: SportType | null } | null;
+    };
+  }): ScoringRules {
+    const stage = stageOfRound(match.round);
+    const cat = match.category;
+    const fallback = getTournamentSportProfile(
+      cat.tournament?.sportType
+    ).defaultScoring;
+
+    const resolvePoints = (): number => {
+      if (stage === 'FINAL') {
+        return (
+          cat.finalPointsToWin ??
+          cat.knockoutPointsToWin ??
+          cat.pointsToWin ??
+          fallback.pointsToWin
+        );
+      }
+      if (stage === 'KNOCKOUT') {
+        return (
+          cat.knockoutPointsToWin ?? cat.pointsToWin ?? fallback.pointsToWin
+        );
+      }
+      return cat.pointsToWin ?? fallback.pointsToWin;
+    };
+
+    const resolveWinByTwo = (): boolean => {
+      if (stage === 'FINAL') {
+        return (
+          cat.finalWinByTwo ??
+          cat.knockoutWinByTwo ??
+          cat.winByTwo ??
+          fallback.winByTwo
+        );
+      }
+      if (stage === 'KNOCKOUT') {
+        return cat.knockoutWinByTwo ?? cat.winByTwo ?? fallback.winByTwo;
+      }
+      return cat.winByTwo ?? fallback.winByTwo;
+    };
+
+    const resolveCap = (): number | null => {
+      if (stage === 'FINAL') {
+        if (cat.finalPointCap !== null) return cat.finalPointCap;
+        if (cat.knockoutPointCap !== null) return cat.knockoutPointCap;
+        return cat.pointCap !== undefined ? cat.pointCap : fallback.pointCap;
+      }
+      if (stage === 'KNOCKOUT') {
+        return cat.knockoutPointCap !== null
+          ? cat.knockoutPointCap
+          : cat.pointCap !== undefined
+            ? cat.pointCap
+            : fallback.pointCap;
+      }
+      return cat.pointCap !== undefined ? cat.pointCap : fallback.pointCap;
+    };
+
+    return {
+      pointsToWin: match.pointsToWin ?? resolvePoints(),
+      winByTwo: match.winByTwo ?? resolveWinByTwo(),
+      pointCap:
+        match.pointCap !== null && match.pointCap !== undefined
+          ? match.pointCap
+          : resolveCap(),
+    };
+  }
+
+  private parseSets(raw: Prisma.JsonValue | undefined): ScoringSet[] {
+    if (!Array.isArray(raw)) return [];
+    const result: ScoringSet[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const s = item as Record<string, unknown>;
+      const set: ScoringSet = {
+        setNumber: Number(s.setNumber) || 0,
+        player1Score: Number(s.player1Score) || 0,
+        player2Score: Number(s.player2Score) || 0,
+      };
+      if (s.player3Score !== undefined) {
+        set.player3Score = Number(s.player3Score) || 0;
+      }
+      if (s.player4Score !== undefined) {
+        set.player4Score = Number(s.player4Score) || 0;
+      }
+      result.push(set);
+    }
+    return result;
+  }
+
+  private parsePointLog(raw: Prisma.JsonValue | undefined): PointLogEntry[] {
+    if (!Array.isArray(raw)) return [];
+    const result: PointLogEntry[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const e = item as Record<string, unknown>;
+      if (e.side !== 1 && e.side !== 2) continue;
+      result.push({
+        side: e.side as Side,
+        setNumber: Number(e.setNumber) || 1,
+      });
+    }
+    return result;
+  }
+
+  /**
+   * Persist a recomputed score with an optimistic-lock guard (scoreVersion),
+   * then broadcast the normalized match to the tournament room.
+   */
+  private async persistAndBroadcastScore(
+    match: { id: string; scoreVersion: number },
+    newSets: ScoringSet[],
+    newLog: PointLogEntry[],
+    isDoubles: boolean,
+    eventType: TournamentEventType,
+    echo?: { clientId?: string; seq?: number },
+    pickleballDoubles = false
+  ) {
+    const totals = totalsFromSets(newSets, isDoubles);
+    const scoreStr = buildScoreString(newSets);
+
+    // Pickleball doubles: serve rotation is deterministic from the rally
+    // outcomes, so derive it from the (recomputed) point log and persist it in
+    // the same write as the score. This keeps the score and the serve dots in
+    // a single atomic broadcast — the referee never sets serve by hand, and the
+    // public scoreboard updates both together with no extra round-trip.
+    const serve = pickleballDoubles ? deriveServeState(newLog) : null;
+
+    const result = await this.prisma.categoryMatch.updateMany({
+      where: { id: match.id, scoreVersion: match.scoreVersion },
+      data: {
+        sets: newSets as unknown as Prisma.InputJsonValue,
+        pointLog: newLog as unknown as Prisma.InputJsonValue,
+        score: scoreStr,
+        player1Score: totals.player1Score,
+        player2Score: totals.player2Score,
+        player3Score: totals.player3Score ?? null,
+        player4Score: totals.player4Score ?? null,
+        scoreVersion: { increment: 1 },
+        ...(serve
+          ? { servingSide: serve.servingSide, serverNumber: serve.serverNumber }
+          : {}),
+      },
+    });
+    if (result.count === 0) {
+      throw new ConflictException('Score changed concurrently, please retry');
+    }
+
+    const updated = await this.prisma.categoryMatch.findUnique({
+      where: { id: match.id },
+      include: MATCH_SCORING_INCLUDE,
+    });
+    if (updated) this.broadcastMatch(updated, eventType, echo);
+    return updated;
+  }
+
+  private broadcastMatch(
+    match: NormalizableMatch,
+    eventType: TournamentEventType,
+    echo?: { clientId?: string; seq?: number }
+  ) {
+    const payload = normalizeMatchForBroadcast(match);
+    if (!payload.tournamentId) return;
+    this.tournamentsGateway.notifyTournamentEvent(
+      payload.tournamentId,
+      eventType,
+      { match: payload, ...(echo ?? {}) }
+    );
+  }
+
+  /** Point-by-point live score update (+1 / -1) by host/admin/assigned referee. */
+  async updateMatchScore(
+    id: string,
+    dto: UpdateMatchScoreDto,
+    userId: string,
+    role?: string
+  ) {
+    const match = await this.getMatchForScoring(id, userId, role);
+    if (match.status !== 'IN_PROGRESS') {
+      throw new BadRequestException(
+        'Score can only be updated while the match is in progress'
+      );
+    }
+
+    const isDoubles = this.isDoublesMatch(match);
+    const format = this.matchFormatOf(match);
+    const rules = this.scoringRulesOf(match);
+    const sets = this.parseSets(match.sets);
+    const log = this.parsePointLog(match.pointLog);
+
+    let newLog: PointLogEntry[];
+    if (dto.delta === 1) {
+      // Validate the point is allowed (throws if the match is already decided).
+      try {
+        applyDelta(sets, dto.side, 1, format, isDoubles, rules);
+      } catch (e) {
+        if (e instanceof MatchAlreadyDecidedError) {
+          throw new BadRequestException(
+            'Match is already decided. End the match or undo a point.'
+          );
+        }
+        throw e;
+      }
+      const landingSetNumber =
+        sets.length > 0 ? sets[sets.length - 1].setNumber : 1;
+      newLog = [...log, { side: dto.side, setNumber: landingSetNumber }];
+    } else {
+      // Correction: drop the most recent point scored by that side.
+      newLog = [...log];
+      for (let i = newLog.length - 1; i >= 0; i--) {
+        if (newLog[i].side === dto.side) {
+          newLog.splice(i, 1);
+          break;
+        }
+      }
+    }
+
+    const newSets = rebuildFromLog(newLog, format, isDoubles, rules);
+    return this.persistAndBroadcastScore(
+      match,
+      newSets,
+      newLog,
+      isDoubles,
+      TournamentEventType.TOURNAMENT_MATCH_SCORE_UPDATED,
+      { clientId: dto.clientId, seq: dto.seq },
+      this.isPickleballDoubles(match)
+    );
+  }
+
+  /** Undo the most recent point (any side) by host/admin/assigned referee. */
+  async undoLastPoint(id: string, userId: string, role?: string) {
+    const match = await this.getMatchForScoring(id, userId, role);
+    if (match.status !== 'IN_PROGRESS') {
+      throw new BadRequestException(
+        'Score can only be updated while the match is in progress'
+      );
+    }
+    const isDoubles = this.isDoublesMatch(match);
+    const format = this.matchFormatOf(match);
+    const rules = this.scoringRulesOf(match);
+    const log = this.parsePointLog(match.pointLog);
+    if (log.length === 0) return match;
+
+    const newLog = log.slice(0, -1);
+    const newSets = rebuildFromLog(newLog, format, isDoubles, rules);
+    return this.persistAndBroadcastScore(
+      match,
+      newSets,
+      newLog,
+      isDoubles,
+      TournamentEventType.TOURNAMENT_MATCH_SCORE_UPDATED,
+      undefined,
+      this.isPickleballDoubles(match)
+    );
+  }
+
+  /**
+   * Whether a match should track pickleball serve state: only PICKLEBALL
+   * doubles. Badminton and pickleball singles never carry serve state.
+   */
+  private isPickleballDoubles(match: {
+    category: {
+      type: CategoryType;
+      tournament?: { sportType?: SportType | null } | null;
+    };
+    participants: Array<{
+      categoryRegistration?: { pair?: unknown } | null;
+    }>;
+  }): boolean {
+    if (match.category.tournament?.sportType !== SportType.PICKLEBALL) {
+      return false;
+    }
+    return this.isDoublesMatch(match);
+  }
+
+  /**
+   * Update the pickleball doubles serve state (serving side + server number).
+   * Only valid while a PICKLEBALL doubles match is in progress. Mirrors the
+   * live-scoring authorization and broadcast so the public scoreboard updates
+   * in realtime. V1 keeps this manual — the referee sets serve on rotation.
+   */
+  async updatePickleballServe(
+    id: string,
+    dto: UpdatePickleballServeDto,
+    userId: string,
+    role?: string
+  ) {
+    const match = await this.getMatchForScoring(id, userId, role);
+    if (match.status !== 'IN_PROGRESS') {
+      throw new BadRequestException(
+        'Serve can only be updated while the match is in progress'
+      );
+    }
+    if (match.category.tournament?.sportType !== SportType.PICKLEBALL) {
+      throw new BadRequestException(
+        'Serve tracking is only available for pickleball matches'
+      );
+    }
+    if (!this.isDoublesMatch(match)) {
+      throw new BadRequestException(
+        'Serve tracking is only available for doubles matches'
+      );
+    }
+
+    await this.prisma.categoryMatch.update({
+      where: { id },
+      data: {
+        servingSide: dto.servingSide,
+        serverNumber: dto.serverNumber,
+      },
+    });
+
+    const updated = await this.prisma.categoryMatch.findUnique({
+      where: { id },
+      include: MATCH_SCORING_INCLUDE,
+    });
+    if (updated) {
+      this.broadcastMatch(
+        updated,
+        TournamentEventType.TOURNAMENT_MATCH_SCORE_UPDATED,
+        { clientId: dto.clientId, seq: dto.seq }
+      );
+    }
+    return updated;
+  }
+
+  /**
+   * Overwrite a single set's score by rewriting the point log. Preserves all
+   * entries from earlier sets, synthesises an interleaved sequence for the
+   * target set (alternating points so the set never auto-completes early),
+   * and discards every entry that belonged to later sets.
+   *
+   * Only available while the match is IN_PROGRESS so the referee can correct
+   * a misclick without ending/restarting the match. Already-finished matches
+   * must be edited through the match end/result workflow instead.
+   */
+  async updateSetScore(
+    id: string,
+    setNumber: number,
+    dto: UpdateSetScoreDto,
+    userId: string,
+    role?: string
+  ) {
+    const match = await this.getMatchForScoring(id, userId, role);
+    if (match.status !== 'IN_PROGRESS') {
+      throw new BadRequestException(
+        'Score can only be updated while the match is in progress'
+      );
+    }
+
+    const isDoubles = this.isDoublesMatch(match);
+    const format = this.matchFormatOf(match);
+    const rules = this.scoringRulesOf(match);
+    const sets = this.parseSets(match.sets);
+    if (sets.length === 0) {
+      throw new BadRequestException('Match has no sets yet');
+    }
+    const latestSetNumber = sets[sets.length - 1].setNumber;
+    if (
+      !Number.isInteger(setNumber) ||
+      setNumber < 1 ||
+      setNumber > latestSetNumber
+    ) {
+      throw new BadRequestException(
+        `setNumber must be between 1 and ${latestSetNumber}`
+      );
+    }
+
+    const { player1Score, player2Score } = dto;
+    if (!Number.isInteger(player1Score) || !Number.isInteger(player2Score)) {
+      throw new BadRequestException('Scores must be integers');
+    }
+    if (player1Score < 0 || player2Score < 0) {
+      throw new BadRequestException('Scores cannot be negative');
+    }
+    const maxScore = Math.max(player1Score, player2Score);
+    const cap = rules.pointCap ?? Math.max(rules.pointsToWin, maxScore);
+    if (player1Score > cap || player2Score > cap) {
+      throw new BadRequestException(`Scores cannot exceed cap (${cap})`);
+    }
+    // Reject impossible cap-cap (both sides win — not a valid set state).
+    if (
+      rules.pointCap != null &&
+      player1Score === rules.pointCap &&
+      player2Score === rules.pointCap
+    ) {
+      throw new BadRequestException('Both sides cannot reach the cap');
+    }
+    // Past sets must end with a winner; the current (in-progress) set may be
+    // any valid score (including 0-0 to reset).
+    if (
+      setNumber < latestSetNumber &&
+      !isSetComplete(player1Score, player2Score, rules)
+    ) {
+      throw new BadRequestException(
+        `Set ${setNumber} is not the current set and must be a completed set score`
+      );
+    }
+
+    // Preserve entries for sets BEFORE the target, discard the rest.
+    const log = this.parsePointLog(match.pointLog);
+    const preserved = log.filter((entry) => entry.setNumber < setNumber);
+
+    // Synthesise points for the target set by interleaving so the set never
+    // auto-completes mid-fill (e.g. 21-19 becomes 19 pairs then 2× side1).
+    const synthesised: PointLogEntry[] = [];
+    const pairs = Math.min(player1Score, player2Score);
+    for (let i = 0; i < pairs; i++) {
+      synthesised.push({ side: 1, setNumber });
+      synthesised.push({ side: 2, setNumber });
+    }
+    if (player1Score > player2Score) {
+      for (let i = 0; i < player1Score - player2Score; i++) {
+        synthesised.push({ side: 1, setNumber });
+      }
+    } else if (player2Score > player1Score) {
+      for (let i = 0; i < player2Score - player1Score; i++) {
+        synthesised.push({ side: 2, setNumber });
+      }
+    }
+
+    const newLog = [...preserved, ...synthesised];
+    const newSets = rebuildFromLog(newLog, format, isDoubles, rules);
+
+    // Defensive: rebuild should land on the requested score for the target set.
+    const rebuiltTarget = newSets.find((s) => s.setNumber === setNumber);
+    if (
+      !rebuiltTarget ||
+      rebuiltTarget.player1Score !== player1Score ||
+      rebuiltTarget.player2Score !== player2Score
+    ) {
+      throw new BadRequestException('Score combination is not reachable');
+    }
+
+    return this.persistAndBroadcastScore(
+      match,
+      newSets,
+      newLog,
+      isDoubles,
+      TournamentEventType.TOURNAMENT_MATCH_SCORE_UPDATED,
+      { clientId: dto.clientId, seq: dto.seq },
+      this.isPickleballDoubles(match)
+    );
+  }
+
+  /** Assign a tournament umpire as the referee for a match (host/admin only). */
+  async assignReferee(
+    matchId: string,
+    refereeId: string,
+    userId: string,
+    role?: string
+  ) {
+    const match = await this.getMatchWithOwnership(
+      matchId,
+      userId,
+      role,
+      'SCHEDULE'
+    );
+    const umpire = await this.prisma.tournamentUmpire.findUnique({
+      where: { id: refereeId },
+      select: { id: true, tournamentId: true },
+    });
+    if (!umpire) throw new NotFoundException('Referee not found');
+    if (umpire.tournamentId !== match.category.tournamentId) {
+      throw new BadRequestException(
+        'Referee belongs to a different tournament'
+      );
+    }
+    const updated = await this.prisma.categoryMatch.update({
+      where: { id: matchId },
+      data: { refereeId },
+      include: MATCH_SCORING_INCLUDE,
+    });
+    this.broadcastMatch(
+      updated,
+      TournamentEventType.TOURNAMENT_MATCH_REFEREE_ASSIGNED
+    );
+    return updated;
+  }
+
+  async unassignReferee(matchId: string, userId: string, role?: string) {
+    await this.getMatchWithOwnership(matchId, userId, role, 'SCHEDULE');
+    const updated = await this.prisma.categoryMatch.update({
+      where: { id: matchId },
+      data: { refereeId: null },
+      include: MATCH_SCORING_INCLUDE,
+    });
+    this.broadcastMatch(
+      updated,
+      TournamentEventType.TOURNAMENT_MATCH_REFEREE_ASSIGNED
+    );
+    return updated;
+  }
+
+  /** Matches assigned to the requesting user (resolved via referee.userId). */
+  async getMyAssignments(
+    userId: string,
+    filters: { tournamentId?: string; status?: string }
+  ) {
+    return this.prisma.categoryMatch.findMany({
+      where: {
+        referee: { userId },
+        ...(filters.tournamentId && {
+          category: { tournamentId: filters.tournamentId },
+        }),
+        ...(filters.status && {
+          status: filters.status as MatchStatus,
+        }),
+      },
+      include: MATCH_SCORING_INCLUDE,
+      orderBy: [{ status: 'asc' }, { matchNumber: 'asc' }],
+    });
   }
 
   // ─── Phase 2: Category CRUD under Tournament ──────────────
@@ -98,18 +815,57 @@ export class CategoriesService {
       where: { id: tournamentId },
     });
     if (!tournament) throw new NotFoundException('Tournament not found');
-    if (tournament.hostId !== userId && role !== 'ADMIN') {
-      throw new ForbiddenException('You can only manage your own tournaments');
-    }
+    await this.access.assertManageAccess({
+      tournamentId,
+      hostId: tournament.hostId,
+      userId,
+      role,
+      scope: 'STRUCTURE',
+    });
+
+    const type = dto.type as CategoryType;
+    const registrationConfig = registrationConfigForType(
+      type,
+      dto.registrationMode,
+      dto.teamSize
+    );
+    const defaultScoring = getTournamentSportProfile(
+      tournament.sportType
+    ).defaultScoring;
 
     return this.prisma.category.create({
       data: {
         tournamentId,
         name: dto.name,
-        type: dto.type as CategoryType,
+        type,
+        ...registrationConfig,
+        matchFormat: (dto.matchFormat ??
+          defaultScoring.matchFormat) as MatchFormat,
+        pointsToWin: dto.pointsToWin ?? defaultScoring.pointsToWin,
+        winByTwo: dto.winByTwo ?? defaultScoring.winByTwo,
+        pointCap:
+          dto.pointCap !== undefined ? dto.pointCap : defaultScoring.pointCap,
         ...(dto.format && {
           format: dto.format as CategoryFormat,
           hasGroupStage: dto.format !== 'SINGLE_ELIMINATION',
+        }),
+        ...(dto.knockoutPointsToWin !== undefined && {
+          knockoutPointsToWin: dto.knockoutPointsToWin,
+        }),
+        ...(dto.knockoutWinByTwo !== undefined && {
+          knockoutWinByTwo: dto.knockoutWinByTwo,
+        }),
+        ...(dto.knockoutPointCap !== undefined && {
+          knockoutPointCap: dto.knockoutPointCap,
+        }),
+        ...(dto.finalPointsToWin !== undefined && {
+          finalPointsToWin: dto.finalPointsToWin,
+        }),
+        ...(dto.finalWinByTwo !== undefined && {
+          finalWinByTwo: dto.finalWinByTwo,
+        }),
+        ...(dto.finalPointCap !== undefined && {
+          finalPointCap: dto.finalPointCap,
         }),
       },
       include: {
@@ -203,12 +959,44 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(id, userId, role);
+    const category = await this.getCategoryWithOwnership(
+      id,
+      userId,
+      role,
+      'STRUCTURE'
+    );
 
     const updateData: CategoryUpdateData = {};
 
     if (dto.name !== undefined) {
       updateData.name = dto.name;
+    }
+    if (
+      dto.type !== undefined ||
+      dto.registrationMode !== undefined ||
+      dto.teamSize !== undefined
+    ) {
+      const type = (dto.type ?? category.type) as CategoryType;
+      const config = registrationConfigForType(
+        type,
+        dto.registrationMode ?? category.registrationMode,
+        dto.teamSize ?? category.teamSize
+      );
+      if (
+        (type !== category.type ||
+          config.registrationMode !== category.registrationMode ||
+          config.teamSize !== category.teamSize) &&
+        (await this.prisma.categoryRegistration.count({
+          where: { categoryId: id },
+        })) > 0
+      ) {
+        throw new BadRequestException(
+          'Cannot change registration mode or team size after registrations exist'
+        );
+      }
+      updateData.type = type;
+      updateData.registrationMode = config.registrationMode;
+      updateData.teamSize = config.teamSize;
     }
     if (dto.hasGroupStage !== undefined)
       updateData.hasGroupStage = dto.hasGroupStage;
@@ -252,8 +1040,66 @@ export class CategoriesService {
     if (dto.thirdPlaceMatch !== undefined) {
       updateData.thirdPlaceMatch = dto.thirdPlaceMatch;
     }
+    if (dto.pointsToWin !== undefined) {
+      if (dto.pointsToWin < 1) {
+        throw new BadRequestException('pointsToWin must be at least 1');
+      }
+      updateData.pointsToWin = dto.pointsToWin;
+    }
+    if (dto.winByTwo !== undefined) {
+      updateData.winByTwo = dto.winByTwo;
+    }
+    if (dto.pointCap !== undefined) {
+      if (dto.pointCap !== null && dto.pointCap < 1) {
+        throw new BadRequestException('pointCap must be at least 1 or null');
+      }
+      updateData.pointCap = dto.pointCap;
+    }
+    if (dto.knockoutPointsToWin !== undefined) {
+      if (dto.knockoutPointsToWin !== null && dto.knockoutPointsToWin < 1) {
+        throw new BadRequestException(
+          'knockoutPointsToWin must be at least 1 or null'
+        );
+      }
+      updateData.knockoutPointsToWin = dto.knockoutPointsToWin;
+    }
+    if (dto.knockoutWinByTwo !== undefined) {
+      updateData.knockoutWinByTwo = dto.knockoutWinByTwo;
+    }
+    if (dto.knockoutPointCap !== undefined) {
+      if (dto.knockoutPointCap !== null && dto.knockoutPointCap < 1) {
+        throw new BadRequestException(
+          'knockoutPointCap must be at least 1 or null'
+        );
+      }
+      updateData.knockoutPointCap = dto.knockoutPointCap;
+    }
+    if (dto.finalPointsToWin !== undefined) {
+      if (dto.finalPointsToWin !== null && dto.finalPointsToWin < 1) {
+        throw new BadRequestException(
+          'finalPointsToWin must be at least 1 or null'
+        );
+      }
+      updateData.finalPointsToWin = dto.finalPointsToWin;
+    }
+    if (dto.finalWinByTwo !== undefined) {
+      updateData.finalWinByTwo = dto.finalWinByTwo;
+    }
+    if (dto.finalPointCap !== undefined) {
+      if (dto.finalPointCap !== null && dto.finalPointCap < 1) {
+        throw new BadRequestException(
+          'finalPointCap must be at least 1 or null'
+        );
+      }
+      updateData.finalPointCap = dto.finalPointCap;
+    }
 
-    return this.prisma.category.update({
+    const formatChanged =
+      dto.matchFormat !== undefined ||
+      dto.eliminationMatchFormat !== undefined ||
+      dto.formatConfig !== undefined;
+
+    const updated = await this.prisma.category.update({
       where: { id },
       data: updateData,
       include: {
@@ -263,10 +1109,62 @@ export class CategoriesService {
         },
       },
     });
+
+    // `matchFormat` is denormalized onto each match at generation time. When the
+    // host changes the category's format afterwards, re-sync the still-unplayed
+    // matches so the schedule/score badges and live scoring reflect the new
+    // config — mirroring how the per-set scoring rules are always read live.
+    if (formatChanged) {
+      await this.syncScheduledMatchFormats(id);
+    }
+
+    return updated;
+  }
+
+  /**
+   * Re-apply the category's per-round match format to its SCHEDULED matches.
+   * Group matches inherit `category.matchFormat`; elimination rounds use the
+   * elimination format (with `formatConfig.roundFormats` overrides). Matches
+   * that are in progress or finished keep the format they were played under.
+   */
+  private async syncScheduledMatchFormats(categoryId: string) {
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+      select: {
+        matchFormat: true,
+        eliminationMatchFormat: true,
+        formatConfig: true,
+      },
+    });
+    if (!category) return;
+
+    const formatForRound = this.buildFormatForRound(category);
+    const groupFormat = category.matchFormat ?? MatchFormat.BEST_OF_1;
+
+    const matches = await this.prisma.categoryMatch.findMany({
+      where: { categoryId, status: 'SCHEDULED' },
+      select: { id: true, round: true, groupId: true, matchFormat: true },
+    });
+
+    await Promise.all(
+      matches.flatMap((m) => {
+        const next =
+          m.groupId || m.round === 'GROUP'
+            ? groupFormat
+            : formatForRound(m.round);
+        if (m.matchFormat === next) return [];
+        return [
+          this.prisma.categoryMatch.update({
+            where: { id: m.id },
+            data: { matchFormat: next },
+          }),
+        ];
+      })
+    );
   }
 
   async remove(id: string, userId: string, role?: string) {
-    await this.getCategoryWithOwnership(id, userId, role);
+    await this.getCategoryWithOwnership(id, userId, role, 'STRUCTURE');
     await this.prisma.category.delete({ where: { id } });
     return { message: 'Category deleted successfully' };
   }
@@ -296,13 +1194,82 @@ export class CategoriesService {
     });
   }
 
+  async getRegistration(categoryId: string, registrationId: string) {
+    const registration = await this.prisma.categoryRegistration.findUnique({
+      where: { id: registrationId },
+      include: {
+        category: true,
+        player: true,
+        pair: {
+          include: {
+            members: {
+              include: { player: true },
+              orderBy: { position: 'asc' },
+            },
+          },
+        },
+      },
+    });
+    if (!registration || registration.categoryId !== categoryId) {
+      throw new NotFoundException('Registration not found in this category');
+    }
+    return registration;
+  }
+
+  async getRegistrationMatches(categoryId: string, registrationId: string) {
+    await this.getRegistration(categoryId, registrationId);
+    return this.prisma.categoryMatch.findMany({
+      where: {
+        categoryId,
+        participants: {
+          some: { categoryRegistrationId: registrationId },
+        },
+      },
+      include: MATCH_SCORING_INCLUDE,
+      orderBy: { matchNumber: 'asc' },
+    });
+  }
+
   async createRegistration(
     categoryId: string,
     dto: CreateCategoryRegistrationDto,
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    const category = await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
+    if (
+      (category.registrationMode === 'TEAM' && !dto.tournamentPairId) ||
+      (category.registrationMode === 'INDIVIDUAL' && !dto.tournamentPlayerId)
+    ) {
+      throw new BadRequestException(
+        `Category requires a ${category.registrationMode.toLowerCase()} registration`
+      );
+    }
+    if (dto.tournamentPairId) {
+      const pair = await this.prisma.tournamentPair.findUnique({
+        where: { id: dto.tournamentPairId },
+      });
+      if (!pair || pair.tournamentId !== category.tournamentId) {
+        throw new BadRequestException(
+          'Pair must belong to the category tournament'
+        );
+      }
+    }
+    if (dto.tournamentPlayerId) {
+      const player = await this.prisma.tournamentPlayer.findUnique({
+        where: { id: dto.tournamentPlayerId },
+      });
+      if (!player || player.tournamentId !== category.tournamentId) {
+        throw new BadRequestException(
+          'Player must belong to the category tournament'
+        );
+      }
+    }
 
     // Check for duplicate registration
     const existing = await this.prisma.categoryRegistration.findFirst({
@@ -339,13 +1306,151 @@ export class CategoriesService {
     });
   }
 
+  /**
+   * Create many registrations in one request. For TEAM categories each name
+   * becomes a new (empty-roster) pair; for INDIVIDUAL categories each name
+   * becomes a new player. Pairs/players and their registrations are created in
+   * a single transaction so the client makes one round-trip instead of two
+   * calls per row (avoids hammering the API with N parallel requests).
+   */
+  async bulkCreateRegistrations(
+    categoryId: string,
+    input: { names?: string[]; tournamentPlayerIds?: string[] },
+    userId: string,
+    role?: string
+  ) {
+    const category = await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
+
+    const cleaned = (input.names ?? [])
+      .map((name) => name.trim())
+      .filter((name) => name.length > 0);
+    const requestedPlayerIds = Array.from(
+      new Set((input.tournamentPlayerIds ?? []).filter((id) => id?.length > 0))
+    );
+
+    if (cleaned.length === 0 && requestedPlayerIds.length === 0) {
+      throw new BadRequestException(
+        'At least one name or player must be provided'
+      );
+    }
+
+    const isTeam = category.registrationMode === 'TEAM';
+
+    if (requestedPlayerIds.length > 0 && isTeam) {
+      throw new BadRequestException(
+        'Existing players can only be registered in individual categories'
+      );
+    }
+
+    // Validate that the selected players belong to this tournament and skip the
+    // ones that are already registered in this category.
+    let newPlayerIds: string[] = [];
+    if (requestedPlayerIds.length > 0) {
+      const players = await this.prisma.tournamentPlayer.findMany({
+        where: {
+          id: { in: requestedPlayerIds },
+          tournamentId: category.tournamentId,
+        },
+        select: { id: true },
+      });
+      if (players.length !== requestedPlayerIds.length) {
+        throw new BadRequestException(
+          'All selected players must belong to this tournament'
+        );
+      }
+
+      const alreadyRegistered = await this.prisma.categoryRegistration.findMany(
+        {
+          where: {
+            categoryId,
+            tournamentPlayerId: { in: requestedPlayerIds },
+          },
+          select: { tournamentPlayerId: true },
+        }
+      );
+      const registeredIds = new Set(
+        alreadyRegistered
+          .map((reg) => reg.tournamentPlayerId)
+          .filter((id): id is string => Boolean(id))
+      );
+      newPlayerIds = requestedPlayerIds.filter((id) => !registeredIds.has(id));
+    }
+
+    const registrationInclude = {
+      player: true,
+      pair: {
+        include: {
+          members: {
+            include: { player: true },
+            orderBy: { position: 'asc' },
+          },
+        },
+      },
+    } satisfies Prisma.CategoryRegistrationInclude;
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        const created: Prisma.CategoryRegistrationGetPayload<{
+          include: typeof registrationInclude;
+        }>[] = [];
+        for (const name of cleaned) {
+          if (isTeam) {
+            const pair = await tx.tournamentPair.create({
+              data: {
+                tournamentId: category.tournamentId,
+                name,
+                type: category.type,
+              },
+            });
+            created.push(
+              await tx.categoryRegistration.create({
+                data: { categoryId, tournamentPairId: pair.id },
+                include: registrationInclude,
+              })
+            );
+          } else {
+            const player = await tx.tournamentPlayer.create({
+              data: { tournamentId: category.tournamentId, name },
+            });
+            created.push(
+              await tx.categoryRegistration.create({
+                data: { categoryId, tournamentPlayerId: player.id },
+                include: registrationInclude,
+              })
+            );
+          }
+        }
+        for (const playerId of newPlayerIds) {
+          created.push(
+            await tx.categoryRegistration.create({
+              data: { categoryId, tournamentPlayerId: playerId },
+              include: registrationInclude,
+            })
+          );
+        }
+        return created;
+      },
+      { timeout: 60000, maxWait: 10000 }
+    );
+  }
+
   async deleteRegistration(
     categoryId: string,
     registrationId: string,
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
 
     const registration = await this.prisma.categoryRegistration.findUnique({
       where: { id: registrationId },
@@ -363,6 +1468,148 @@ export class CategoriesService {
       where: { id: registrationId },
     });
     return { message: 'Registration removed successfully' };
+  }
+
+  async convertLegacyRegistrationToPair(
+    categoryId: string,
+    registrationId: string,
+    dto: ConvertLegacyRegistrationDto,
+    userId: string,
+    role?: string
+  ) {
+    const category = await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
+    if (category.registrationMode !== 'TEAM') {
+      throw new BadRequestException('Only team registrations can be converted');
+    }
+    const registration = await this.prisma.categoryRegistration.findUnique({
+      where: { id: registrationId },
+    });
+    if (!registration || registration.categoryId !== categoryId) {
+      throw new NotFoundException('Registration not found in this category');
+    }
+    if (registration.tournamentPairId) {
+      throw new BadRequestException('Registration is already linked to a pair');
+    }
+    const players = await this.prisma.tournamentPlayer.findMany({
+      where: {
+        id: { in: dto.playerIds },
+        tournamentId: category.tournamentId,
+      },
+    });
+    if (players.length !== dto.playerIds.length) {
+      throw new BadRequestException(
+        'All pair members must belong to this tournament'
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const pair = await tx.tournamentPair.create({
+        data: {
+          tournamentId: category.tournamentId,
+          name: dto.name,
+          type: (dto.type ?? category.type) as CategoryType,
+          notes: dto.notes,
+          members: {
+            create: dto.playerIds.map((playerId, index) => ({
+              playerId,
+              position: index + 1,
+            })),
+          },
+        },
+      });
+      const updated = await tx.categoryRegistration.update({
+        where: { id: registrationId },
+        data: { tournamentPlayerId: null, tournamentPairId: pair.id },
+        include: {
+          player: true,
+          pair: {
+            include: {
+              members: {
+                include: { player: true },
+                orderBy: { position: 'asc' },
+              },
+            },
+          },
+        },
+      });
+      if (registration.tournamentPlayerId) {
+        const references = await tx.categoryRegistration.count({
+          where: { tournamentPlayerId: registration.tournamentPlayerId },
+        });
+        if (references === 0) {
+          await tx.tournamentPlayer.delete({
+            where: { id: registration.tournamentPlayerId },
+          });
+        }
+      }
+      return updated;
+    });
+  }
+
+  /**
+   * Ensures a registration is ready for play: for TEAM categories the pair
+   * must have its full roster (>= teamSize members).
+   *
+   * Roster completeness is NOT enforced when building the tournament structure
+   * (assigning groups, generating group/bracket matches or the schedule) so
+   * organizers can draft brackets early and fill rosters later. It is enforced
+   * at play time (starting/ending a match) and before publishing.
+   */
+  private async assertRegistrationReady(registrationId: string) {
+    const registration = await this.prisma.categoryRegistration.findUnique({
+      where: { id: registrationId },
+      include: {
+        category: true,
+        pair: { include: { members: true } },
+      },
+    });
+    if (!registration) throw new NotFoundException('Registration not found');
+    if (
+      registration.category.registrationMode === 'TEAM' &&
+      (!registration.pair ||
+        registration.pair.members.length < registration.category.teamSize)
+    ) {
+      throw new BadRequestException(
+        'Team roster is incomplete. Add all required members first.'
+      );
+    }
+  }
+
+  /** Ensures every participant of a match has a complete roster before play. */
+  private async assertMatchRostersReady(
+    participants: { categoryRegistrationId: string }[]
+  ) {
+    await Promise.all(
+      participants.map((participant) =>
+        this.assertRegistrationReady(participant.categoryRegistrationId)
+      )
+    );
+  }
+
+  /**
+   * Later-round elimination matches are created as empty shells and only get
+   * their two participants once both feeding matches finish (see advanceWinner).
+   * Block starting/scoring such a match until both sides are determined —
+   * otherwise we would record a "TBD vs TBD" result and possibly advance a
+   * bogus winner. Group matches always carry both participants from the start,
+   * so they are unaffected.
+   */
+  private assertMatchParticipantsResolved(match: {
+    round: string;
+    groupId: string | null;
+    participants: unknown[];
+  }) {
+    const isElimination = match.round !== 'GROUP' && !match.groupId;
+    if (isElimination && match.participants.length < 2) {
+      throw new BadRequestException(
+        'Match participants are not determined yet. Wait for the feeding matches to finish.'
+      );
+    }
   }
 
   // ─── Phase 4: Group CRUD ──────────────────────────────────
@@ -403,7 +1650,8 @@ export class CategoriesService {
     const category = await this.getCategoryWithOwnership(
       categoryId,
       userId,
-      role
+      role,
+      'STRUCTURE'
     );
 
     const groupCount = category.groupCount;
@@ -429,7 +1677,7 @@ export class CategoriesService {
       groups.push({
         categoryId,
         groupNumber: i + 1,
-        name: `Group ${groupNames[i] || i + 1}`,
+        name: groupNames[i] || String(i + 1),
       });
     }
 
@@ -445,7 +1693,7 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(categoryId, userId, role, 'STRUCTURE');
 
     const group = await this.prisma.categoryGroup.findUnique({
       where: { id: groupId },
@@ -469,7 +1717,7 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(categoryId, userId, role, 'STRUCTURE');
 
     const group = await this.prisma.categoryGroup.findUnique({
       where: { id: groupId },
@@ -491,7 +1739,12 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
 
     const group = await this.prisma.categoryGroup.findUnique({
       where: { id: groupId },
@@ -544,7 +1797,12 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
 
     const group = await this.prisma.categoryGroup.findUnique({
       where: { id: groupId },
@@ -590,7 +1848,12 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
 
     const registrations = await this.prisma.categoryRegistration.findMany({
       where: { categoryId },
@@ -707,7 +1970,12 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'PARTICIPANTS'
+    );
 
     const groupReg = await this.prisma.categoryGroupRegistration.findFirst({
       where: { groupId, categoryRegistrationId: registrationId },
@@ -733,7 +2001,8 @@ export class CategoriesService {
     const category = await this.getCategoryWithOwnership(
       categoryId,
       userId,
-      role
+      role,
+      'STRUCTURE'
     );
 
     const group = await this.prisma.categoryGroup.findUnique({
@@ -903,7 +2172,7 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(categoryId, userId, role, 'STRUCTURE');
 
     return this.prisma.categoryMatch.create({
       data: {
@@ -911,6 +2180,7 @@ export class CategoriesService {
         groupId: dto.groupId,
         round: dto.round,
         matchNumber: dto.matchNumber,
+        matchCode: dto.matchCode,
         status: 'SCHEDULED',
         courtId: dto.courtId,
         startTime: dto.startTime ? new Date(dto.startTime) : undefined,
@@ -981,6 +2251,7 @@ export class CategoriesService {
       courtId?: string;
       round?: string;
       matchNumber?: number;
+      matchCode?: string;
       startTime?: string;
       matchFormat?: string;
       groupId?: string;
@@ -988,7 +2259,7 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getMatchWithOwnership(id, userId, role);
+    await this.getMatchWithOwnership(id, userId, role, 'SCHEDULE');
 
     return this.prisma.categoryMatch.update({
       where: { id },
@@ -998,6 +2269,7 @@ export class CategoriesService {
         ...(data.matchNumber !== undefined && {
           matchNumber: data.matchNumber,
         }),
+        ...(data.matchCode !== undefined && { matchCode: data.matchCode }),
         ...(data.startTime !== undefined && {
           startTime: new Date(data.startTime),
         }),
@@ -1031,13 +2303,13 @@ export class CategoriesService {
   }
 
   async deleteMatch(id: string, userId: string, role?: string) {
-    await this.getMatchWithOwnership(id, userId, role);
+    await this.getMatchWithOwnership(id, userId, role, 'STRUCTURE');
     await this.prisma.categoryMatch.delete({ where: { id } });
     return { message: 'Match deleted successfully' };
   }
 
   async startMatch(id: string, userId: string, role?: string) {
-    const match = await this.getMatchWithOwnership(id, userId, role);
+    const match = await this.getMatchForScoring(id, userId, role);
 
     if (match.status !== 'SCHEDULED') {
       throw new BadRequestException(
@@ -1045,31 +2317,25 @@ export class CategoriesService {
       );
     }
 
-    return this.prisma.categoryMatch.update({
+    this.assertMatchParticipantsResolved(match);
+    await this.assertMatchRostersReady(match.participants);
+
+    // Pickleball doubles opens at 0-0-2: side 1 serving, second server.
+    // Everything else (badminton, pickleball singles) carries no serve state.
+    const pickleballDoubles = this.isPickleballDoubles(match);
+
+    const updated = await this.prisma.categoryMatch.update({
       where: { id },
-      data: { status: 'IN_PROGRESS', startTime: new Date() },
-      include: {
-        participants: {
-          include: {
-            categoryRegistration: {
-              include: {
-                player: true,
-                pair: {
-                  include: {
-                    members: {
-                      include: { player: true },
-                      orderBy: { position: 'asc' },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-        court: true,
-        group: true,
+      data: {
+        status: 'IN_PROGRESS',
+        startTime: new Date(),
+        servingSide: pickleballDoubles ? 1 : null,
+        serverNumber: pickleballDoubles ? 2 : null,
       },
+      include: MATCH_SCORING_INCLUDE,
     });
+    this.broadcastMatch(updated, TournamentEventType.TOURNAMENT_MATCH_STARTED);
+    return updated;
   }
 
   async endMatch(
@@ -1078,13 +2344,18 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    const match = await this.getMatchWithOwnership(id, userId, role);
+    const match = await this.getMatchForScoring(id, userId, role);
 
-    if (match.status !== 'IN_PROGRESS') {
+    // Allow recording a result directly from SCHEDULED (host manual entry) or
+    // from IN_PROGRESS (live scoring). A finished match cannot be re-ended.
+    if (match.status !== 'IN_PROGRESS' && match.status !== 'SCHEDULED') {
       throw new BadRequestException(
-        'Match can only be ended from IN_PROGRESS status'
+        'Match can only be ended from SCHEDULED or IN_PROGRESS status'
       );
     }
+
+    this.assertMatchParticipantsResolved(match);
+    await this.assertMatchRostersReady(match.participants);
 
     // Auto-calculate total scores from sets if provided
     let { player1Score, player2Score, player3Score, player4Score } = dto;
@@ -1107,6 +2378,7 @@ export class CategoriesService {
       where: { id },
       data: {
         status: 'FINISHED',
+        startTime: match.startTime ?? new Date(),
         endTime: new Date(),
         score: dto.score,
         sets: dto.sets
@@ -1114,52 +2386,261 @@ export class CategoriesService {
           : undefined,
         winnerId: dto.winnerId,
         isDraw: dto.isDraw || false,
+        isForfeit: dto.isForfeit || false,
         player1Score,
         player2Score,
         player3Score,
         player4Score,
+        player1Points: dto.player1Points,
+        player2Points: dto.player2Points,
         notes: dto.notes,
+        refereeName: dto.refereeName ?? null,
+        // Serve state only applies to live matches.
+        servingSide: null,
+        serverNumber: null,
       },
-      include: {
-        participants: {
-          include: {
-            categoryRegistration: {
-              include: {
-                player: true,
-                pair: {
-                  include: {
-                    members: {
-                      include: { player: true },
-                      orderBy: { position: 'asc' },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-        court: true,
-        group: true,
-        category: true,
-      },
+      include: MATCH_SCORING_INCLUDE,
     });
 
     // Auto-advance winner in elimination rounds
     if (updatedMatch.round !== 'GROUP' && dto.winnerId && !dto.isDraw) {
-      await this.advanceWinner({
-        id: updatedMatch.id,
-        categoryId: updatedMatch.categoryId,
-        round: updatedMatch.round,
-        matchNumber: updatedMatch.matchNumber,
-        winnerId: updatedMatch.winnerId,
-        participants: updatedMatch.participants.map((participant) => ({
-          categoryRegistrationId: participant.categoryRegistrationId,
-          position: participant.position,
-        })),
+      const category = await this.prisma.category.findUnique({
+        where: { id: updatedMatch.categoryId },
+        select: { format: true },
+      });
+      if (category?.format === CategoryFormat.DOUBLE_ELIMINATION) {
+        await this.advanceDoubleElimination({
+          id: updatedMatch.id,
+          categoryId: updatedMatch.categoryId,
+          round: updatedMatch.round,
+          winnerId: updatedMatch.winnerId,
+          winnerNextMatchId: updatedMatch.winnerNextMatchId,
+          winnerNextSlot: updatedMatch.winnerNextSlot,
+          loserNextMatchId: updatedMatch.loserNextMatchId,
+          loserNextSlot: updatedMatch.loserNextSlot,
+          participants: updatedMatch.participants.map((participant) => ({
+            categoryRegistrationId: participant.categoryRegistrationId,
+            position: participant.position,
+          })),
+        });
+      } else {
+        await this.advanceWinner({
+          id: updatedMatch.id,
+          categoryId: updatedMatch.categoryId,
+          round: updatedMatch.round,
+          matchNumber: updatedMatch.matchNumber,
+          winnerId: updatedMatch.winnerId,
+          participants: updatedMatch.participants.map((participant) => ({
+            categoryRegistrationId: participant.categoryRegistrationId,
+            position: participant.position,
+          })),
+        });
+      }
+    }
+
+    this.broadcastMatch(
+      updatedMatch,
+      TournamentEventType.TOURNAMENT_MATCH_ENDED
+    );
+
+    // "Next Available Court" mode: when a match finishes, free its court and
+    // pull the next queued match onto the next available court. Never let a
+    // scheduling failure block recording the result.
+    await this.maybeAutoAssignNextOnFinish(
+      updatedMatch.id,
+      updatedMatch.categoryId
+    );
+
+    return updatedMatch;
+  }
+
+  /**
+   * If the tournament runs in NEXT_AVAILABLE schedule mode, release the court
+   * the just-finished match was on and auto-assign the next queued match.
+   * No-op for ASSIGNED mode. Errors are swallowed so scoring is never blocked.
+   */
+  private async maybeAutoAssignNextOnFinish(
+    matchId: string,
+    categoryId: string
+  ): Promise<void> {
+    try {
+      const category = await this.prisma.category.findUnique({
+        where: { id: categoryId },
+        select: {
+          tournament: { select: { id: true, scheduleType: true } },
+        },
+      });
+      const tournament = category?.tournament;
+      if (
+        !tournament ||
+        tournament.scheduleType !== ScheduleType.NEXT_AVAILABLE
+      ) {
+        return;
+      }
+      await this.scheduleService.releaseCourtAfterMatch(matchId);
+      await this.scheduleService.autoAssignNextMatch(tournament.id);
+    } catch {
+      // Scheduling is best-effort; the match result has already been saved.
+    }
+  }
+
+  /**
+   * Reset a match back to its initial (not-yet-played) state. Clears the result
+   * (status → SCHEDULED, scores/sets/winner/forfeit), the live-scoring scratch
+   * state (pointLog), and timing. For finished elimination matches we also undo
+   * the auto-advancement so the downstream bracket doesn't keep a participant
+   * that no longer has a result feeding it.
+   */
+  async resetMatchResult(id: string, userId: string, role?: string) {
+    const match = await this.getMatchForScoring(id, userId, role);
+
+    if (
+      match.status === 'FINISHED' &&
+      match.round !== 'GROUP' &&
+      match.winnerId
+    ) {
+      const category = await this.prisma.category.findUnique({
+        where: { id: match.categoryId },
+        select: { format: true },
+      });
+      if (category?.format === CategoryFormat.DOUBLE_ELIMINATION) {
+        await this.removeAdvancedDoubleElimination({
+          id: match.id,
+          categoryId: match.categoryId,
+          round: match.round,
+          winnerId: match.winnerId,
+          winnerNextMatchId: match.winnerNextMatchId,
+          winnerNextSlot: match.winnerNextSlot,
+          loserNextMatchId: match.loserNextMatchId,
+          loserNextSlot: match.loserNextSlot,
+          participants: match.participants.map((participant) => ({
+            categoryRegistrationId: participant.categoryRegistrationId,
+            position: participant.position,
+          })),
+        });
+      } else {
+        await this.removeAdvancedWinner({
+          id: match.id,
+          categoryId: match.categoryId,
+          round: match.round,
+          winnerId: match.winnerId,
+          participants: match.participants.map((participant) => ({
+            categoryRegistrationId: participant.categoryRegistrationId,
+            position: participant.position,
+          })),
+        });
+      }
+    }
+
+    const updated = await this.prisma.categoryMatch.update({
+      where: { id },
+      data: {
+        status: 'SCHEDULED',
+        startTime: null,
+        endTime: null,
+        score: null,
+        sets: Prisma.DbNull,
+        winnerId: null,
+        isDraw: false,
+        isForfeit: false,
+        player1Score: null,
+        player2Score: null,
+        player3Score: null,
+        player4Score: null,
+        player1Points: null,
+        player2Points: null,
+        pointLog: Prisma.DbNull,
+        notes: null,
+        refereeName: null,
+        servingSide: null,
+        serverNumber: null,
+      },
+      include: MATCH_SCORING_INCLUDE,
+    });
+
+    this.broadcastMatch(updated, TournamentEventType.TOURNAMENT_MATCH_ENDED);
+    return updated;
+  }
+
+  /**
+   * Reverse {@link advanceWinner}: remove the participant this match's winner
+   * (and, for SF, its loser) placed into the next round / 3RD-place match.
+   * Only removes from downstream matches that have not themselves started, so
+   * an in-progress or finished later round is never corrupted.
+   */
+  private async removeAdvancedWinner(match: {
+    id: string;
+    categoryId: string;
+    round: string;
+    winnerId: string | null;
+    participants: Array<{ categoryRegistrationId: string; position: number }>;
+  }) {
+    if (!match.winnerId) return;
+
+    const roundMatches = await this.prisma.categoryMatch.findMany({
+      where: {
+        categoryId: match.categoryId,
+        round: match.round,
+        groupId: null,
+      },
+      orderBy: { matchNumber: 'asc' },
+    });
+
+    const matchIndex = roundMatches.findIndex((m) => m.id === match.id);
+    if (matchIndex === -1) return;
+
+    const roundOrder = this.getRoundOrder();
+    const currentRoundIdx = roundOrder.indexOf(match.round);
+    if (currentRoundIdx === -1 || currentRoundIdx >= roundOrder.length - 1) {
+      return;
+    }
+
+    const nextRound = roundOrder[currentRoundIdx + 1];
+    const nextRoundMatches = await this.prisma.categoryMatch.findMany({
+      where: {
+        categoryId: match.categoryId,
+        round: nextRound,
+        groupId: null,
+      },
+      orderBy: { matchNumber: 'asc' },
+    });
+
+    const nextMatchIndex = Math.floor(matchIndex / 2);
+    const nextMatch = nextRoundMatches[nextMatchIndex];
+    if (nextMatch && nextMatch.status === 'SCHEDULED') {
+      const position = (matchIndex % 2) + 1;
+      await this.prisma.categoryMatchParticipant.deleteMany({
+        where: {
+          matchId: nextMatch.id,
+          position,
+          categoryRegistrationId: match.winnerId,
+        },
       });
     }
 
-    return updatedMatch;
+    // SF loser was placed into the 3RD-place match — undo that too.
+    if (match.round === 'SF') {
+      const thirdPlaceMatches = await this.prisma.categoryMatch.findMany({
+        where: { categoryId: match.categoryId, round: '3RD', groupId: null },
+        orderBy: { matchNumber: 'asc' },
+      });
+      const thirdPlaceMatch = thirdPlaceMatches[0];
+      if (thirdPlaceMatch && thirdPlaceMatch.status === 'SCHEDULED') {
+        const loser = match.participants.find(
+          (p) => p.categoryRegistrationId !== match.winnerId
+        );
+        if (loser) {
+          const loserPosition = (matchIndex % 2) + 1;
+          await this.prisma.categoryMatchParticipant.deleteMany({
+            where: {
+              matchId: thirdPlaceMatch.id,
+              position: loserPosition,
+              categoryRegistrationId: loser.categoryRegistrationId,
+            },
+          });
+        }
+      }
+    }
   }
 
   private async advanceWinner(match: {
@@ -1282,42 +2763,15 @@ export class CategoriesService {
       throw new NotFoundException('Group not found in this category');
     }
 
-    // Extract point values from formatConfig (supports both RR and RR→SE configs)
-    const config = category.formatConfig as Record<string, unknown> | null;
-    const rrConfig = (config?.roundRobin as Record<string, unknown>) ?? config;
-    const pointsEarning =
-      (rrConfig?.pointsEarning as string) ?? 'match_results';
+    // Point values + tiebreaker config (supports both RR and RR→SE configs).
+    const standingsConfig = resolveStandingsConfig(
+      category.formatConfig as Record<string, unknown> | null
+    );
 
-    // When tiebreakers_only mode, all point values are 0
-    const isTiebreakersOnly = pointsEarning === 'tiebreakers_only';
-    const winPoints = isTiebreakersOnly
-      ? 0
-      : ((rrConfig?.winPoints as number) ?? 2);
-    const tiePoints = isTiebreakersOnly
-      ? 0
-      : ((rrConfig?.tiePoints as number) ?? 1);
-    const lossPoints = isTiebreakersOnly
-      ? 0
-      : ((rrConfig?.lossPoints as number) ?? 0);
-    const gameWinPoints = isTiebreakersOnly
-      ? 0
-      : ((rrConfig?.gameWinPoints as number) ?? 0);
-    const gameLossPoints = isTiebreakersOnly
-      ? 0
-      : ((rrConfig?.gameLossPoints as number) ?? 0);
-
-    // Configurable tiebreaker order
-    const tiebreakerOrder = (rrConfig?.tiebreakers as Array<{
-      id: string;
-    }>) ?? [
-      { id: 'total_points' },
-      { id: 'game_differential' },
-      { id: 'total_wins' },
-      { id: 'point_differential' },
-    ];
-
+    // Ordered by createdAt so the deterministic seed (entrant index) is stable.
     const groupRegs = await this.prisma.categoryGroupRegistration.findMany({
       where: { groupId },
+      orderBy: { createdAt: 'asc' },
       include: {
         categoryRegistration: {
           include: {
@@ -1335,184 +2789,54 @@ export class CategoriesService {
       },
     });
 
-    const finishedMatches = await this.prisma.categoryMatch.findMany({
-      where: { groupId, status: 'FINISHED' },
+    // Cancelled matches are pulled in too so cancelledMatchPoints can apply.
+    // Ordered oldest-first (by finish time, then match number) so the recent-form
+    // streak reflects chronological play order.
+    const settledMatches = await this.prisma.categoryMatch.findMany({
+      where: { groupId, status: { in: ['FINISHED', 'CANCELLED'] } },
+      orderBy: [{ endTime: 'asc' }, { matchNumber: 'asc' }],
       include: { participants: true },
     });
 
-    // Build standings map
-    const standingsMap = new Map<
-      string,
-      {
-        categoryRegistrationId: string;
-        registration: (typeof groupRegs)[0]['categoryRegistration'];
-        matchesPlayed: number;
-        matchesWon: number;
-        matchesLost: number;
-        matchesDrawn: number;
-        points: number;
-        pointsFor: number;
-        pointsAgainst: number;
-        pointDifference: number;
-        gamesWon: number;
-        gamesLost: number;
-        gameDifference: number;
-        rank: number;
-      }
-    >();
+    const matchInputs: StandingsMatchInput[] = settledMatches.map((m) => ({
+      participants: m.participants.map((p) => ({
+        categoryRegistrationId: p.categoryRegistrationId,
+        position: p.position,
+      })),
+      player1Score: m.player1Score,
+      player2Score: m.player2Score,
+      player1Points: m.player1Points,
+      player2Points: m.player2Points,
+      sets: Array.isArray(m.sets)
+        ? (m.sets as Array<{ player1Score?: number; player2Score?: number }>)
+        : null,
+      winnerId: m.winnerId,
+      isDraw: m.isDraw,
+      isForfeit: m.isForfeit,
+      isCancelled: m.status === 'CANCELLED',
+    }));
 
-    for (const gr of groupRegs) {
-      standingsMap.set(gr.categoryRegistrationId, {
+    const rows = computeStandings(
+      groupRegs.map((gr) => ({
         categoryRegistrationId: gr.categoryRegistrationId,
-        registration: gr.categoryRegistration,
-        matchesPlayed: 0,
-        matchesWon: 0,
-        matchesLost: 0,
-        matchesDrawn: 0,
-        points: 0,
-        pointsFor: 0,
-        pointsAgainst: 0,
-        pointDifference: 0,
-        gamesWon: 0,
-        gamesLost: 0,
-        gameDifference: 0,
-        rank: 0,
-      });
-    }
+      })),
+      matchInputs,
+      standingsConfig
+    );
 
-    // Process matches
-    for (const match of finishedMatches) {
-      const p1 = match.participants.find((p) => p.position === 1);
-      const p2 = match.participants.find((p) => p.position === 2);
-      if (!p1 || !p2) continue;
-
-      const s1 = standingsMap.get(p1.categoryRegistrationId);
-      const s2 = standingsMap.get(p2.categoryRegistrationId);
-      if (!s1 || !s2) continue;
-
-      s1.matchesPlayed++;
-      s2.matchesPlayed++;
-
-      s1.pointsFor += match.player1Score || 0;
-      s1.pointsAgainst += match.player2Score || 0;
-      s2.pointsFor += match.player2Score || 0;
-      s2.pointsAgainst += match.player1Score || 0;
-
-      // Count games from sets data
-      if (match.sets && Array.isArray(match.sets)) {
-        for (const set of match.sets as Array<{
-          player1Score?: number;
-          player2Score?: number;
-        }>) {
-          const p1Score = set.player1Score ?? 0;
-          const p2Score = set.player2Score ?? 0;
-          if (p1Score > p2Score) {
-            s1.gamesWon++;
-            s2.gamesLost++;
-          } else if (p2Score > p1Score) {
-            s2.gamesWon++;
-            s1.gamesLost++;
-          }
-        }
-        // Add game-level points
-        s1.points +=
-          s1.gamesWon * gameWinPoints + s1.gamesLost * gameLossPoints;
-        s2.points +=
-          s2.gamesWon * gameWinPoints + s2.gamesLost * gameLossPoints;
-      }
-
-      if (match.isDraw) {
-        s1.matchesDrawn++;
-        s2.matchesDrawn++;
-        s1.points += tiePoints;
-        s2.points += tiePoints;
-      } else if (match.winnerId === p1.categoryRegistrationId) {
-        s1.matchesWon++;
-        s2.matchesLost++;
-        s1.points += winPoints;
-        s2.points += lossPoints;
-      } else if (match.winnerId === p2.categoryRegistrationId) {
-        s2.matchesWon++;
-        s1.matchesLost++;
-        s2.points += winPoints;
-        s1.points += lossPoints;
-      }
-    }
-
-    // Calculate differences and sort
-    const standings = Array.from(standingsMap.values());
-    standings.forEach((s) => {
-      s.pointDifference = s.pointsFor - s.pointsAgainst;
-      s.gameDifference = s.gamesWon - s.gamesLost;
-    });
-
-    // Dynamic tiebreaker sort based on configured order
-    standings.sort((a, b) => {
-      for (const tb of tiebreakerOrder) {
-        let result = 0;
-        switch (tb.id) {
-          case 'total_points':
-            result = b.points - a.points;
-            break;
-          case 'total_wins':
-            result = b.matchesWon - a.matchesWon;
-            break;
-          case 'head_to_head':
-            result = this.compareHeadToHead(a, b, finishedMatches);
-            break;
-          case 'game_differential':
-            result = b.gameDifference - a.gameDifference;
-            break;
-          case 'point_differential':
-            result = b.pointDifference - a.pointDifference;
-            break;
-          case 'points_for':
-            result = b.pointsFor - a.pointsFor;
-            break;
-          case 'points_against':
-            result = a.pointsAgainst - b.pointsAgainst;
-            break;
-        }
-        if (result !== 0) return result;
-      }
-      return 0;
-    });
-
-    standings.forEach((s, i) => (s.rank = i + 1));
+    // Re-attach the registration objects expected by the API response.
+    const registrationById = new Map(
+      groupRegs.map((gr) => [
+        gr.categoryRegistrationId,
+        gr.categoryRegistration,
+      ])
+    );
+    const standings = rows.map((row) => ({
+      ...row,
+      registration: registrationById.get(row.categoryRegistrationId) ?? null,
+    }));
 
     return { group, standings };
-  }
-
-  private compareHeadToHead(
-    a: { categoryRegistrationId: string },
-    b: { categoryRegistrationId: string },
-    matches: Array<{
-      winnerId: string | null;
-      isDraw: boolean;
-      participants: Array<{ categoryRegistrationId: string; position: number }>;
-    }>
-  ): number {
-    const h2hMatches = matches.filter((m) => {
-      const ids = m.participants.map((p) => p.categoryRegistrationId);
-      return (
-        ids.includes(a.categoryRegistrationId) &&
-        ids.includes(b.categoryRegistrationId)
-      );
-    });
-
-    if (h2hMatches.length === 0) return 0;
-
-    let aWins = 0;
-    let bWins = 0;
-    for (const m of h2hMatches) {
-      if (m.isDraw) continue;
-      if (m.winnerId === a.categoryRegistrationId) aWins++;
-      else if (m.winnerId === b.categoryRegistrationId) bWins++;
-    }
-
-    if (aWins > bWins) return -1;
-    if (bWins > aWins) return 1;
-    return 0;
   }
 
   async calculateGroupStandings(
@@ -1521,7 +2845,7 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(categoryId, userId, role, 'RESULTS');
     return this.getGroupStandings(categoryId, groupId);
   }
 
@@ -1557,12 +2881,41 @@ export class CategoriesService {
 
   // ─── Bulk Group Match Generation ─────────────────────────
 
-  async generateAllGroupMatches(
+  async getMatchGenerationPreview(
     categoryId: string,
     userId: string,
     role?: string
+  ): Promise<MatchGenerationPreview> {
+    await this.getCategoryWithOwnership(categoryId, userId, role, 'STRUCTURE');
+    return this.buildMatchGenerationPreview(categoryId);
+  }
+
+  async generateAllGroupMatches(
+    categoryId: string,
+    options: { forceReplaceScheduledMatches?: boolean } | undefined,
+    userId: string,
+    role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role);
+    await this.getCategoryWithOwnership(categoryId, userId, role, 'STRUCTURE');
+
+    const preview = await this.buildMatchGenerationPreview(categoryId);
+    if (!preview.canGenerate) {
+      throw new BadRequestException({
+        code: 'HAS_STARTED_OR_FINISHED_MATCHES',
+        message:
+          'Cannot regenerate matches after any match has started or finished',
+      });
+    }
+    if (
+      preview.requiresForceReplaceScheduledMatches &&
+      !options?.forceReplaceScheduledMatches
+    ) {
+      throw new BadRequestException({
+        code: 'REQUIRES_FORCE_REPLACE_SCHEDULED_MATCHES',
+        message:
+          'Regenerating matches will remove existing schedule assignments. Confirm before retrying.',
+      });
+    }
 
     const groups = await this.prisma.categoryGroup.findMany({
       where: { categoryId },
@@ -1572,6 +2925,16 @@ export class CategoriesService {
     if (groups.length === 0) {
       throw new BadRequestException('No groups exist. Create groups first.');
     }
+
+    // Re-generating must start from a clean slate for the group stage: wipe only
+    // the previously-generated GROUP matches, so stale matches from an earlier
+    // configuration never linger. Cascades to participants and nulls any court's
+    // currentMatch reference. Playoff shells (groupId: null, round != GROUP) are
+    // owned by the separate "generate elimination shells" flow and are preserved
+    // here so regenerating the group stage never wipes a bracket the user built.
+    await this.prisma.categoryMatch.deleteMany({
+      where: { categoryId, round: 'GROUP' },
+    });
 
     const results: Array<{ group: (typeof groups)[0]; matches: unknown[] }> =
       [];
@@ -1584,7 +2947,50 @@ export class CategoriesService {
       );
       results.push({ group, matches });
     }
+
     return results;
+  }
+
+  private async buildMatchGenerationPreview(
+    categoryId: string
+  ): Promise<MatchGenerationPreview> {
+    // Scoped to GROUP matches: this preview only backs the group-stage generate
+    // flow (getMatchGenerationPreview + generateAllGroupMatches). Playoff shells
+    // live in their own flow, so a scheduled shell must not block regenerating
+    // the group stage.
+    const matches = await this.prisma.categoryMatch.findMany({
+      where: { categoryId, round: 'GROUP' },
+      select: {
+        status: true,
+        courtId: true,
+        startTime: true,
+      },
+    });
+    const scheduledAssignedMatches = matches.filter(
+      (match) =>
+        match.status === MatchStatus.SCHEDULED &&
+        (match.courtId !== null || match.startTime !== null)
+    ).length;
+    const inProgressMatches = matches.filter(
+      (match) => match.status === MatchStatus.IN_PROGRESS
+    ).length;
+    const finishedMatches = matches.filter(
+      (match) => match.status === MatchStatus.FINISHED
+    ).length;
+    const canGenerate = inProgressMatches === 0 && finishedMatches === 0;
+
+    return {
+      existingMatches: matches.length,
+      scheduledAssignedMatches,
+      inProgressMatches,
+      finishedMatches,
+      canGenerate,
+      requiresForceReplaceScheduledMatches:
+        canGenerate && scheduledAssignedMatches > 0,
+      blockingReason: canGenerate
+        ? undefined
+        : 'HAS_STARTED_OR_FINISHED_MATCHES',
+    };
   }
 
   // ─── Elimination Matches Query ──────────────────────────
@@ -1623,14 +3029,102 @@ export class CategoriesService {
 
   // ─── Phase 9: Elimination Bracket ─────────────────────────
 
+  async getGroupStageCompletion(
+    categoryId: string,
+    userId: string,
+    role?: string
+  ) {
+    const category = await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'STRUCTURE'
+    );
+
+    // RRSE always has a group stage by definition; don't require the stale
+    // `hasGroupStage` flag (see completeGroupStage for why it can be false).
+    const isRoundRobinToElimination =
+      category.format === CategoryFormat.ROUND_ROBIN_TO_SE;
+
+    if (!isRoundRobinToElimination) {
+      return {
+        categoryId,
+        categoryName: category.name,
+        isEligible: false,
+        isCompleted: false,
+        canGenerateBracket: false,
+        hasBracket: false,
+        totalGroupMatches: 0,
+        finishedGroupMatches: 0,
+        unfinishedGroupMatches: 0,
+      };
+    }
+
+    const [
+      totalGroupMatches,
+      finishedGroupMatches,
+      eliminationMatchCount,
+      eliminationParticipantCount,
+    ] = await Promise.all([
+      this.prisma.categoryMatch.count({
+        where: { categoryId, round: 'GROUP' },
+      }),
+      this.prisma.categoryMatch.count({
+        where: { categoryId, round: 'GROUP', status: 'FINISHED' },
+      }),
+      this.prisma.categoryMatch.count({
+        where: {
+          categoryId,
+          round: { not: 'GROUP' },
+        },
+      }),
+      this.prisma.categoryMatchParticipant.count({
+        where: {
+          match: {
+            categoryId,
+            round: { not: 'GROUP' },
+          },
+        },
+      }),
+    ]);
+
+    const isCompleted =
+      totalGroupMatches > 0 && finishedGroupMatches === totalGroupMatches;
+    const hasBracket = eliminationMatchCount > 0;
+    const hasGeneratedBracket = eliminationParticipantCount > 0;
+
+    return {
+      categoryId,
+      categoryName: category.name,
+      isEligible: true,
+      isCompleted,
+      canGenerateBracket: isCompleted && !hasGeneratedBracket,
+      hasBracket,
+      totalGroupMatches,
+      finishedGroupMatches,
+      unfinishedGroupMatches: totalGroupMatches - finishedGroupMatches,
+    };
+  }
+
   async completeGroupStage(categoryId: string, userId: string, role?: string) {
     const category = await this.getCategoryWithOwnership(
       categoryId,
       userId,
-      role
+      role,
+      'STRUCTURE'
     );
 
-    if (category.hasGroupStage) {
+    // A ROUND_ROBIN_TO_SE category always feeds its groups into the bracket,
+    // regardless of the `hasGroupStage` column — that flag defaults to false and
+    // is only maintained by the create/update paths, so a category whose format
+    // was set another way can have it stale. Trusting it alone made this branch
+    // fall through to direct elimination and seed ALL registrations (a 16-slot
+    // R16 bracket) instead of the group winners. Gate on the format instead.
+    const usesGroupStage =
+      category.hasGroupStage ||
+      category.format === CategoryFormat.ROUND_ROBIN_TO_SE;
+
+    if (usesGroupStage) {
       // Validate all group matches are finished
       const unfinishedMatches = await this.prisma.categoryMatch.count({
         where: {
@@ -1653,27 +3147,36 @@ export class CategoriesService {
       });
 
       const winnersPerGroup = category.winnersPerGroup || 2;
-      const allWinners: string[] = [];
 
-      // Interleave winners: all #1s first, then all #2s, etc.
+      // Compute each group's standings once (the rank loop below reads several
+      // positions per group).
+      const groupStandings = await Promise.all(
+        groups.map((group) => this.getGroupStandings(categoryId, group.id))
+      );
+
+      // Interleave winners: all #1s first, then all #2s, etc. Insert a null
+      // placeholder when a group has no team for the current rank (e.g. a short
+      // group). Keeping the slot preserves the seed alignment of the remaining
+      // qualifiers — dropping it would shift every later team up one seed,
+      // placing real qualifiers into the wrong matchup and turning their
+      // intended slot into a phantom BYE (which then auto-finishes the match).
+      const allWinners: (string | null)[] = [];
       for (let rank = 0; rank < winnersPerGroup; rank++) {
-        for (const group of groups) {
-          const { standings } = await this.getGroupStandings(
-            categoryId,
-            group.id
-          );
-          if (standings[rank]) {
-            allWinners.push(standings[rank].categoryRegistrationId);
-          }
+        for (const { standings } of groupStandings) {
+          allWinners.push(standings[rank]?.categoryRegistrationId ?? null);
         }
       }
 
-      if (allWinners.length < 2) {
+      if (allWinners.filter((winner) => winner !== null).length < 2) {
         throw new BadRequestException(
           'Not enough winners to generate elimination bracket'
         );
       }
 
+      // Fill the pre-created shells (preserving any assigned court/time). Fall
+      // back to a full regen when shells are absent or no longer match.
+      const filled = await this.fillEliminationBracket(categoryId, allWinners);
+      if (filled) return this.getEliminationMatches(categoryId);
       return this.generateEliminationBracket(categoryId, allWinners);
     } else {
       // Direct elimination from all registrations
@@ -1686,6 +3189,13 @@ export class CategoriesService {
         throw new BadRequestException('At least 2 registrations are needed');
       }
 
+      if (category.format === CategoryFormat.DOUBLE_ELIMINATION) {
+        return this.generateDoubleEliminationBracket(
+          categoryId,
+          registrations.map((r) => r.id)
+        );
+      }
+
       return this.generateEliminationBracket(
         categoryId,
         registrations.map((r) => r.id)
@@ -1695,7 +3205,7 @@ export class CategoriesService {
 
   private async generateEliminationBracket(
     categoryId: string,
-    registrationIds: string[]
+    registrationIds: (string | null)[]
   ) {
     const category = await this.prisma.category.findUnique({
       where: { id: categoryId },
@@ -1709,15 +3219,41 @@ export class CategoriesService {
     const bracketMatchFormat =
       category?.eliminationMatchFormat ?? category?.matchFormat;
 
+    // Optional per-round overrides stored in formatConfig.roundFormats, keyed by
+    // round label (F, SF, QF, R16, ..., 3RD). Falls back to bracketMatchFormat.
+    const VALID_MATCH_FORMATS = new Set([
+      'BEST_OF_1',
+      'BEST_OF_3',
+      'BEST_OF_5',
+    ]);
+    const formatConfig = category?.formatConfig as {
+      roundFormats?: Record<string, string>;
+    } | null;
+    const roundFormats = formatConfig?.roundFormats ?? {};
+    const formatForRound = (round: string): MatchFormat => {
+      const override = roundFormats[round];
+      const value =
+        override && VALID_MATCH_FORMATS.has(override)
+          ? override
+          : bracketMatchFormat;
+      return value as MatchFormat;
+    };
+
     // Standard seeding to separate top seeds
     const seedOrder = this.generateStandardSeeding(bracketSize);
 
-    // Place registrations into seeded slots (null = BYE)
+    // Place registrations into seeded slots (null = BYE).
+    // seedOrder[pos] is the seed (1-based) that belongs at bracket position
+    // `pos`, so the registration carrying that seed is placed there. This
+    // spreads the top seeds across the bracket — e.g. group winners collected
+    // as [1st A, 1st B, 2nd A, 2nd B] produce the cross-pool matchups
+    // (1st A vs 2nd B) and (1st B vs 2nd A) instead of same-pool ones.
     const slots: (string | null)[] = (
       new Array(bracketSize) as (string | null)[]
     ).fill(null);
-    for (let i = 0; i < n; i++) {
-      slots[seedOrder[i] - 1] = registrationIds[i];
+    for (let pos = 0; pos < bracketSize; pos++) {
+      const seed = seedOrder[pos];
+      slots[pos] = seed <= n ? (registrationIds[seed - 1] ?? null) : null;
     }
 
     // Determine round names
@@ -1752,7 +3288,7 @@ export class CategoriesService {
             round: roundNames[0],
             matchNumber: globalMatchNumber++,
             status: 'SCHEDULED',
-            matchFormat: bracketMatchFormat,
+            matchFormat: formatForRound(roundNames[0]),
             participants: {
               create: [
                 { categoryRegistrationId: slot1, position: 1 },
@@ -1772,7 +3308,7 @@ export class CategoriesService {
             round: roundNames[0],
             matchNumber: globalMatchNumber++,
             status: 'FINISHED',
-            matchFormat: bracketMatchFormat,
+            matchFormat: formatForRound(roundNames[0]),
             winnerId: realPlayer,
             score: 'BYE',
             participants: {
@@ -1797,7 +3333,7 @@ export class CategoriesService {
             round: roundNames[round],
             matchNumber: globalMatchNumber++,
             status: 'SCHEDULED',
-            matchFormat: bracketMatchFormat,
+            matchFormat: formatForRound(roundNames[round]),
           },
           include: { participants: true, court: true },
         });
@@ -1813,7 +3349,7 @@ export class CategoriesService {
           round: '3RD',
           matchNumber: globalMatchNumber++,
           status: 'SCHEDULED',
-          matchFormat: bracketMatchFormat,
+          matchFormat: formatForRound('3RD'),
         },
         include: { participants: true, court: true },
       });
@@ -1844,6 +3380,775 @@ export class CategoriesService {
     return allCreatedMatches;
   }
 
+  // ─── Double Elimination Bracket ───────────────────────────
+
+  /**
+   * Generate a full double-elimination bracket: an upper (winners) bracket
+   * identical to single-elim, a lower (losers) bracket that catches every
+   * upper-bracket loser, and a grand final. When the category is configured as
+   * a "true" double elimination, a bracket-reset match (GF2) is also created so
+   * the lower-bracket champion must beat the upper-bracket champion twice.
+   *
+   * Routing is stored explicitly on every match via winnerNextMatchId/Slot and
+   * loserNextMatchId/Slot so advancement never relies on positional index math
+   * (which only works for a single bracket). The grand-final reset is resolved
+   * dynamically in {@link advanceDoubleElimination}.
+   */
+  private async generateDoubleEliminationBracket(
+    categoryId: string,
+    registrationIds: string[]
+  ) {
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+    });
+
+    const n = registrationIds.length;
+    const bracketSize = this.nextPowerOf2(n);
+    const upperRounds = Math.log2(bracketSize); // R
+    const formatForRound = this.buildFormatForRound(category);
+
+    const fc = category?.formatConfig as {
+      doubleElimination?: { isTrueDoubleElimination?: boolean };
+    } | null;
+    const isReset = fc?.doubleElimination?.isTrueDoubleElimination === true;
+
+    // Seed registrations into the upper-bracket first-round slots (null = BYE).
+    const seedOrder = this.generateStandardSeeding(bracketSize);
+    const slots: (string | null)[] = (
+      new Array(bracketSize) as (string | null)[]
+    ).fill(null);
+    for (let pos = 0; pos < bracketSize; pos++) {
+      const seed = seedOrder[pos];
+      slots[pos] = seed <= n ? registrationIds[seed - 1] : null;
+    }
+
+    // Wipe any previously generated elimination matches for this category.
+    await this.prisma.categoryMatch.deleteMany({
+      where: { categoryId, groupId: null, round: { not: 'GROUP' } },
+    });
+
+    let globalMatchNumber =
+      (await this.prisma.categoryMatch.count({ where: { categoryId } })) + 1;
+
+    type BracketMatch = Awaited<
+      ReturnType<typeof this.prisma.categoryMatch.create>
+    >;
+
+    // Upper-bracket round labels (UB-QF / UB-SF / UB-F, etc).
+    const ubNames = this.determineRoundNames(upperRounds).map((s) => `UB-${s}`);
+
+    // Create the upper bracket: round 0 carries the seeded participants /
+    // BYEs, later rounds are empty shells.
+    const ub: BracketMatch[][] = [];
+    for (let r = 0; r < upperRounds; r++) {
+      const matchesInRound = bracketSize / Math.pow(2, r + 1);
+      const roundMatches: BracketMatch[] = [];
+      for (let i = 0; i < matchesInRound; i++) {
+        let data: Prisma.CategoryMatchCreateInput = {
+          category: { connect: { id: categoryId } },
+          round: ubNames[r],
+          matchNumber: globalMatchNumber++,
+          status: 'SCHEDULED',
+          bracketType: 'UPPER',
+          matchFormat: formatForRound(ubNames[r]),
+        };
+        if (r === 0) {
+          const slot1 = slots[i * 2];
+          const slot2 = slots[i * 2 + 1];
+          if (slot1 && slot2) {
+            data = {
+              ...data,
+              participants: {
+                create: [
+                  { categoryRegistrationId: slot1, position: 1 },
+                  { categoryRegistrationId: slot2, position: 2 },
+                ],
+              },
+            };
+          } else if (slot1 || slot2) {
+            const realPlayer = (slot1 || slot2)!;
+            data = {
+              ...data,
+              status: 'FINISHED',
+              winnerId: realPlayer,
+              score: 'BYE',
+              participants: {
+                create: [{ categoryRegistrationId: realPlayer, position: 1 }],
+              },
+            };
+          }
+        }
+        const match = await this.prisma.categoryMatch.create({
+          data,
+          include: { participants: true, court: true },
+        });
+        roundMatches.push(match);
+      }
+      ub.push(roundMatches);
+    }
+
+    // Lower bracket: 2R-2 rounds. Match counts follow the canonical pattern —
+    // round 0 pairs the first-round upper losers, "drop" (odd) rounds mix the
+    // previous lower winners with the next batch of upper losers, and "minor"
+    // (even) rounds halve via internal pairing.
+    const lbRoundCount = Math.max(0, 2 * upperRounds - 2);
+    const lbCounts: number[] = [];
+    for (let k = 0; k < lbRoundCount; k++) {
+      if (k === 0) lbCounts.push(bracketSize / 4);
+      else if (k % 2 === 1) lbCounts.push(lbCounts[k - 1]);
+      else lbCounts.push(lbCounts[k - 1] / 2);
+    }
+    const lb: BracketMatch[][] = [];
+    for (let k = 0; k < lbRoundCount; k++) {
+      const roundMatches: BracketMatch[] = [];
+      const label = k === lbRoundCount - 1 ? 'LB-F' : `LB-${k + 1}`;
+      for (let i = 0; i < lbCounts[k]; i++) {
+        const match = await this.prisma.categoryMatch.create({
+          data: {
+            category: { connect: { id: categoryId } },
+            round: label,
+            matchNumber: globalMatchNumber++,
+            status: 'SCHEDULED',
+            bracketType: 'LOWER',
+            matchFormat: formatForRound(label),
+          },
+          include: { participants: true, court: true },
+        });
+        roundMatches.push(match);
+      }
+      lb.push(roundMatches);
+    }
+
+    // Grand final (+ optional reset shell).
+    const grandFinal = await this.prisma.categoryMatch.create({
+      data: {
+        category: { connect: { id: categoryId } },
+        round: 'GF',
+        matchNumber: globalMatchNumber++,
+        status: 'SCHEDULED',
+        bracketType: 'GF',
+        matchFormat: formatForRound('GF'),
+      },
+      include: { participants: true, court: true },
+    });
+    let grandFinalReset: BracketMatch | null = null;
+    if (isReset) {
+      grandFinalReset = await this.prisma.categoryMatch.create({
+        data: {
+          category: { connect: { id: categoryId } },
+          round: 'GF2',
+          matchNumber: globalMatchNumber++,
+          status: 'SCHEDULED',
+          bracketType: 'GF',
+          matchFormat: formatForRound('GF2'),
+        },
+        include: { participants: true, court: true },
+      });
+    }
+
+    // ─── Wire up routing (winner/loser → next match + slot) ───
+    const link = (
+      matchId: string,
+      data: {
+        winnerNextMatchId?: string;
+        winnerNextSlot?: number;
+        loserNextMatchId?: string;
+        loserNextSlot?: number;
+      }
+    ) => this.prisma.categoryMatch.update({ where: { id: matchId }, data });
+
+    // Upper bracket winner/loser routing.
+    for (let r = 0; r < upperRounds; r++) {
+      for (let i = 0; i < ub[r].length; i++) {
+        const isUpperFinal = r === upperRounds - 1;
+        // Winner destination.
+        const winnerNextMatchId = isUpperFinal
+          ? grandFinal.id
+          : ub[r + 1][Math.floor(i / 2)].id;
+        const winnerNextSlot = isUpperFinal ? 1 : (i % 2) + 1;
+        // Loser destination in the lower bracket.
+        let loserNextMatchId: string | undefined;
+        let loserNextSlot: number | undefined;
+        if (lbRoundCount > 0) {
+          if (r === 0) {
+            // First-round losers pair up into LB round 0.
+            loserNextMatchId = lb[0][Math.floor(i / 2)].id;
+            loserNextSlot = (i % 2) + 1;
+          } else {
+            // Round m losers drop into LB drop-round (2m-1), slot 2.
+            const lbRound = 2 * r - 1;
+            loserNextMatchId = lb[lbRound][i].id;
+            loserNextSlot = 2;
+          }
+        }
+        await link(ub[r][i].id, {
+          winnerNextMatchId,
+          winnerNextSlot,
+          loserNextMatchId,
+          loserNextSlot,
+        });
+      }
+    }
+
+    // Lower bracket winner routing (losers are eliminated → no loserNext).
+    for (let k = 0; k < lbRoundCount; k++) {
+      const isLast = k === lbRoundCount - 1;
+      for (let j = 0; j < lb[k].length; j++) {
+        let winnerNextMatchId: string;
+        let winnerNextSlot: number;
+        if (isLast) {
+          winnerNextMatchId = grandFinal.id;
+          winnerNextSlot = 2;
+        } else if (k % 2 === 0) {
+          // Even (minor / first) round → next drop round, slot 1.
+          winnerNextMatchId = lb[k + 1][j].id;
+          winnerNextSlot = 1;
+        } else {
+          // Odd (drop) round → internal pairing in the next minor round.
+          winnerNextMatchId = lb[k + 1][Math.floor(j / 2)].id;
+          winnerNextSlot = (j % 2) + 1;
+        }
+        await link(lb[k][j].id, { winnerNextMatchId, winnerNextSlot });
+      }
+    }
+
+    // Settle every BYE so single-fed downstream matches auto-advance and dead
+    // (double-BYE) matches resolve before any real match is played.
+    await this.settleByes(categoryId);
+
+    void grandFinalReset; // reset shell is populated dynamically at the GF
+
+    return this.getEliminationMatches(categoryId);
+  }
+
+  /**
+   * Resolve BYE cascades across an explicitly-linked bracket. Repeatedly looks
+   * for matches whose every feeder (matches pointing at it via winnerNext /
+   * loserNext) is FINISHED: such a match auto-finishes when it holds a single
+   * participant (BYE) or carries none (dead slot), pushing the result onward.
+   */
+  private async settleByes(categoryId: string): Promise<void> {
+    // A bounded number of passes (one per round depth is plenty); guard against
+    // any accidental cycle with a hard cap.
+    for (let pass = 0; pass < 64; pass++) {
+      const matches = await this.prisma.categoryMatch.findMany({
+        where: { categoryId, groupId: null, round: { not: 'GROUP' } },
+        include: { participants: true },
+      });
+      const byId = new Map(matches.map((m) => [m.id, m]));
+
+      // Feeder count per match (how many upstream matches route into it).
+      const feederTotal = new Map<string, number>();
+      const feederDone = new Map<string, number>();
+      for (const m of matches) {
+        for (const target of [m.winnerNextMatchId, m.loserNextMatchId]) {
+          if (!target || !byId.has(target)) continue;
+          feederTotal.set(target, (feederTotal.get(target) ?? 0) + 1);
+          if (m.status === 'FINISHED') {
+            feederDone.set(target, (feederDone.get(target) ?? 0) + 1);
+          }
+        }
+      }
+
+      let changed = false;
+      for (const m of matches) {
+        if (m.status === 'FINISHED') continue;
+        if (m.round === 'GF' || m.round === 'GF2') continue; // resolved at play
+        const total = feederTotal.get(m.id) ?? 0;
+        if (total === 0) continue; // first round; real matches handled at gen
+        const done = feederDone.get(m.id) ?? 0;
+        if (done < total) continue; // still waiting on a feeder
+
+        if (m.participants.length === 1) {
+          // BYE: the lone participant advances.
+          const winnerId = m.participants[0].categoryRegistrationId;
+          await this.prisma.categoryMatch.update({
+            where: { id: m.id },
+            data: { status: 'FINISHED', winnerId, score: 'BYE' },
+          });
+          if (m.winnerNextMatchId && m.winnerNextSlot) {
+            await this.placeParticipant(
+              m.winnerNextMatchId,
+              winnerId,
+              m.winnerNextSlot
+            );
+          }
+          changed = true;
+        } else if (m.participants.length === 0) {
+          // Dead slot (both feeders were BYEs): finish with no winner so the
+          // downstream "all feeders done" check can proceed.
+          await this.prisma.categoryMatch.update({
+            where: { id: m.id },
+            data: { status: 'FINISHED', score: 'BYE' },
+          });
+          changed = true;
+        }
+      }
+      if (!changed) break;
+    }
+  }
+
+  /** Create a match participant at the given slot if it isn't taken yet. */
+  private async placeParticipant(
+    matchId: string,
+    categoryRegistrationId: string,
+    position: number
+  ): Promise<void> {
+    const existing = await this.prisma.categoryMatchParticipant.findFirst({
+      where: { matchId, position },
+    });
+    if (existing) return;
+    await this.prisma.categoryMatchParticipant.create({
+      data: { matchId, categoryRegistrationId, position },
+    });
+  }
+
+  /**
+   * Advance a finished double-elimination match using its stored routing.
+   * Sends the winner to winnerNext and the loser to loserNext, then resolves
+   * the grand-final / bracket-reset specifics.
+   */
+  private async advanceDoubleElimination(match: {
+    id: string;
+    categoryId: string;
+    round: string;
+    winnerId: string | null;
+    winnerNextMatchId: string | null;
+    winnerNextSlot: number | null;
+    loserNextMatchId: string | null;
+    loserNextSlot: number | null;
+    participants: Array<{ categoryRegistrationId: string; position: number }>;
+  }): Promise<void> {
+    if (!match.winnerId) return;
+    const loser = match.participants.find(
+      (p) => p.categoryRegistrationId !== match.winnerId
+    );
+
+    // Grand final: decide champion or trigger the reset match.
+    if (match.round === 'GF') {
+      const upperRep = match.participants.find((p) => p.position === 1);
+      const resetMatch = await this.prisma.categoryMatch.findFirst({
+        where: { categoryId: match.categoryId, round: 'GF2', groupId: null },
+      });
+      const lowerRepWon =
+        !upperRep || upperRep.categoryRegistrationId !== match.winnerId;
+      if (resetMatch && lowerRepWon) {
+        // Lower-bracket champion forced a reset → replay with both finalists.
+        for (const p of match.participants) {
+          await this.placeParticipant(
+            resetMatch.id,
+            p.categoryRegistrationId,
+            p.position
+          );
+        }
+      } else if (resetMatch && !lowerRepWon) {
+        // Upper-bracket champion won outright → the reset match is not played.
+        await this.prisma.categoryMatch.update({
+          where: { id: resetMatch.id },
+          data: { status: 'CANCELLED' },
+        });
+      }
+      return;
+    }
+    if (match.round === 'GF2') return; // reset winner is the champion
+
+    // Normal upper/lower routing.
+    if (match.winnerNextMatchId && match.winnerNextSlot) {
+      await this.placeParticipant(
+        match.winnerNextMatchId,
+        match.winnerId,
+        match.winnerNextSlot
+      );
+    }
+    if (loser && match.loserNextMatchId && match.loserNextSlot) {
+      await this.placeParticipant(
+        match.loserNextMatchId,
+        loser.categoryRegistrationId,
+        match.loserNextSlot
+      );
+    }
+  }
+
+  /**
+   * Reverse {@link advanceDoubleElimination}: pull the winner / loser this match
+   * pushed into downstream matches, but only when those matches have not yet
+   * started, so an in-progress or finished later match is never corrupted.
+   */
+  private async removeAdvancedDoubleElimination(match: {
+    id: string;
+    categoryId: string;
+    round: string;
+    winnerId: string | null;
+    winnerNextMatchId: string | null;
+    winnerNextSlot: number | null;
+    loserNextMatchId: string | null;
+    loserNextSlot: number | null;
+    participants: Array<{ categoryRegistrationId: string; position: number }>;
+  }): Promise<void> {
+    if (!match.winnerId) return;
+    const loser = match.participants.find(
+      (p) => p.categoryRegistrationId !== match.winnerId
+    );
+
+    if (match.round === 'GF') {
+      const resetMatch = await this.prisma.categoryMatch.findFirst({
+        where: { categoryId: match.categoryId, round: 'GF2', groupId: null },
+      });
+      if (resetMatch && resetMatch.status !== 'FINISHED') {
+        await this.prisma.categoryMatchParticipant.deleteMany({
+          where: { matchId: resetMatch.id },
+        });
+        if (resetMatch.status === 'CANCELLED') {
+          await this.prisma.categoryMatch.update({
+            where: { id: resetMatch.id },
+            data: { status: 'SCHEDULED' },
+          });
+        }
+      }
+      return;
+    }
+    if (match.round === 'GF2') return;
+
+    if (match.winnerNextMatchId && match.winnerNextSlot) {
+      const next = await this.prisma.categoryMatch.findUnique({
+        where: { id: match.winnerNextMatchId },
+      });
+      if (next && next.status === 'SCHEDULED') {
+        await this.prisma.categoryMatchParticipant.deleteMany({
+          where: {
+            matchId: match.winnerNextMatchId,
+            position: match.winnerNextSlot,
+            categoryRegistrationId: match.winnerId,
+          },
+        });
+      }
+    }
+    if (loser && match.loserNextMatchId && match.loserNextSlot) {
+      const next = await this.prisma.categoryMatch.findUnique({
+        where: { id: match.loserNextMatchId },
+      });
+      if (next && next.status === 'SCHEDULED') {
+        await this.prisma.categoryMatchParticipant.deleteMany({
+          where: {
+            matchId: match.loserNextMatchId,
+            position: match.loserNextSlot,
+            categoryRegistrationId: loser.categoryRegistrationId,
+          },
+        });
+      }
+    }
+  }
+
+  // Build the per-round match-format resolver (honours formatConfig.roundFormats).
+  private buildFormatForRound(
+    category: {
+      eliminationMatchFormat?: unknown;
+      matchFormat?: unknown;
+      formatConfig?: unknown;
+    } | null
+  ): (round: string) => MatchFormat {
+    const bracketMatchFormat = (category?.eliminationMatchFormat ??
+      category?.matchFormat) as MatchFormat;
+    const VALID_MATCH_FORMATS = new Set([
+      'BEST_OF_1',
+      'BEST_OF_3',
+      'BEST_OF_5',
+    ]);
+    const roundFormats =
+      (
+        category?.formatConfig as {
+          roundFormats?: Record<string, string>;
+        } | null
+      )?.roundFormats ?? {};
+    return (round: string): MatchFormat => {
+      const override = roundFormats[round];
+      const value =
+        override && VALID_MATCH_FORMATS.has(override)
+          ? override
+          : bracketMatchFormat;
+      return value as MatchFormat;
+    };
+  }
+
+  /**
+   * Idempotently make sure a category's playoff/elimination matches exist so the
+   * schedule generator can lay them out alongside the group stage. Safe to call
+   * repeatedly (re-runs of "auto-generate schedule").
+   *   - Group-stage categories (ROUND_ROBIN_TO_SE): pre-create empty bracket
+   *     shells; completeGroupStage later fills them with the advancing teams
+   *     while preserving any court/time already assigned.
+   *   - Direct knockout (SINGLE_ELIMINATION / DOUBLE_ELIMINATION): build the real
+   *     bracket from registrations, since the participants are already known.
+   *   - Pure ROUND_ROBIN (no playoff stage): no-op.
+   */
+  async ensurePlayoffMatches(categoryId: string): Promise<void> {
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+    });
+    if (!category) return;
+
+    if (category.hasGroupStage) {
+      await this.ensureEliminationShells(categoryId);
+      return;
+    }
+
+    if (
+      category.format !== CategoryFormat.SINGLE_ELIMINATION &&
+      category.format !== CategoryFormat.DOUBLE_ELIMINATION
+    ) {
+      return; // pure round-robin has no playoff stage
+    }
+
+    // Idempotent guard: generateEliminationBracket / generateDoubleEliminationBracket
+    // wipe and recreate matches, so only build when the category has none yet.
+    const existing = await this.prisma.categoryMatch.count({
+      where: { categoryId },
+    });
+    if (existing > 0) return;
+
+    const registrations = await this.prisma.categoryRegistration.findMany({
+      where: { categoryId },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (registrations.length < 2) return;
+
+    const regIds = registrations.map((r) => r.id);
+    if (category.format === CategoryFormat.DOUBLE_ELIMINATION) {
+      await this.generateDoubleEliminationBracket(categoryId, regIds);
+    } else {
+      await this.generateEliminationBracket(categoryId, regIds);
+    }
+  }
+
+  /**
+   * Create (or re-create) the playoff bracket shells for a ROUND_ROBIN_TO_SE
+   * category. Backs the explicit "Phát sinh trận vòng loại" button, decoupled
+   * from group-match generation. Safe to call repeatedly: wipes the existing
+   * (unscored) shells and rebuilds them to match the current advancing-teams
+   * config, but refuses once any playoff match has been started/scored so a
+   * live bracket is never destroyed.
+   */
+  async regenerateEliminationShells(
+    categoryId: string,
+    userId: string,
+    role?: string
+  ) {
+    const category = await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'STRUCTURE'
+    );
+
+    if (category.format !== CategoryFormat.ROUND_ROBIN_TO_SE) {
+      throw new BadRequestException(
+        'Only round-robin-to-single-elimination categories have a playoff bracket'
+      );
+    }
+
+    // Never overwrite a bracket that has already been played: block the rebuild
+    // if any elimination match is in progress or carries a real result. Auto-BYE
+    // matches (status FINISHED, score 'BYE') are not "played" — they're just
+    // seeding artefacts, so they must not block regeneration.
+    const scored = await this.prisma.categoryMatch.count({
+      where: {
+        categoryId,
+        groupId: null,
+        round: { not: 'GROUP' },
+        OR: [
+          { status: MatchStatus.IN_PROGRESS },
+          { AND: [{ score: { not: null } }, { score: { not: 'BYE' } }] },
+        ],
+      },
+    });
+    if (scored > 0) {
+      throw new BadRequestException({
+        code: 'HAS_SCORED_ELIMINATION',
+        message:
+          'Cannot regenerate the playoff bracket after a playoff match has been started or scored',
+      });
+    }
+
+    // Wipe the existing (unscored) shells so ensureEliminationShells rebuilds
+    // them fresh against the current advancing-teams configuration.
+    await this.prisma.categoryMatch.deleteMany({
+      where: { categoryId, groupId: null, round: { not: 'GROUP' } },
+    });
+
+    await this.ensureEliminationShells(categoryId);
+
+    return this.getEliminationMatches(categoryId);
+  }
+
+  /**
+   * Pre-create the whole elimination bracket as empty "shells" (0 participants)
+   * so it can be scheduled and displayed (with seed/feeder labels) before the
+   * group stage finishes. Idempotent: skips if any elimination match already
+   * exists. Only applies to group-stage → playoff categories.
+   */
+  async ensureEliminationShells(categoryId: string): Promise<void> {
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+    });
+    // Only the group-stage → single-elimination format pre-creates a playoff
+    // bracket. A pure ROUND_ROBIN also has hasGroupStage = true but must never
+    // get a knockout bracket, so gate strictly on the format here.
+    if (!category || category.format !== CategoryFormat.ROUND_ROBIN_TO_SE) {
+      return;
+    }
+
+    // Mirror completeGroupStage so these shells match the bracket that will
+    // later be filled with the advancing teams: the group count comes from the
+    // actual groups (the `groupCount` column is often unset — the format wizard
+    // only persists winnersPerGroup), and winnersPerGroup defaults to 2 when
+    // unset (same `|| 2` fallback used by completeGroupStage / getGroupWinners).
+    let groupCount = await this.prisma.categoryGroup.count({
+      where: { categoryId },
+    });
+    if (groupCount < 1) groupCount = category.groupCount ?? 0;
+    const winnersPerGroup = category.winnersPerGroup || 2;
+    const n = groupCount * winnersPerGroup;
+    if (n < 2) return;
+
+    const existing = await this.prisma.categoryMatch.count({
+      where: { categoryId, groupId: null, round: { not: 'GROUP' } },
+    });
+    if (existing > 0) return; // idempotent
+
+    const bracketSize = this.nextPowerOf2(n);
+    const totalRounds = Math.log2(bracketSize);
+    if (totalRounds < 1) return;
+    const roundNames = this.determineRoundNames(totalRounds);
+    const formatForRound = this.buildFormatForRound(category);
+
+    let globalMatchNumber =
+      (await this.prisma.categoryMatch.count({ where: { categoryId } })) + 1;
+
+    // First round (most matches) gets the lowest numbers, then later rounds,
+    // matching the numbering generateEliminationBracket / feeder logic expect.
+    for (let round = 0; round < totalRounds; round++) {
+      const matchesInRound = bracketSize / Math.pow(2, round + 1);
+      for (let i = 0; i < matchesInRound; i++) {
+        await this.prisma.categoryMatch.create({
+          data: {
+            categoryId,
+            round: roundNames[round],
+            matchNumber: globalMatchNumber++,
+            status: 'SCHEDULED',
+            matchFormat: formatForRound(roundNames[round]),
+          },
+        });
+      }
+    }
+
+    if (category.thirdPlaceMatch && totalRounds >= 2) {
+      await this.prisma.categoryMatch.create({
+        data: {
+          categoryId,
+          round: '3RD',
+          matchNumber: globalMatchNumber++,
+          status: 'SCHEDULED',
+          matchFormat: formatForRound('3RD'),
+        },
+      });
+    }
+  }
+
+  /**
+   * Fill the existing first-round shell matches with the seeded advancing teams
+   * WITHOUT deleting/recreating, so any court/time already assigned is kept.
+   * Returns false when shells are absent or their count no longer matches the
+   * bracket (e.g. config changed), so the caller can fall back to a full regen.
+   */
+  private async fillEliminationBracket(
+    categoryId: string,
+    registrationIds: (string | null)[]
+  ): Promise<boolean> {
+    const n = registrationIds.length;
+    const bracketSize = this.nextPowerOf2(n);
+    const totalRounds = Math.log2(bracketSize);
+    const roundNames = this.determineRoundNames(totalRounds);
+
+    const firstRoundMatches = await this.prisma.categoryMatch.findMany({
+      where: { categoryId, groupId: null, round: roundNames[0] },
+      orderBy: { matchNumber: 'asc' },
+      include: { participants: true },
+    });
+
+    // No shells, or structure no longer matches → let caller regenerate.
+    if (firstRoundMatches.length !== bracketSize / 2) return false;
+
+    const seedOrder = this.generateStandardSeeding(bracketSize);
+    const slots: (string | null)[] = (
+      new Array(bracketSize) as (string | null)[]
+    ).fill(null);
+    for (let pos = 0; pos < bracketSize; pos++) {
+      const seed = seedOrder[pos];
+      // A null entry (missing qualifier for that seed) leaves the slot empty,
+      // i.e. a genuine BYE at that exact bracket position.
+      slots[pos] = seed <= n ? (registrationIds[seed - 1] ?? null) : null;
+    }
+
+    const byeAdvances: { registrationId: string; matchIndex: number }[] = [];
+
+    for (let i = 0; i < firstRoundMatches.length; i++) {
+      const match = firstRoundMatches[i];
+      if (match.participants.length > 0) continue; // already filled
+      const slot1 = slots[i * 2];
+      const slot2 = slots[i * 2 + 1];
+
+      if (slot1 && slot2) {
+        await this.prisma.categoryMatchParticipant.createMany({
+          data: [
+            { matchId: match.id, categoryRegistrationId: slot1, position: 1 },
+            { matchId: match.id, categoryRegistrationId: slot2, position: 2 },
+          ],
+        });
+      } else if (slot1 || slot2) {
+        const realPlayer = (slot1 || slot2)!;
+        await this.prisma.categoryMatchParticipant.create({
+          data: {
+            matchId: match.id,
+            categoryRegistrationId: realPlayer,
+            position: 1,
+          },
+        });
+        await this.prisma.categoryMatch.update({
+          where: { id: match.id },
+          data: { status: 'FINISHED', winnerId: realPlayer, score: 'BYE' },
+        });
+        byeAdvances.push({ registrationId: realPlayer, matchIndex: i });
+      }
+    }
+
+    // Advance BYE winners into the next round's existing shells.
+    if (byeAdvances.length > 0 && totalRounds > 1) {
+      const secondRoundMatches = await this.prisma.categoryMatch.findMany({
+        where: { categoryId, groupId: null, round: roundNames[1] },
+        orderBy: { matchNumber: 'asc' },
+      });
+      for (const bye of byeAdvances) {
+        const nextMatchIndex = Math.floor(bye.matchIndex / 2);
+        if (nextMatchIndex >= secondRoundMatches.length) continue;
+        const position = (bye.matchIndex % 2) + 1;
+        const existing = await this.prisma.categoryMatchParticipant.findFirst({
+          where: { matchId: secondRoundMatches[nextMatchIndex].id, position },
+        });
+        if (!existing) {
+          await this.prisma.categoryMatchParticipant.create({
+            data: {
+              matchId: secondRoundMatches[nextMatchIndex].id,
+              categoryRegistrationId: bye.registrationId,
+              position,
+            },
+          });
+        }
+      }
+    }
+
+    return true;
+  }
+
   private nextPowerOf2(n: number): number {
     let p = 1;
     while (p < n) p *= 2;
@@ -1865,14 +4170,15 @@ export class CategoriesService {
   }
 
   private determineRoundNames(totalRounds: number): string[] {
-    // Work backwards from Final
+    // Ordered first round → Final, so names[0] is the earliest round (most
+    // matches, where the advancing teams play) and names[last] is the Final.
     const names: string[] = [];
     for (let i = totalRounds - 1; i >= 0; i--) {
       const matchesInRound = Math.pow(2, i);
-      if (matchesInRound === 1) names.unshift('F');
-      else if (matchesInRound === 2) names.unshift('SF');
-      else if (matchesInRound === 4) names.unshift('QF');
-      else names.unshift(`R${matchesInRound * 2}`);
+      if (matchesInRound === 1) names.push('F');
+      else if (matchesInRound === 2) names.push('SF');
+      else if (matchesInRound === 4) names.push('QF');
+      else names.push(`R${matchesInRound * 2}`);
     }
     return names;
   }
@@ -1899,9 +4205,14 @@ export class CategoriesService {
       },
     });
     if (!firstMatch) throw new NotFoundException('Match not found');
-    if (firstMatch.category.tournament.hostId !== userId && role !== 'ADMIN') {
-      throw new ForbiddenException('You can only manage your own tournaments');
-    }
+    await this.access.assertManageAccess({
+      tournamentId: (firstMatch.category as { tournamentId: string })
+        .tournamentId,
+      hostId: firstMatch.category.tournament.hostId,
+      userId,
+      role,
+      scope: 'SCHEDULE',
+    });
 
     const tournamentId = (firstMatch.category as { tournamentId: string })
       .tournamentId;

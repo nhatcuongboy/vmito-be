@@ -18,6 +18,7 @@ export interface ResolvedAddress {
 
 @Injectable()
 export class AddressMappingService implements OnModuleInit {
+  private static readonly CSV_FILENAME = 'admin_mapping_old_to_new_10_25.csv';
   private readonly logger = new Logger(AddressMappingService.name);
   private wardMapping = new Map<string, AddressMapping>();
   private districtMapping = new Map<
@@ -26,22 +27,44 @@ export class AddressMappingService implements OnModuleInit {
   >();
 
   onModuleInit() {
-    // CSV lives at project root — two levels up from dist/venues/
-    const csvPath = path.resolve(
-      __dirname,
-      '../../admin_mapping_old_to_new_10_25.csv'
-    );
-    if (!fs.existsSync(csvPath)) {
+    const csvPath = this.locateCsv();
+    if (!csvPath) {
       this.logger.warn(
-        `Address mapping CSV not found at: ${csvPath}. Auto-mapping disabled.`
+        `Address mapping CSV "${AddressMappingService.CSV_FILENAME}" not found in any known location. Auto-mapping disabled.`
       );
       return;
     }
     this.wardMapping = this.loadMappingFromCsv(csvPath);
     this.districtMapping = this.buildDistrictMapping(this.wardMapping);
     this.logger.log(
-      `Loaded ${this.wardMapping.size} ward-level address mappings`
+      `Loaded ${this.wardMapping.size} ward-level address mappings from ${csvPath}`
     );
+  }
+
+  /**
+   * Locate the address-mapping CSV across the environments this app runs in.
+   * The compiled output lives at dist/src/venues, so a fixed relative path is
+   * brittle; instead probe the known candidate locations and return the first
+   * that exists.
+   */
+  private locateCsv(): string | null {
+    const filename = AddressMappingService.CSV_FILENAME;
+    const candidates = [
+      // Project root when launched from there (local `node dist/src/main`
+      // and Docker `WORKDIR /app`).
+      path.resolve(process.cwd(), filename),
+      // Two levels up from dist/src/venues → dist/ (previous behaviour).
+      path.resolve(__dirname, '..', '..', filename),
+      // Three levels up from dist/src/venues → project root.
+      path.resolve(__dirname, '..', '..', '..', filename),
+      // Alongside the compiled service (if bundled as an asset).
+      path.resolve(__dirname, filename),
+    ];
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    return null;
   }
 
   /**
@@ -57,45 +80,43 @@ export class AddressMappingService implements OnModuleInit {
   ): ResolvedAddress | null {
     if (!this.wardMapping.size) return null;
 
-    const wardName = this.extractWardFromAddress(address);
+    const distKey = this.stripAdminPrefix(district);
+    const cityKey = this.stripAdminPrefix(city);
+
     let found: AddressMapping | undefined;
 
-    if (wardName && district && city) {
-      const normalizedCity = this.normalizeCityName(city);
-      const normalizedDistrict = this.normalizeDistrictName(district);
+    if (distKey && cityKey) {
+      const wardCandidates = this.extractWardCandidates(address);
 
-      const districtVariants = [
-        normalizedDistrict,
-        district.toLowerCase().startsWith('quận') ||
-        district.toLowerCase().startsWith('huyện')
-          ? normalizedDistrict
-          : `quận ${normalizedDistrict}`,
-      ];
-
-      for (const distVar of districtVariants) {
-        const key = `${wardName.toLowerCase()}|${distVar}|${normalizedCity}`;
-        found = this.wardMapping.get(key);
+      // Exact ward match: ward + district + city
+      for (const candidate of wardCandidates) {
+        const wardKey = this.stripAdminPrefix(candidate);
+        if (!wardKey) continue;
+        found = this.wardMapping.get(`${wardKey}|${distKey}|${cityKey}`);
         if (found) break;
       }
 
-      // Fuzzy fallback: ward + district substring match
+      // Fuzzy fallback: ward + district match, ignore city naming variations
       if (!found) {
-        const wardLower = wardName.toLowerCase();
-        const distLower = this.normalizeDistrictName(district);
-        for (const [key, entry] of this.wardMapping.entries()) {
-          if (key.startsWith(`${wardLower}|`) && key.includes(distLower)) {
-            found = entry;
-            break;
+        const prefix = `|${distKey}|`;
+        for (const candidate of wardCandidates) {
+          const wardKey = this.stripAdminPrefix(candidate);
+          if (!wardKey) continue;
+          for (const [key, entry] of this.wardMapping.entries()) {
+            if (key.startsWith(`${wardKey}${prefix}`)) {
+              found = entry;
+              break;
+            }
           }
+          if (found) break;
         }
       }
     }
 
     if (found) {
-      const normalizedCity = this.normalizeCityName(city);
       const newAddress = `${found.wardNameNew}, ${found.cityNameNew}`;
       const newCity =
-        found.cityNameNew.toLowerCase() !== normalizedCity
+        this.stripAdminPrefix(found.cityNameNew) !== cityKey
           ? found.cityNameNew
           : undefined;
       return {
@@ -106,29 +127,14 @@ export class AddressMappingService implements OnModuleInit {
     }
 
     // District-level fallback: only resolve a changed province
-    if (district && city) {
-      const normalizedCity = this.normalizeCityName(city);
-      const normalizedDistrict = this.normalizeDistrictName(district);
-
-      const districtVariants = [
-        normalizedDistrict,
-        district.toLowerCase().startsWith('quận') ||
-        district.toLowerCase().startsWith('huyện')
-          ? normalizedDistrict
-          : `quận ${normalizedDistrict}`,
-      ];
-
-      for (const distVar of districtVariants) {
-        const key = `${distVar}|${normalizedCity}`;
-        const distEntry = this.districtMapping.get(key);
-        if (distEntry) {
-          const newCity =
-            distEntry.cityNameNew.toLowerCase() !== normalizedCity
-              ? distEntry.cityNameNew
-              : undefined;
-          if (newCity) return { newCity };
-          break;
-        }
+    if (distKey && cityKey) {
+      const distEntry = this.districtMapping.get(`${distKey}|${cityKey}`);
+      if (distEntry) {
+        const newCity =
+          this.stripAdminPrefix(distEntry.cityNameNew) !== cityKey
+            ? distEntry.cityNameNew
+            : undefined;
+        if (newCity) return { newCity };
       }
     }
 
@@ -150,8 +156,7 @@ export class AddressMappingService implements OnModuleInit {
       const cityNameNew = cols[7].trim();
       const wardNameNew = cols[9].trim();
 
-      const key =
-        `${wardNameOld}|${districtNameOld}|${cityNameOld}`.toLowerCase();
+      const key = `${this.stripAdminPrefix(wardNameOld)}|${this.stripAdminPrefix(districtNameOld)}|${this.stripAdminPrefix(cityNameOld)}`;
       if (!mapping.has(key)) {
         mapping.set(key, {
           cityNameOld,
@@ -174,7 +179,7 @@ export class AddressMappingService implements OnModuleInit {
       { cityNameNew: string; districtNameOld: string }
     >();
     for (const entry of wardMapping.values()) {
-      const key = `${entry.districtNameOld}|${entry.cityNameOld}`.toLowerCase();
+      const key = `${this.stripAdminPrefix(entry.districtNameOld)}|${this.stripAdminPrefix(entry.cityNameOld)}`;
       if (!districtMap.has(key)) {
         districtMap.set(key, {
           cityNameNew: entry.cityNameNew,
@@ -200,20 +205,49 @@ export class AddressMappingService implements OnModuleInit {
     return null;
   }
 
-  private normalizeCityName(city: string): string {
-    return city
-      .replace(/^(Tp\.?\s*|TP\.?\s*)/i, 'Thành Phố ')
-      .replace(/^(T\.\s*)/i, 'Thành Phố ')
-      .trim()
-      .toLowerCase();
+  /**
+   * Build the list of candidate ward names embedded in an address. Some
+   * addresses use an explicit "Phường/Xã/Thị trấn" prefix, others store the
+   * bare ward name as one of the comma-separated segments, so we try both.
+   */
+  private extractWardCandidates(address: string): string[] {
+    const candidates: string[] = [];
+    const prefixed = this.extractWardFromAddress(address);
+    if (prefixed) candidates.push(prefixed);
+
+    // Ward is usually the last meaningful segment before district/city, so
+    // probe segments from the end of the address first.
+    const segments = address
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .reverse();
+    for (const seg of segments) {
+      if (!candidates.includes(seg)) candidates.push(seg);
+    }
+    return candidates;
   }
 
-  private normalizeDistrictName(district: string): string {
-    return district
-      .replace(/^(Q\.?\s*)/i, 'Quận ')
-      .replace(/^(H\.?\s*)/i, 'Huyện ')
-      .replace(/^(TX\.?\s*)/i, 'Thị xã ')
-      .trim()
-      .toLowerCase();
+  /**
+   * Normalise an administrative unit name for keying/comparison by removing the
+   * leading type prefix (Thành phố, Tỉnh, Quận, Huyện, Thị xã, Thị trấn,
+   * Phường, Xã and their abbreviations) and lowercasing. This makes matching
+   * tolerant of venues that store bare names (e.g. "Hồ Chí Minh", "Bình Tân",
+   * "Bình Trị Đông B") against the fully-qualified CSV values.
+   */
+  private stripAdminPrefix(value: string): string {
+    return (
+      value
+        .trim()
+        // Numeric districts/wards: "Quận 1", "Q.1", "Q1", "Phường 25" -> "1"/"25"
+        .replace(/^(?:quận|q|phường|p)\.?\s*(?=\d)/i, '')
+        // Full-word or abbreviated administrative prefixes
+        .replace(
+          /^(?:thành\s*phố|tp|tỉnh|quận|q|huyện|h|thị\s*xã|tx|thị\s*trấn|tt|phường|p|xã|x)\.?\s+/i,
+          ''
+        )
+        .trim()
+        .toLowerCase()
+    );
   }
 }

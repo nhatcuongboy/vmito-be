@@ -81,7 +81,7 @@ export class RecommendedSessionDto {
 
   @ApiProperty({
     example: [3, 4],
-    description: 'Required skill levels (1-7)',
+    description: 'Required stable skill level IDs',
     type: [Number],
   })
   requiredLevels: number[];

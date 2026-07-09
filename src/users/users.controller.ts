@@ -30,16 +30,26 @@ export class UsersController {
   findAll(
     @CurrentUser() user: { role: string },
     @Query('search') search?: string,
-    @Query('role') role?: string
+    @Query('role') role?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
   ) {
     if (
       user.role !== 'ADMIN' &&
       user.role !== 'HOST' &&
-      user.role !== 'PLAYER'
+      user.role !== 'PLAYER' &&
+      user.role !== 'REFEREE'
     ) {
-      throw new ForbiddenException('Admin, Host or Player access required');
+      throw new ForbiddenException(
+        'Admin, Host, Player or Referee access required'
+      );
     }
-    return this.usersService.findAll({ search, role });
+    return this.usersService.findAll({
+      search,
+      role,
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
   }
 
   /**

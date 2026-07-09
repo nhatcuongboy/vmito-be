@@ -49,6 +49,13 @@ export class VenueRequestsController {
     return this.venueRequestsService.findAllAdmin(query);
   }
 
+  @Get(':id')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  findOneAdmin(@Param('id') id: string) {
+    return this.venueRequestsService.findOneAdmin(id);
+  }
+
   @Post(':id/approve')
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN)

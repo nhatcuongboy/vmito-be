@@ -7,7 +7,12 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateFeeConfigDto, UpdateFeeConfigDto } from './dto';
-import { FeeType, Gender, PaymentStatus } from '@prisma/client';
+import {
+  FeeType,
+  Gender,
+  PaymentStatus,
+  RegistrationStatus,
+} from '@prisma/client';
 import { ClubsService } from '../clubs/clubs.service';
 
 @Injectable()
@@ -224,6 +229,7 @@ export class FeeService {
       select: {
         id: true,
         gender: true,
+        userId: true,
         createdByUserId: true,
         isClubMember: true,
         clubId: true,
@@ -232,26 +238,9 @@ export class FeeService {
 
     if (!player) return;
 
-    // Calculate amount based on fixed member status
-    let amount: number;
-
-    if (player.isClubMember && player.clubId && session.startTime) {
-      // Try to get club per-session fee
-      const fixedMemberFee = await this.clubsService.getPerSessionFee(
-        player.clubId,
-        player.gender || Gender.MALE,
-        session.startTime
-      );
-
-      // Use fixed member fee if available, otherwise fall back to session fee
-      amount =
-        fixedMemberFee !== null
-          ? fixedMemberFee
-          : this.calculatePlayerFee(feeConfig, player.gender || Gender.MALE);
-    } else {
-      // Regular player - use session fee config
-      amount = this.calculatePlayerFee(feeConfig, player.gender || Gender.MALE);
-    }
+    const { amount, clubFeeApplied } =
+      await this.calculatePaymentAmountForPlayer(feeConfig, player, session);
+    await this.syncPlayerClubFeeApplied(player.id, clubFeeApplied);
 
     // Check if payment record already exists
     const existing = await this.prisma.paymentRecord.findUnique({
@@ -317,6 +306,7 @@ export class FeeService {
       select: {
         id: true,
         gender: true,
+        userId: true,
         isClubMember: true,
         clubId: true,
       },
@@ -324,25 +314,9 @@ export class FeeService {
 
     if (!player) return;
 
-    let newAmount: number;
-
-    if (player.isClubMember && player.clubId && session.startTime) {
-      const fixedMemberFee = await this.clubsService.getPerSessionFee(
-        player.clubId,
-        player.gender || Gender.MALE,
-        session.startTime
-      );
-
-      newAmount =
-        fixedMemberFee !== null
-          ? fixedMemberFee
-          : this.calculatePlayerFee(feeConfig, player.gender || Gender.MALE);
-    } else {
-      newAmount = this.calculatePlayerFee(
-        feeConfig,
-        player.gender || Gender.MALE
-      );
-    }
+    const { amount: newAmount, clubFeeApplied } =
+      await this.calculatePaymentAmountForPlayer(feeConfig, player, session);
+    await this.syncPlayerClubFeeApplied(player.id, clubFeeApplied);
 
     const payment = await this.prisma.paymentRecord.findUnique({
       where: { playerId: player.id },
@@ -370,6 +344,96 @@ export class FeeService {
     }
   }
 
+  /**
+   * Recalculate all payment records for a session based on latest fee config
+   * This will apply the latest club fee config for monthly members
+   */
+  async recalculateAllPayments(
+    sessionId: string,
+    userId: string,
+    role?: string
+  ): Promise<{ updated: number; message: string }> {
+    // Verify session exists and user is the host
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { id: true, hostId: true, startTime: true },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    if (role !== 'ADMIN' && session.hostId !== userId) {
+      throw new ForbiddenException(
+        'Only session host can recalculate payments'
+      );
+    }
+
+    // Check if fee config exists
+    const feeConfig = await this.prisma.sessionFeeConfig.findUnique({
+      where: { sessionId },
+    });
+
+    if (!feeConfig) {
+      throw new NotFoundException('Fee config not found for this session');
+    }
+
+    // Get all payment records with player info
+    const payments = await this.prisma.paymentRecord.findMany({
+      where: { sessionId },
+      include: {
+        player: {
+          select: {
+            id: true,
+            gender: true,
+            userId: true,
+            isClubMember: true,
+            clubId: true,
+          },
+        },
+      },
+    });
+
+    let updatedCount = 0;
+
+    // Recalculate each payment
+    for (const payment of payments) {
+      const { amount: newAmount, clubFeeApplied } =
+        await this.calculatePaymentAmountForPlayer(
+          feeConfig,
+          payment.player,
+          session
+        );
+      await this.syncPlayerClubFeeApplied(payment.player.id, clubFeeApplied);
+
+      if (payment.amount !== newAmount) {
+        const shouldResetStatus =
+          payment.status === PaymentStatus.APPROVED ||
+          payment.status === PaymentStatus.SUBMITTED;
+
+        await this.prisma.paymentRecord.update({
+          where: { id: payment.id },
+          data: {
+            amount: newAmount,
+            ...(shouldResetStatus && {
+              status: PaymentStatus.PENDING,
+              submittedAt: null,
+              approvedAt: null,
+              rejectedAt: null,
+            }),
+          },
+        });
+
+        updatedCount++;
+      }
+    }
+
+    return {
+      updated: updatedCount,
+      message: `Successfully recalculated ${updatedCount} payment(s)`,
+    };
+  }
+
   // Helper: Calculate fee for a player based on gender
   calculatePlayerFee(
     feeConfig: {
@@ -389,6 +453,55 @@ export class FeeService {
     }
 
     return feeConfig.maleFee || feeConfig.femaleFee || 0;
+  }
+
+  private async calculatePaymentAmountForPlayer(
+    feeConfig: {
+      feeType: FeeType;
+      maleFee?: number | null;
+      femaleFee?: number | null;
+      splitPerPlayer?: number | null;
+    },
+    player: {
+      id: string;
+      gender?: Gender | null;
+      isClubMember?: boolean;
+      clubId?: string | null;
+    },
+    session: { startTime?: Date | null }
+  ): Promise<{ amount: number; clubFeeApplied: boolean }> {
+    const gender = player.gender || Gender.MALE;
+    const fallbackAmount = this.calculatePlayerFee(feeConfig, gender);
+
+    // Priority 1: Club fixed fee — applies to any player assigned to a club
+    // that has a per-session fee configured for the session's month.
+    if (player.isClubMember && player.clubId && session.startTime) {
+      const fixedMemberFee = await this.clubsService.getPerSessionFee(
+        player.clubId,
+        gender,
+        session.startTime
+      );
+
+      if (fixedMemberFee !== null) {
+        return {
+          amount: fixedMemberFee,
+          clubFeeApplied: true,
+        };
+      }
+    }
+
+    // Priority 2: Session default fee
+    return { amount: fallbackAmount, clubFeeApplied: false };
+  }
+
+  private async syncPlayerClubFeeApplied(
+    playerId: string,
+    clubFeeApplied: boolean
+  ) {
+    await this.prisma.player.update({
+      where: { id: playerId },
+      data: { clubFeeApplied },
+    });
   }
 
   // Helper: Create payment records for all players in session
@@ -413,11 +526,13 @@ export class FeeService {
     const players = await this.prisma.player.findMany({
       where: {
         sessionId,
-        // Payment records created for all players, regardless of join status
+        // Exclude players the host rejected — they must not be billed.
+        registrationStatus: { not: RegistrationStatus.REJECTED },
       },
       select: {
         id: true,
         gender: true,
+        userId: true,
         createdByUserId: true,
         isClubMember: true,
         clubId: true,
@@ -425,29 +540,9 @@ export class FeeService {
     });
 
     for (const player of players) {
-      let amount: number;
-
-      // Check if player is a fixed member with a group
-      if (player.isClubMember && player.clubId && session.startTime) {
-        // Try to get club per-session fee
-        const fixedMemberFee = await this.clubsService.getPerSessionFee(
-          player.clubId,
-          player.gender || Gender.MALE,
-          session.startTime
-        );
-
-        // Use fixed member fee if available, otherwise fall back to session fee
-        amount =
-          fixedMemberFee !== null
-            ? fixedMemberFee
-            : this.calculatePlayerFee(feeConfig, player.gender || Gender.MALE);
-      } else {
-        // Regular player - use session fee config
-        amount = this.calculatePlayerFee(
-          feeConfig,
-          player.gender || Gender.MALE
-        );
-      }
+      const { amount, clubFeeApplied } =
+        await this.calculatePaymentAmountForPlayer(feeConfig, player, session);
+      await this.syncPlayerClubFeeApplied(player.id, clubFeeApplied);
 
       // Check if payment record already exists
       const existing = await this.prisma.paymentRecord.findUnique({
@@ -487,7 +582,9 @@ export class FeeService {
       include: {
         player: {
           select: {
+            id: true,
             gender: true,
+            userId: true,
             isClubMember: true,
             clubId: true,
           },
@@ -496,36 +593,13 @@ export class FeeService {
     });
 
     for (const payment of payments) {
-      let newAmount: number;
-
-      // Check if player is a fixed member with a group
-      if (
-        payment.player.isClubMember &&
-        payment.player.clubId &&
-        session.startTime
-      ) {
-        // Try to get club per-session fee
-        const fixedMemberFee = await this.clubsService.getPerSessionFee(
-          payment.player.clubId,
-          payment.player.gender || Gender.MALE,
-          session.startTime
-        );
-
-        // Use fixed member fee if available, otherwise fall back to session fee
-        newAmount =
-          fixedMemberFee !== null
-            ? fixedMemberFee
-            : this.calculatePlayerFee(
-                { feeType: FeeType.FIXED, ...feeConfig },
-                payment.player.gender || Gender.MALE
-              );
-      } else {
-        // Regular player - use session fee config
-        newAmount = this.calculatePlayerFee(
+      const { amount: newAmount, clubFeeApplied } =
+        await this.calculatePaymentAmountForPlayer(
           { feeType: FeeType.FIXED, ...feeConfig },
-          payment.player.gender || Gender.MALE
+          payment.player,
+          session
         );
-      }
+      await this.syncPlayerClubFeeApplied(payment.player.id, clubFeeApplied);
 
       if (payment.amount !== newAmount) {
         const shouldResetStatus =

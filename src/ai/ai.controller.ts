@@ -15,6 +15,10 @@ import {
   ExtractSessionRequestDto,
   AiChatRequestDto,
 } from './dto/extract-session.dto';
+import {
+  ExtractScheduleRequestDto,
+  ExtractScheduleResponseDto,
+} from './dto/extract-schedule.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 interface AuthenticatedRequest {
@@ -48,6 +52,24 @@ export class AiController {
     }
 
     return extracted;
+  }
+
+  @Post('extract-schedule')
+  async extractSchedule(
+    @Body() dto: ExtractScheduleRequestDto
+  ): Promise<ExtractScheduleResponseDto> {
+    if (!dto.text || !dto.text.trim()) {
+      throw new HttpException(
+        'text is required',
+        HttpStatus.BAD_REQUEST
+      );
+    }
+    const entries = await this.geminiService.extractScheduleFromText(
+      dto.tournamentId,
+      dto.text,
+      dto.language
+    );
+    return { entries };
   }
 
   /**

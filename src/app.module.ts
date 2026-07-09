@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -15,6 +15,7 @@ import { CourtsModule } from './courts/courts.module';
 import { MatchesModule } from './matches/matches.module';
 import { TournamentsModule } from './tournaments/tournaments.module';
 import { CategoriesModule } from './categories/categories.module';
+import { SponsorsModule } from './sponsors/sponsors.module';
 import { CategoryMatchesModule } from './category-matches/category-matches.module';
 import { PwaModule } from './pwa/pwa.module';
 import { TasksModule } from './tasks/tasks.module';
@@ -33,7 +34,11 @@ import { VenueRequestsModule } from './venue-requests/venue-requests.module';
 import { MailModule } from './mail/mail.module';
 import { LevelDescriptionsModule } from './level-descriptions/level-descriptions.module';
 import { ViewsModule } from './views/views.module';
+import { UmpiresModule } from './umpires/umpires.module';
+import { TournamentManagersModule } from './tournament-managers/tournament-managers.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { UserOrIpThrottlerGuard } from './common/guards/user-or-ip-throttler.guard';
 import configuration from './config';
 
 @Module({
@@ -55,6 +60,7 @@ import configuration from './config';
     MatchesModule,
     TournamentsModule,
     CategoriesModule,
+    SponsorsModule,
     CategoryMatchesModule,
     TasksModule,
     PwaModule,
@@ -73,17 +79,22 @@ import configuration from './config';
     VenueRequestsModule,
     LevelDescriptionsModule,
     ViewsModule,
+    UmpiresModule,
+    TournamentManagersModule,
+    WebhooksModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
+    // JwtAuthGuard must run BEFORE the throttler so req.user is populated and
+    // the throttler can bucket by user id (see UserOrIpThrottlerGuard).
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: UserOrIpThrottlerGuard,
     },
   ],
 })

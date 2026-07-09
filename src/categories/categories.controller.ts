@@ -12,11 +12,14 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { CategoriesService } from './categories.service';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CreateCategoryRegistrationDto } from './dto/create-category-registration.dto';
+import { BulkCreateRegistrationDto } from './dto/bulk-create-registration.dto';
+import { ConvertLegacyRegistrationDto } from '../tournaments/dto/tournament-pair.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { AssignGroupRegistrationDto } from './dto/assign-group-registration.dto';
 import { BulkAssignGroupRegistrationDto } from './dto/bulk-assign-group-registration.dto';
 import { AutoAssignDto } from './dto/auto-assign.dto';
 import { CreateCategoryMatchDto } from './dto/create-category-match.dto';
+import { GenerateAllGroupMatchesDto } from './dto/generate-all-group-matches.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
@@ -85,6 +88,38 @@ export class CategoriesController {
     );
   }
 
+  @Post(':id/registrations/bulk')
+  bulkCreateRegistrations(
+    @Param('id') id: string,
+    @Body() dto: BulkCreateRegistrationDto,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.bulkCreateRegistrations(
+      id,
+      { names: dto.names, tournamentPlayerIds: dto.tournamentPlayerIds },
+      user.userId,
+      user.role
+    );
+  }
+
+  @Public()
+  @Get(':id/registrations/:registrationId')
+  getRegistration(
+    @Param('id') id: string,
+    @Param('registrationId') registrationId: string
+  ) {
+    return this.categoriesService.getRegistration(id, registrationId);
+  }
+
+  @Public()
+  @Get(':id/registrations/:registrationId/matches')
+  getRegistrationMatches(
+    @Param('id') id: string,
+    @Param('registrationId') registrationId: string
+  ) {
+    return this.categoriesService.getRegistrationMatches(id, registrationId);
+  }
+
   @Delete(':id/registrations/:registrationId')
   deleteRegistration(
     @Param('id') id: string,
@@ -94,6 +129,22 @@ export class CategoriesController {
     return this.categoriesService.deleteRegistration(
       id,
       registrationId,
+      user.userId,
+      user.role
+    );
+  }
+
+  @Put(':id/registrations/:registrationId/convert-to-pair')
+  convertLegacyRegistrationToPair(
+    @Param('id') id: string,
+    @Param('registrationId') registrationId: string,
+    @Body() dto: ConvertLegacyRegistrationDto,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.convertLegacyRegistrationToPair(
+      id,
+      registrationId,
+      dto,
       user.userId,
       user.role
     );
@@ -118,10 +169,14 @@ export class CategoriesController {
   @Post(':id/groups/generate-all-matches')
   generateAllGroupMatches(
     @Param('id') id: string,
+    @Body() dto: GenerateAllGroupMatchesDto | undefined,
     @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.generateAllGroupMatches(
       id,
+      {
+        forceReplaceScheduledMatches: dto?.forceReplaceScheduledMatches,
+      },
       user.userId,
       user.role
     );
@@ -245,6 +300,18 @@ export class CategoriesController {
 
   // ─── Category Matches ────────────────────────────────────
 
+  @Get(':id/matches/generation-preview')
+  getMatchGenerationPreview(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.getMatchGenerationPreview(
+      id,
+      user.userId,
+      user.role
+    );
+  }
+
   @Public()
   @Get(':id/matches')
   getMatches(@Param('id') id: string) {
@@ -305,12 +372,36 @@ export class CategoriesController {
 
   // ─── Group Stage Completion / Elimination Bracket ─────────
 
+  @Get(':id/group-stage-completion')
+  getGroupStageCompletion(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.getGroupStageCompletion(
+      id,
+      user.userId,
+      user.role
+    );
+  }
+
   @Post(':id/complete-group-stage')
   completeGroupStage(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserPayload
   ) {
     return this.categoriesService.completeGroupStage(
+      id,
+      user.userId,
+      user.role
+    );
+  }
+
+  @Post(':id/generate-elimination-shells')
+  generateEliminationShells(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload
+  ) {
+    return this.categoriesService.regenerateEliminationShells(
       id,
       user.userId,
       user.role

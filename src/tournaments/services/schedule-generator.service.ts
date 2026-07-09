@@ -116,11 +116,12 @@ export class ScheduleGeneratorService {
     // Verify tournament ownership
     await this.verifyTournamentOwnership(tournamentId, userId);
 
-    // Auto-generate matches for categories/groups that have registrations but no matches
-    await this.autoGenerateMissingMatches(tournamentId);
+    // Note: incomplete team rosters are allowed here so organizers can build
+    // the schedule early. Roster completeness is enforced at play time
+    // (starting/ending a match) and before publishing the tournament.
 
     // Fetch all matches with participants
-    const matchesRaw = await this.prisma.categoryMatch.findMany({
+    const matchesRawAll = await this.prisma.categoryMatch.findMany({
       where: {
         category: { tournamentId },
         status: { in: [MatchStatus.SCHEDULED] },
@@ -137,6 +138,34 @@ export class ScheduleGeneratorService {
         },
       },
     });
+
+    // Group matches need both participants. Elimination matches are scheduled
+    // even as placeholder shells (0 participants) so the whole bracket can be
+    // laid out in advance; the UI shows seed/feeder labels ("Nhất Bảng A",
+    // "Thắng trận N") for the empty slots.
+    const matchesRaw = matchesRawAll.filter(
+      (m) =>
+        m.participants.length >= 2 ||
+        (m.round !== 'GROUP' && m.groupId === null)
+    );
+    const skippedPlaceholderCount = matchesRawAll.length - matchesRaw.length;
+    if (skippedPlaceholderCount > 0) {
+      this.logger.log(
+        `Skipped ${skippedPlaceholderCount} incomplete group match(es) without participants in tournament ${tournamentId}`
+      );
+    }
+    if (matchesRawAll.length === 0) {
+      throw new BadRequestException({
+        code: 'MATCHES_NOT_GENERATED',
+        message: 'Generate matches before creating a schedule',
+      });
+    }
+    if (matchesRaw.length === 0) {
+      throw new BadRequestException({
+        code: 'NO_SCHEDULABLE_MATCHES',
+        message: 'No schedulable matches are available',
+      });
+    }
 
     // Get round types from matches
     const roundTypes = [...new Set(matchesRaw.map((m) => m.round))];
@@ -504,6 +533,62 @@ export class ScheduleGeneratorService {
   }
 
   /**
+   * Clear scheduling info (courtId, startTime, scheduledDuration, estimatedEndTime)
+   * for every match in the tournament. Does not delete matches themselves.
+   */
+  async clearSchedule(
+    tournamentId: string,
+    userId: string
+  ): Promise<{ success: boolean; clearedCount: number }> {
+    await this.verifyTournamentOwnership(tournamentId, userId);
+
+    const result = await this.prisma.categoryMatch.updateMany({
+      where: {
+        category: { tournamentId },
+        OR: [
+          { courtId: { not: null } },
+          { startTime: { not: null } },
+          { estimatedEndTime: { not: null } },
+          { scheduledDuration: { not: null } },
+        ],
+      },
+      data: {
+        courtId: null,
+        startTime: null,
+        estimatedEndTime: null,
+        scheduledDuration: null,
+        assignedBy: null,
+      },
+    });
+
+    return { success: true, clearedCount: result.count };
+  }
+
+  /**
+   * Delete all matches in the tournament that have NOT been scheduled yet
+   * (status = SCHEDULED and no courtId / startTime assigned). Safety guard:
+   * matches that are IN_PROGRESS or FINISHED are never deleted. Matches that
+   * are scheduled (have court+time) are also preserved.
+   */
+  async deleteUnscheduledMatches(
+    tournamentId: string,
+    userId: string
+  ): Promise<{ success: boolean; deletedCount: number }> {
+    await this.verifyTournamentOwnership(tournamentId, userId);
+
+    const result = await this.prisma.categoryMatch.deleteMany({
+      where: {
+        category: { tournamentId },
+        status: 'SCHEDULED',
+        courtId: null,
+        startTime: null,
+      },
+    });
+
+    return { success: true, deletedCount: result.count };
+  }
+
+  /**
    * Save generated schedule to database
    */
   async saveSchedule(
@@ -526,6 +611,7 @@ export class ScheduleGeneratorService {
     }
 
     const assignments = JSON.parse(generated.assignments) as MatchAssignment[];
+    const config = JSON.parse(generated.configSnapshot) as GenerateScheduleDto;
 
     // Get total match count
     const totalMatches = await this.prisma.categoryMatch.count({
@@ -535,28 +621,61 @@ export class ScheduleGeneratorService {
       },
     });
 
-    try {
-      // Save all assignments in a single transaction
-      await this.prisma.$transaction(
-        assignments.map((a) => {
-          const startTime = new Date(a.startTime);
-          // Calculate estimatedEndTime from startTime + duration (in minutes)
-          const estimatedEndTime = new Date(
-            startTime.getTime() + a.duration * 60000
-          );
-
-          return this.prisma.categoryMatch.update({
-            where: { id: a.matchId },
-            data: {
-              courtId: a.courtId,
-              startTime,
-              scheduledDuration: a.duration,
-              estimatedEndTime,
-              assignedBy: 'SCHEDULE_GENERATOR',
-            },
-          });
-        })
+    // Build the per-assignment updates.
+    const assignmentOps = assignments.map((a) => {
+      const startTime = new Date(a.startTime);
+      // Calculate estimatedEndTime from startTime + duration (in minutes)
+      const estimatedEndTime = new Date(
+        startTime.getTime() + a.duration * 60000
       );
+
+      return this.prisma.categoryMatch.update({
+        where: { id: a.matchId },
+        data: {
+          courtId: a.courtId,
+          startTime,
+          scheduledDuration: a.duration,
+          estimatedEndTime,
+          assignedBy: 'SCHEDULE_GENERATOR',
+        },
+      });
+    });
+
+    // Full regeneration (keepScheduledMatches=false) is a clean replace: wipe
+    // any prior court/time on still-SCHEDULED matches first, so matches the new
+    // run could not place don't keep their stale assignment. IN_PROGRESS and
+    // FINISHED matches are left untouched. When keeping scheduled matches, the
+    // existing assignments must survive, so we skip the clear.
+    const assignedIds = new Set(assignments.map((a) => a.matchId));
+    const ops = config.keepScheduledMatches
+      ? assignmentOps
+      : [
+          this.prisma.categoryMatch.updateMany({
+            where: {
+              category: { tournamentId },
+              status: MatchStatus.SCHEDULED,
+              id: { notIn: Array.from(assignedIds) },
+              OR: [
+                { courtId: { not: null } },
+                { startTime: { not: null } },
+                { estimatedEndTime: { not: null } },
+                { scheduledDuration: { not: null } },
+              ],
+            },
+            data: {
+              courtId: null,
+              startTime: null,
+              estimatedEndTime: null,
+              scheduledDuration: null,
+              assignedBy: null,
+            },
+          }),
+          ...assignmentOps,
+        ];
+
+    try {
+      // Save all assignments (and any clear) in a single transaction.
+      await this.prisma.$transaction(ops);
 
       // Delete the generated schedule
       await this.generatedScheduleModel.delete({
@@ -627,71 +746,6 @@ export class ScheduleGeneratorService {
 
     if (tournament.hostId !== userId) {
       throw new BadRequestException('You are not the owner of this tournament');
-    }
-  }
-
-  /**
-   * Auto-generate round-robin matches for groups that have registrations but no matches yet.
-   * This ensures the schedule generator includes all categories, not just those
-   * where matches were already manually generated.
-   */
-  private async autoGenerateMissingMatches(
-    tournamentId: string
-  ): Promise<void> {
-    // Find all groups in this tournament that have registrations
-    const groups = await this.prisma.categoryGroup.findMany({
-      where: {
-        category: { tournamentId },
-      },
-      include: {
-        category: { select: { id: true, matchFormat: true } },
-        registrations: {
-          select: { categoryRegistrationId: true },
-        },
-        _count: { select: { matches: true } },
-      },
-    });
-
-    // Filter to groups with >=2 registrations and 0 existing matches
-    const groupsWithoutMatches = groups.filter(
-      (g) => g.registrations.length >= 2 && g._count.matches === 0
-    );
-
-    if (groupsWithoutMatches.length === 0) return;
-
-    this.logger.log(
-      `Auto-generating matches for ${groupsWithoutMatches.length} group(s) in tournament ${tournamentId}`
-    );
-
-    for (const group of groupsWithoutMatches) {
-      const regIds = group.registrations.map((r) => r.categoryRegistrationId);
-
-      // Generate round-robin pairs
-      let matchNumber = 1;
-      for (let i = 0; i < regIds.length; i++) {
-        for (let j = i + 1; j < regIds.length; j++) {
-          await this.prisma.categoryMatch.create({
-            data: {
-              categoryId: group.categoryId,
-              groupId: group.id,
-              round: 'GROUP',
-              matchNumber: matchNumber++,
-              status: MatchStatus.SCHEDULED,
-              matchFormat: group.category.matchFormat,
-              participants: {
-                create: [
-                  { categoryRegistrationId: regIds[i], position: 1 },
-                  { categoryRegistrationId: regIds[j], position: 2 },
-                ],
-              },
-            },
-          });
-        }
-      }
-
-      this.logger.log(
-        `Generated ${matchNumber - 1} match(es) for group ${group.id} in category ${group.categoryId}`
-      );
     }
   }
 }

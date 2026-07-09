@@ -9,6 +9,7 @@ import { SessionsModule } from '../sessions/sessions.module';
 import { FeeModule } from '../fee/fee.module';
 import { ClubsModule } from '../clubs/clubs.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { SessionAccessModule } from '../common/session-access/session-access.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     FeeModule,
     ClubsModule,
     NotificationsModule,
+    SessionAccessModule,
   ],
   controllers: [PlayersController, SessionPlayersController],
   providers: [PlayersService],

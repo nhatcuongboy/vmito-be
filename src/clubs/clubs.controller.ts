@@ -14,6 +14,7 @@ import {
   CreateClubDto,
   UpdateClubDto,
   CreateClubFeeDto,
+  UpsertClubMonthlyMemberDto,
   BrowseClubsDto,
   UpdateMemberRoleDto,
   RejectJoinRequestDto,
@@ -120,7 +121,7 @@ export class ClubsController {
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
   @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async getClubs(@CurrentUser() user: JwtUser) {
-    return this.clubsService.getClubs(user.userId);
+    return this.clubsService.getClubs(user.userId, user.role);
   }
 
   @Post()
@@ -128,6 +129,22 @@ export class ClubsController {
   @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async createClub(@CurrentUser() user: JwtUser, @Body() dto: CreateClubDto) {
     return this.clubsService.createClub(user.userId, user.role, dto);
+  }
+
+  @Get('search-users')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async searchUsers(
+    @CurrentUser() user: JwtUser,
+    @Query('q') query: string,
+    @Query('clubId') clubId?: string
+  ) {
+    return this.clubsService.searchUsersForClub(
+      user.userId,
+      query || '',
+      user.role,
+      clubId
+    );
   }
 
   @Get(':id')
@@ -166,7 +183,7 @@ export class ClubsController {
     @Param('id') clubId: string,
     @CurrentUser() user: JwtUser
   ) {
-    return this.clubsService.getClubMembers(clubId, user.userId);
+    return this.clubsService.getClubMembers(clubId, user.userId, user.role);
   }
 
   @Post(':id/members/:userId')
@@ -177,7 +194,12 @@ export class ClubsController {
     @Param('userId') userId: string,
     @CurrentUser() user: JwtUser
   ) {
-    return this.clubsService.addMemberToClub(clubId, userId, user.userId);
+    return this.clubsService.addMemberToClub(
+      clubId,
+      userId,
+      user.userId,
+      user.role
+    );
   }
 
   @Delete(':id/members/:userId')
@@ -188,7 +210,12 @@ export class ClubsController {
     @Param('userId') userId: string,
     @CurrentUser() user: JwtUser
   ) {
-    return this.clubsService.removeMemberFromClub(clubId, userId, user.userId);
+    return this.clubsService.removeMemberFromClub(
+      clubId,
+      userId,
+      user.userId,
+      user.role
+    );
   }
 
   @Put(':id/members/:userId/role')
@@ -204,13 +231,21 @@ export class ClubsController {
       clubId,
       userId,
       user.userId,
-      dto.role
+      dto.role,
+      user.role
     );
   }
 
   // ===========================================
   // Join Request Management Endpoints
   // ===========================================
+
+  @Get('admin/join-requests')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  async getAllPendingJoinRequests() {
+    return this.clubsService.getAllPendingJoinRequests();
+  }
 
   @Get(':id/join-requests')
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
@@ -219,7 +254,23 @@ export class ClubsController {
     @Param('id') clubId: string,
     @CurrentUser() user: JwtUser
   ) {
-    return this.clubsService.getJoinRequests(clubId, user.userId);
+    return this.clubsService.getJoinRequests(clubId, user.userId, user.role);
+  }
+
+  @Get(':id/join-requests/:requestId')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async getJoinRequestById(
+    @Param('id') clubId: string,
+    @Param('requestId') requestId: string,
+    @CurrentUser() user: JwtUser
+  ) {
+    return this.clubsService.getJoinRequestById(
+      clubId,
+      requestId,
+      user.userId,
+      user.role
+    );
   }
 
   @Post(':id/join-requests/:requestId/approve')
@@ -230,7 +281,12 @@ export class ClubsController {
     @Param('requestId') requestId: string,
     @CurrentUser() user: JwtUser
   ) {
-    return this.clubsService.approveJoinRequest(clubId, requestId, user.userId);
+    return this.clubsService.approveJoinRequest(
+      clubId,
+      requestId,
+      user.userId,
+      user.role
+    );
   }
 
   @Post(':id/join-requests/:requestId/reject')
@@ -246,7 +302,8 @@ export class ClubsController {
       clubId,
       requestId,
       user.userId,
-      dto.response
+      dto.response,
+      user.role
     );
   }
 
@@ -258,7 +315,7 @@ export class ClubsController {
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
   @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
   async getClubFees(@Param('id') clubId: string, @CurrentUser() user: JwtUser) {
-    return this.clubsService.getClubFees(clubId, user.userId);
+    return this.clubsService.getClubFees(clubId, user.userId, user.role);
   }
 
   @Get(':id/fees/:year/:month')
@@ -274,7 +331,8 @@ export class ClubsController {
       clubId,
       user.userId,
       parseInt(year, 10),
-      parseInt(month, 10)
+      parseInt(month, 10),
+      user.role
     );
   }
 
@@ -286,7 +344,7 @@ export class ClubsController {
     @CurrentUser() user: JwtUser,
     @Body() dto: CreateClubFeeDto
   ) {
-    return this.clubsService.upsertClubFee(clubId, user.userId, dto);
+    return this.clubsService.upsertClubFee(clubId, user.userId, dto, user.role);
   }
 
   @Delete(':id/fees/:feeId')
@@ -296,19 +354,66 @@ export class ClubsController {
     @Param('feeId') feeId: string,
     @CurrentUser() user: JwtUser
   ) {
-    return this.clubsService.deleteClubFee(feeId, user.userId);
+    return this.clubsService.deleteClubFee(feeId, user.userId, user.role);
+  }
+
+  @Get(':id/monthly-members/:year/:month')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async getClubMonthlyMembers(
+    @Param('id') clubId: string,
+    @Param('year') year: string,
+    @Param('month') month: string,
+    @CurrentUser() user: JwtUser
+  ) {
+    return this.clubsService.getClubMonthlyMembers(
+      clubId,
+      user.userId,
+      parseInt(year, 10),
+      parseInt(month, 10),
+      user.role
+    );
+  }
+
+  @Post(':id/monthly-members')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async upsertClubMonthlyMember(
+    @Param('id') clubId: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: UpsertClubMonthlyMemberDto
+  ) {
+    return this.clubsService.upsertClubMonthlyMember(
+      clubId,
+      user.userId,
+      dto,
+      user.role
+    );
+  }
+
+  @Delete(':id/monthly-members/:userId/:year/:month')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async deleteClubMonthlyMember(
+    @Param('id') clubId: string,
+    @Param('userId') memberUserId: string,
+    @Param('year') year: string,
+    @Param('month') month: string,
+    @CurrentUser() user: JwtUser
+  ) {
+    return this.clubsService.deleteClubMonthlyMember(
+      clubId,
+      user.userId,
+      memberUserId,
+      parseInt(year, 10),
+      parseInt(month, 10),
+      user.role
+    );
   }
 
   // ===========================================
   // Helper Endpoints
   // ===========================================
-
-  @Get('search-users')
-  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
-  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
-  async searchUsers(@CurrentUser() user: JwtUser, @Query('q') query: string) {
-    return this.clubsService.searchUsersForClub(user.userId, query || '');
-  }
 
   @Get('user/:userId/clubs-for-host')
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)

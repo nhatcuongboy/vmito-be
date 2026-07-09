@@ -3,12 +3,14 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateClubDto,
   UpdateClubDto,
   CreateClubFeeDto,
+  UpsertClubMonthlyMemberDto,
   BrowseClubsDto,
 } from './dto';
 import {
@@ -26,6 +28,7 @@ import {
   generateSlug,
 } from '../common/utils/string.utils';
 import { NotificationsService } from '../notifications/notifications.service';
+import { VALID_LEVELS } from '../common/constants/level.constants';
 
 @Injectable()
 export class ClubsService {
@@ -33,6 +36,24 @@ export class ClubsService {
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService
   ) {}
+
+  private validateRequiredLevels(requiredLevels?: number[]) {
+    if (requiredLevels === undefined) return;
+
+    if (!Array.isArray(requiredLevels)) {
+      throw new BadRequestException('requiredLevels must be an array');
+    }
+
+    const invalidLevels = requiredLevels.filter(
+      (level) => !VALID_LEVELS.includes(level)
+    );
+
+    if (invalidLevels.length > 0) {
+      throw new BadRequestException(
+        `Invalid level values: ${invalidLevels.join(', ')}. Valid levels are: ${VALID_LEVELS.join(', ')}`
+      );
+    }
+  }
 
   private async uniqueClubSlug(name: string): Promise<string> {
     const base = generateSlug(name);
@@ -43,6 +64,51 @@ export class ClubsService {
     });
     if (existing) return this.uniqueClubSlug(name);
     return candidate;
+  }
+
+  private validateMonthYear(year: number, month: number) {
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      throw new BadRequestException('month must be between 1 and 12');
+    }
+
+    if (!Number.isInteger(year) || year < 2020 || year > 2100) {
+      throw new BadRequestException('year must be between 2020 and 2100');
+    }
+  }
+
+  private async ensureManagedClub(
+    clubId: string,
+    hostId: string,
+    userRole?: Role
+  ) {
+    const club = await this.prisma.club.findFirst({
+      where: {
+        id: clubId,
+        ...(userRole === Role.ADMIN
+          ? {}
+          : {
+              OR: [
+                { hostId },
+                {
+                  members: {
+                    some: {
+                      userId: hostId,
+                      role: MemberRole.ADMIN,
+                      status: MemberStatus.ACTIVE,
+                    },
+                  },
+                },
+              ],
+            }),
+      },
+      select: { id: true },
+    });
+
+    if (!club) {
+      throw new NotFoundException('Club not found');
+    }
+
+    return club;
   }
 
   // ===========================================
@@ -266,7 +332,6 @@ export class ClubsService {
             },
           },
           orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
-          take: 20,
         },
         announcements: {
           orderBy: [{ pinnedUntil: 'desc' }, { createdAt: 'desc' }],
@@ -667,8 +732,17 @@ export class ClubsService {
       joinedAt: club.createdAt,
     }));
 
-    // Merge and return all lists
-    return [...memberClubs, ...hostedClubsData, ...pendingClubsData];
+    // Merge all lists, deduplicating clubs where the user is both host and
+    // member of the same club (host entry wins so role stays ADMIN)
+    const mergedClubs = new Map<string, (typeof memberClubs)[number]>();
+    for (const club of [
+      ...memberClubs,
+      ...hostedClubsData,
+      ...pendingClubsData,
+    ]) {
+      mergedClubs.set(club.id, club);
+    }
+    return Array.from(mergedClubs.values());
   }
 
   /**
@@ -711,11 +785,11 @@ export class ClubsService {
   // ===========================================
 
   /**
-   * Get all clubs for a host
+   * Get clubs for management. Admins can manage all clubs in the system.
    */
-  async getClubs(hostId: string) {
+  async getClubs(hostId: string, userRole?: Role) {
     const clubs = await this.prisma.club.findMany({
-      where: { hostId },
+      where: userRole === Role.ADMIN ? {} : { hostId },
       include: {
         _count: {
           select: { members: true },
@@ -833,6 +907,8 @@ export class ClubsService {
         throw new NotFoundException('Venue not found');
       }
     }
+
+    this.validateRequiredLevels(dto.requiredLevels);
 
     const { schedules, ...clubData } = dto;
 
@@ -976,6 +1052,8 @@ export class ClubsService {
       }
     }
 
+    this.validateRequiredLevels(dto.requiredLevels);
+
     const { schedules, ...clubData } = dto;
 
     // If schedules provided, delete old and create new in transaction
@@ -1108,14 +1186,8 @@ export class ClubsService {
   /**
    * Get all members of a club
    */
-  async getClubMembers(clubId: string, hostId: string) {
-    const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found');
-    }
+  async getClubMembers(clubId: string, hostId: string, userRole?: Role) {
+    await this.ensureManagedClub(clubId, hostId, userRole);
 
     return this.prisma.clubMember.findMany({
       where: { clubId },
@@ -1138,14 +1210,13 @@ export class ClubsService {
   /**
    * Add a user to a club
    */
-  async addMemberToClub(clubId: string, userId: string, hostId: string) {
-    const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found');
-    }
+  async addMemberToClub(
+    clubId: string,
+    userId: string,
+    hostId: string,
+    userRole?: Role
+  ) {
+    await this.ensureManagedClub(clubId, hostId, userRole);
 
     // Check if user exists
     const user = await this.prisma.user.findUnique({
@@ -1189,14 +1260,13 @@ export class ClubsService {
   /**
    * Remove a user from a club
    */
-  async removeMemberFromClub(clubId: string, userId: string, hostId: string) {
-    const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found');
-    }
+  async removeMemberFromClub(
+    clubId: string,
+    userId: string,
+    hostId: string,
+    userRole?: Role
+  ) {
+    await this.ensureManagedClub(clubId, hostId, userRole);
 
     const member = await this.prisma.clubMember.findUnique({
       where: {
@@ -1222,15 +1292,10 @@ export class ClubsService {
     clubId: string,
     userId: string,
     hostId: string,
-    role: MemberRole
+    role: MemberRole,
+    userRole?: Role
   ) {
-    const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found');
-    }
+    await this.ensureManagedClub(clubId, hostId, userRole);
 
     const member = await this.prisma.clubMember.findUnique({
       where: {
@@ -1251,9 +1316,31 @@ export class ClubsService {
   /**
    * Get all join requests for a club
    */
-  async getJoinRequests(clubId: string, hostId: string) {
+  async getAllPendingJoinRequests() {
+    return this.prisma.clubJoinRequest.findMany({
+      where: { status: JoinRequestStatus.PENDING },
+      include: {
+        club: {
+          select: { id: true, slug: true, name: true, image: true },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+            gender: true,
+            level: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getJoinRequests(clubId: string, hostId: string, userRole?: Role) {
     const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
+      where: userRole === Role.ADMIN ? { id: clubId } : { id: clubId, hostId },
     });
 
     if (!club) {
@@ -1278,12 +1365,70 @@ export class ClubsService {
     });
   }
 
+  async getJoinRequestById(
+    clubId: string,
+    requestId: string,
+    hostId: string,
+    userRole?: Role
+  ) {
+    const club = await this.prisma.club.findFirst({
+      where: userRole === Role.ADMIN ? { id: clubId } : { id: clubId, hostId },
+    });
+
+    if (!club) {
+      throw new NotFoundException('Club not found');
+    }
+
+    const request = await this.prisma.clubJoinRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        club: {
+          select: { id: true, slug: true, name: true, image: true },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+            gender: true,
+            level: true,
+            phone: true,
+            emailVerified: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    if (!request || request.clubId !== clubId) {
+      throw new NotFoundException('Join request not found');
+    }
+
+    // Count past sessions the requester has actually played, to help the
+    // host judge the request (shown only if > 0 on the client)
+    const sessionsPlayedCount = await this.prisma.player.count({
+      where: {
+        userId: request.userId,
+        registrationStatus: 'APPROVED',
+        session: { status: 'FINISHED' },
+      },
+    });
+
+    return { ...request, sessionsPlayedCount };
+  }
+
   /**
    * Approve a join request
    */
-  async approveJoinRequest(clubId: string, requestId: string, hostId: string) {
+  async approveJoinRequest(
+    clubId: string,
+    requestId: string,
+    hostId: string,
+    userRole?: Role
+  ) {
     const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
+      where: userRole === Role.ADMIN ? { id: clubId } : { id: clubId, hostId },
     });
 
     if (!club) {
@@ -1339,10 +1484,11 @@ export class ClubsService {
     clubId: string,
     requestId: string,
     hostId: string,
-    response?: string
+    response?: string,
+    userRole?: Role
   ) {
     const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
+      where: userRole === Role.ADMIN ? { id: clubId } : { id: clubId, hostId },
     });
 
     if (!club) {
@@ -1369,26 +1515,88 @@ export class ClubsService {
   /**
    * Search users for a club
    */
-  async searchUsersForClub(hostId: string, query: string) {
-    const users = await this.prisma.user.findMany({
-      where: {
-        AND: [
-          {
-            OR: [
-              { name: { contains: query, mode: 'insensitive' } },
-              { email: { contains: query, mode: 'insensitive' } },
-              { phone: { contains: query, mode: 'insensitive' } },
-            ],
-          },
-          {
-            playerRecords: {
-              some: {
-                session: {
-                  hostId,
+  async searchUsersForClub(
+    hostId: string,
+    query: string,
+    userRole?: Role,
+    clubId?: string
+  ) {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      return [];
+    }
+
+    if (clubId) {
+      await this.ensureManagedClub(clubId, hostId, userRole);
+    } else if (userRole !== Role.ADMIN) {
+      const canManageAnyClub = await this.prisma.club.count({
+        where: {
+          OR: [
+            { hostId },
+            {
+              members: {
+                some: {
+                  userId: hostId,
+                  role: MemberRole.ADMIN,
+                  status: MemberStatus.ACTIVE,
                 },
               },
             },
-          },
+          ],
+        },
+      });
+
+      if (canManageAnyClub === 0) {
+        throw new ForbiddenException('Not authorized to search club users');
+      }
+    }
+
+    const searchWhere: Prisma.UserWhereInput = {
+      OR: [
+        { name: { contains: trimmedQuery, mode: 'insensitive' } },
+        { email: { contains: trimmedQuery, mode: 'insensitive' } },
+        { phone: { contains: trimmedQuery, mode: 'insensitive' } },
+      ],
+    };
+
+    const membershipFilter: Prisma.ClubMemberWhereInput | undefined = clubId
+      ? { clubId }
+      : userRole === Role.ADMIN
+        ? undefined
+        : {
+            club: {
+              OR: [
+                { hostId },
+                {
+                  members: {
+                    some: {
+                      userId: hostId,
+                      role: MemberRole.ADMIN,
+                      status: MemberStatus.ACTIVE,
+                    },
+                  },
+                },
+              ],
+            },
+          };
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        AND: [
+          searchWhere,
+          ...(clubId || userRole === Role.ADMIN
+            ? []
+            : [
+                {
+                  playerRecords: {
+                    some: {
+                      session: {
+                        hostId,
+                      },
+                    },
+                  },
+                },
+              ]),
         ],
       },
       select: {
@@ -1399,11 +1607,7 @@ export class ClubsService {
         image: true,
         phone: true,
         clubMemberships: {
-          where: {
-            club: {
-              hostId,
-            },
-          },
+          ...(membershipFilter ? { where: membershipFilter } : {}),
           include: {
             club: {
               select: {
@@ -1429,14 +1633,8 @@ export class ClubsService {
   // Fee Configuration
   // ===========================================
 
-  async getClubFees(clubId: string, hostId: string) {
-    const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found');
-    }
+  async getClubFees(clubId: string, hostId: string, userRole?: Role) {
+    await this.ensureManagedClub(clubId, hostId, userRole);
 
     return this.prisma.clubFeeConfig.findMany({
       where: { clubId },
@@ -1448,15 +1646,11 @@ export class ClubsService {
     clubId: string,
     hostId: string,
     year: number,
-    month: number
+    month: number,
+    userRole?: Role
   ) {
-    const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found');
-    }
+    await this.ensureManagedClub(clubId, hostId, userRole);
+    this.validateMonthYear(year, month);
 
     return this.prisma.clubFeeConfig.findUnique({
       where: {
@@ -1465,14 +1659,14 @@ export class ClubsService {
     });
   }
 
-  async upsertClubFee(clubId: string, hostId: string, dto: CreateClubFeeDto) {
-    const club = await this.prisma.club.findFirst({
-      where: { id: clubId, hostId },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found');
-    }
+  async upsertClubFee(
+    clubId: string,
+    hostId: string,
+    dto: CreateClubFeeDto,
+    userRole?: Role
+  ) {
+    await this.ensureManagedClub(clubId, hostId, userRole);
+    this.validateMonthYear(dto.year, dto.month);
 
     if (!dto.maleFeePerSession && !dto.femaleFeePerSession) {
       throw new BadRequestException(
@@ -1502,11 +1696,11 @@ export class ClubsService {
     });
   }
 
-  async deleteClubFee(feeId: string, hostId: string) {
+  async deleteClubFee(feeId: string, hostId: string, userRole?: Role) {
     const fee = await this.prisma.clubFeeConfig.findFirst({
       where: {
         id: feeId,
-        club: { hostId },
+        ...(userRole === Role.ADMIN ? {} : { club: { hostId } }),
       },
     });
 
@@ -1521,9 +1715,126 @@ export class ClubsService {
     return { success: true };
   }
 
+  async getClubMonthlyMembers(
+    clubId: string,
+    hostId: string,
+    year: number,
+    month: number,
+    userRole?: Role
+  ) {
+    await this.ensureManagedClub(clubId, hostId, userRole);
+    this.validateMonthYear(year, month);
+
+    return this.prisma.clubMonthlyMember.findMany({
+      where: { clubId, year, month },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            gender: true,
+            image: true,
+            phone: true,
+            level: true,
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }],
+    });
+  }
+
+  async upsertClubMonthlyMember(
+    clubId: string,
+    hostId: string,
+    dto: UpsertClubMonthlyMemberDto,
+    userRole?: Role
+  ) {
+    await this.ensureManagedClub(clubId, hostId, userRole);
+    this.validateMonthYear(dto.year, dto.month);
+
+    const membership = await this.prisma.clubMember.findUnique({
+      where: { clubId_userId: { clubId, userId: dto.userId } },
+      select: { status: true },
+    });
+
+    if (membership?.status !== MemberStatus.ACTIVE) {
+      throw new BadRequestException(
+        'User must be an active club member before being assigned as a monthly member'
+      );
+    }
+
+    return this.prisma.clubMonthlyMember.upsert({
+      where: {
+        clubId_userId_month_year: {
+          clubId,
+          userId: dto.userId,
+          month: dto.month,
+          year: dto.year,
+        },
+      },
+      create: {
+        clubId,
+        userId: dto.userId,
+        month: dto.month,
+        year: dto.year,
+      },
+      update: {},
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            gender: true,
+            image: true,
+            phone: true,
+            level: true,
+          },
+        },
+      },
+    });
+  }
+
+  async deleteClubMonthlyMember(
+    clubId: string,
+    hostId: string,
+    userId: string,
+    year: number,
+    month: number,
+    userRole?: Role
+  ) {
+    await this.ensureManagedClub(clubId, hostId, userRole);
+    this.validateMonthYear(year, month);
+
+    await this.prisma.clubMonthlyMember.deleteMany({
+      where: { clubId, userId, year, month },
+    });
+
+    return { success: true };
+  }
+
   // ===========================================
   // Helper Methods
   // ===========================================
+
+  async isMonthlyMember(
+    clubId: string,
+    userId: string,
+    sessionDate: Date
+  ): Promise<boolean> {
+    const month = sessionDate.getMonth() + 1;
+    const year = sessionDate.getFullYear();
+
+    const monthlyMember = await this.prisma.clubMonthlyMember.findUnique({
+      where: {
+        clubId_userId_month_year: { clubId, userId, month, year },
+      },
+      select: { id: true },
+    });
+
+    return Boolean(monthlyMember);
+  }
 
   async getPerSessionFee(
     clubId: string,

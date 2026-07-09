@@ -11,7 +11,12 @@ import {
   RejectPaymentDto,
   BulkApproveDto,
 } from './dto';
-import { PaymentStatus, FeeType } from '@prisma/client';
+import {
+  PaymentStatus,
+  FeeType,
+  RegistrationStatus,
+  SessionStatus,
+} from '@prisma/client';
 
 @Injectable()
 export class PaymentsService {
@@ -43,6 +48,7 @@ export class PaymentsService {
         gender: true,
         isClubMember: true,
         clubId: true,
+        clubFeeApplied: true,
         club: {
           select: {
             id: true,
@@ -88,6 +94,9 @@ export class PaymentsService {
       where: {
         sessionId,
         ...(status ? { status } : {}),
+        // Hide payments for players the host rejected (records may already
+        // exist if the player was approved and billed before being rejected).
+        player: { registrationStatus: { not: RegistrationStatus.REJECTED } },
       },
       select: this.paymentWithPlayerSelect,
       orderBy: { createdAt: 'asc' },
@@ -300,6 +309,13 @@ export class PaymentsService {
     const payments = await this.prisma.paymentRecord.findMany({
       where: {
         OR: [{ player: { userId } }, { registeredByUserId: userId }],
+        player: {
+          registrationStatus: { not: RegistrationStatus.REJECTED },
+        },
+        session: {
+          status: { not: SessionStatus.CANCELLED },
+          cancelledAt: null,
+        },
       },
       select: {
         hostId: true,
@@ -367,7 +383,18 @@ export class PaymentsService {
   // Get transaction summary for host (grouped by user)
   async getHostTransactionSummary(hostId: string) {
     const payments = await this.prisma.paymentRecord.findMany({
-      where: { hostId },
+      where: {
+        hostId,
+        player: {
+          registrationStatus: {
+            not: RegistrationStatus.REJECTED,
+          },
+        },
+        session: {
+          status: { not: SessionStatus.CANCELLED },
+          cancelledAt: null,
+        },
+      },
       select: {
         amount: true,
         status: true,
@@ -451,6 +478,13 @@ export class PaymentsService {
       where: {
         hostId,
         OR: [{ player: { userId } }, { registeredByUserId: userId }],
+        player: {
+          registrationStatus: { not: RegistrationStatus.REJECTED },
+        },
+        session: {
+          status: { not: SessionStatus.CANCELLED },
+          cancelledAt: null,
+        },
       },
       select: {
         id: true,
@@ -515,6 +549,7 @@ export class PaymentsService {
         amount: true,
         status: true,
         paymentMethod: true,
+        hostNotes: true,
         submittedAt: true,
         approvedAt: true,
         rejectedAt: true,
@@ -523,32 +558,48 @@ export class PaymentsService {
             id: true,
             name: true,
             startTime: true,
+            status: true,
+            cancelledAt: true,
           },
         },
         player: {
           select: {
             id: true,
             name: true,
+            registrationStatus: true,
           },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
 
+    // Filter out payments for rejected/cancelled registrations
+    const billablePayments = payments.filter((p) => {
+      if (p.session?.status === SessionStatus.CANCELLED) return false;
+      if (p.session?.cancelledAt) return false;
+      if (
+        p.player?.registrationStatus &&
+        p.player.registrationStatus !== RegistrationStatus.APPROVED
+      ) {
+        return false;
+      }
+      return true;
+    });
+
     // Calculate summary
     const summary = {
-      totalAmount: payments.reduce((sum, p) => sum + p.amount, 0),
-      paidAmount: payments
+      totalAmount: billablePayments.reduce((sum, p) => sum + p.amount, 0),
+      paidAmount: billablePayments
         .filter((p) => p.status === PaymentStatus.APPROVED)
         .reduce((sum, p) => sum + p.amount, 0),
-      pendingAmount: payments
+      pendingAmount: billablePayments
         .filter((p) => p.status !== PaymentStatus.APPROVED)
         .reduce((sum, p) => sum + p.amount, 0),
     };
 
     return {
       user,
-      payments,
+      payments: billablePayments,
       summary,
     };
   }

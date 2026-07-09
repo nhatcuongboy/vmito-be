@@ -1,8 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateLevelDescriptionsDto } from './dto/update-level-descriptions.dto';
-
-const VALID_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
+import {
+  LEVEL_DEFINITIONS,
+  VALID_LEVELS,
+  isValidLevel,
+} from '../common/constants/level.constants';
 
 type LevelDescriptionResponse = {
   level: number;
@@ -10,14 +13,41 @@ type LevelDescriptionResponse = {
   updatedAt?: Date;
 };
 
+type LevelDefinitionResponse = {
+  id: number;
+  code: string;
+  shortLabel: string;
+  sortOrder: number;
+  active: boolean;
+};
+
 @Injectable()
 export class LevelDescriptionsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(): Promise<LevelDescriptionResponse[]> {
-    const descriptions = await this.prisma.levelDescription.findMany({
-      orderBy: { level: 'asc' },
+  async findDefinitions(): Promise<LevelDefinitionResponse[]> {
+    const definitions = await this.prisma.levelDefinition.findMany({
+      orderBy: { sortOrder: 'asc' },
     });
+
+    if (definitions.length > 0) {
+      return definitions;
+    }
+
+    return LEVEL_DEFINITIONS.map((level) => ({
+      id: level.id,
+      code: level.code,
+      shortLabel: level.shortLabel,
+      sortOrder: level.sortOrder,
+      active: true,
+    }));
+  }
+
+  async findAll(): Promise<LevelDescriptionResponse[]> {
+    const [definitions, descriptions] = await Promise.all([
+      this.findDefinitions(),
+      this.prisma.levelDescription.findMany(),
+    ]);
 
     const byLevel = new Map(
       descriptions.map((item) => [
@@ -30,9 +60,11 @@ export class LevelDescriptionsService {
       ])
     );
 
-    return VALID_LEVELS.map(
-      (level) => byLevel.get(level) ?? { level, description: '' }
-    );
+    return definitions
+      .filter((level) => level.active)
+      .map(
+        (level) => byLevel.get(level.id) ?? { level: level.id, description: '' }
+      );
   }
 
   async updateAll(
@@ -43,6 +75,11 @@ export class LevelDescriptionsService {
     for (const item of dto.descriptions) {
       if (byLevel.has(item.level)) {
         throw new BadRequestException(`Duplicate level: ${item.level}`);
+      }
+      if (!isValidLevel(item.level)) {
+        throw new BadRequestException(
+          `Invalid level: ${item.level}. Valid levels are: ${VALID_LEVELS.join(', ')}`
+        );
       }
       byLevel.set(item.level, item.description.trim());
     }

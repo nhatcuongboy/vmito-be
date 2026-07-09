@@ -6,8 +6,10 @@ import {
   IsArray,
   IsDateString,
   IsEnum,
+  IsUrl,
   Min,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { MatchType } from '@prisma/client';
 
 import { VenueDto, FeeConfigDto, CourtConfigDto } from './create-session.dto';
@@ -39,6 +41,10 @@ export class UpdateSessionDto {
 
   @IsOptional()
   venue?: VenueDto;
+
+  @IsString()
+  @IsOptional()
+  clubId?: string | null;
 
   @IsNumber()
   @Min(1)
@@ -102,6 +108,13 @@ export class UpdateSessionDto {
   @IsString()
   @IsOptional()
   shuttlecock?: string;
+
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() || null : value
+  )
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+  @IsOptional()
+  referenceVideoUrl?: string | null;
 
   @IsEnum(MatchType)
   @IsOptional()

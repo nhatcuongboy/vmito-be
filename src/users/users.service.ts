@@ -31,7 +31,12 @@ export class UsersService {
     updatedAt: true,
   };
 
-  async findAll(options?: { search?: string; role?: string }) {
+  async findAll(options?: {
+    search?: string;
+    role?: string;
+    page?: number;
+    limit?: number;
+  }) {
     const where: {
       OR?: {
         email?: { contains: string; mode: 'insensitive' };
@@ -50,14 +55,34 @@ export class UsersService {
       ];
     }
 
-    const users = await this.prisma.user.findMany({
-      where,
-      select: this.userSelect,
-      orderBy: { createdAt: 'desc' },
-      take: 20, // Limit results for privacy and performance
-    });
+    if (options?.role) {
+      where.role = options.role as Role;
+    }
 
-    return users;
+    const page = Math.max(1, options?.page ?? 1);
+    const limit = Math.min(100, Math.max(1, options?.limit ?? 20));
+    const skip = (page - 1) * limit;
+
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        select: this.userSelect,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return {
+      data: users,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async findOne(id: string) {
