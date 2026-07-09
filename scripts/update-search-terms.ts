@@ -3,6 +3,12 @@ import { removeVietnameseTones } from '../src/common/utils/string.utils';
 
 const prisma = new PrismaClient();
 
+// Helper: loại bỏ HTML tags
+function stripHtmlTags(html: string | null | undefined): string {
+  if (!html) return '';
+  return html.replace(/<[^>]*>/g, '').trim();
+}
+
 async function main() {
   console.log('Starting search terms backfill...');
 
@@ -60,14 +66,33 @@ async function main() {
   }
   console.log(`Updated ${venues.length} venues.`);
 
-  // 4. Update Clubs
+  // 4. Update Clubs (with HTML tag stripping)
   console.log('Updating Clubs...');
   const clubs = await prisma.club.findMany({
-    select: { id: true, name: true, description: true, location: true },
+    select: {
+      id: true,
+      name: true,
+      hostName: true,
+      description: true,
+      location: true,
+      defaultVenue: {
+        select: {
+          name: true,
+          address: true,
+          district: true,
+          city: true,
+        },
+      },
+    },
   });
   for (const club of clubs) {
+    const cleanDescription = stripHtmlTags(club.description);
+    const venueInfo = club.defaultVenue
+      ? `${club.defaultVenue.name} ${club.defaultVenue.address} ${club.defaultVenue.district || ''} ${club.defaultVenue.city || ''}`
+      : '';
+
     const searchTerms = removeVietnameseTones(
-      `${club.name} ${club.description || ''} ${club.location || ''}`
+      `${club.name} ${club.hostName || ''} ${cleanDescription} ${club.location || ''} ${venueInfo}`
     ).toLowerCase();
     await prisma.club.update({
       where: { id: club.id },
