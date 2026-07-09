@@ -126,11 +126,25 @@ export class SessionsService {
       endTimeBefore?: string;
       endTimeAfter?: string;
       sessionType?: 'all' | 'regular' | 'facebook';
+      favoriteOnly?: boolean;
     }
   ) {
     const page = filters?.page || 1;
     const limit = filters?.limit || 12;
     const skip = (page - 1) * limit;
+
+    let favoriteIds: string[] | undefined;
+    if (filters?.favoriteOnly) {
+      favoriteIds = user?.userId
+        ? await this.favoritesService.getFavoritedTargetIds(
+            user.userId,
+            FavoriteType.SESSION
+          )
+        : [];
+      if (favoriteIds.length === 0) {
+        return { data: [], total: 0, page, limit, totalPages: 0 };
+      }
+    }
 
     const where: Prisma.SessionWhereInput = {};
 
@@ -140,6 +154,10 @@ export class SessionsService {
     } else if (user && user.role !== 'ADMIN') {
       // Default to filtering by current user if not admin
       where.hostId = user.userId;
+    }
+
+    if (favoriteIds) {
+      where.id = { in: favoriteIds };
     }
 
     if (filters?.searchQuery) {
@@ -207,19 +225,22 @@ export class SessionsService {
       ...(isStatusSort ? {} : { skip, take: limit }),
     });
 
-    if (isStatusSort) {
-      const sorted = this.sortByStatus(data);
-      return {
-        data: sorted.slice(skip, skip + limit),
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
-    }
+    const pageData = isStatusSort
+      ? this.sortByStatus(data).slice(skip, skip + limit)
+      : data;
+
+    const favoriteSet = filters?.favoriteOnly
+      ? new Set(pageData.map((s) => s.id))
+      : user?.userId
+        ? await this.favoritesService.isFavoritedMap(
+            user.userId,
+            FavoriteType.SESSION,
+            pageData.map((s) => s.id)
+          )
+        : new Set<string>();
 
     return {
-      data,
+      data: pageData.map((s) => ({ ...s, isFavorite: favoriteSet.has(s.id) })),
       total,
       page,
       limit,

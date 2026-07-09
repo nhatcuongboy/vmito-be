@@ -66,7 +66,8 @@ export class SessionsController {
     @Query('excludeStatuses') excludeStatusesRaw?: string,
     @Query('endTimeBefore') endTimeBefore?: string,
     @Query('endTimeAfter') endTimeAfter?: string,
-    @Query('sessionType') sessionType?: 'all' | 'regular' | 'facebook'
+    @Query('sessionType') sessionType?: 'all' | 'regular' | 'facebook',
+    @Query('favoriteOnly') favoriteOnly?: string
   ) {
     // Security: non-admin users can only see their own hosted sessions
     const effectiveHostId = user.role === 'ADMIN' ? hostId : user.userId;
@@ -87,6 +88,7 @@ export class SessionsController {
       endTimeBefore,
       endTimeAfter,
       sessionType,
+      favoriteOnly: favoriteOnly === 'true',
     });
   }
 

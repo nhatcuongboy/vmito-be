@@ -18,6 +18,7 @@ import {
   RegistrationStatus,
   Prisma,
   SessionStatus,
+  FavoriteType,
 } from '@prisma/client';
 import { removeVietnameseTones } from '../common/utils/string.utils';
 import {
@@ -26,6 +27,7 @@ import {
 } from '../sessions/sessions.gateway';
 import { FeeService } from '../fee/fee.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { FavoritesService } from '../favorites/favorites.service';
 
 @Injectable()
 export class PlayersService {
@@ -34,7 +36,8 @@ export class PlayersService {
     @Inject(forwardRef(() => SessionsGateway))
     private sessionsGateway: SessionsGateway,
     private feeService: FeeService,
-    private notificationsService: NotificationsService
+    private notificationsService: NotificationsService,
+    private favoritesService: FavoritesService
   ) {}
 
   private async resolveClubMembershipForPlayer(input: {
@@ -1859,6 +1862,7 @@ export class PlayersService {
       sortOrder?: 'asc' | 'desc';
       status?: string;
       excludeStatuses?: SessionStatus[];
+      favoriteOnly?: boolean;
     }
   ) {
     if (!userId) {
@@ -1868,6 +1872,17 @@ export class PlayersService {
     const page = filters?.page || 1;
     const limit = filters?.limit || 12;
     const skip = (page - 1) * limit;
+
+    let favoriteIds: string[] | undefined;
+    if (filters?.favoriteOnly) {
+      favoriteIds = await this.favoritesService.getFavoritedTargetIds(
+        userId,
+        FavoriteType.SESSION
+      );
+      if (favoriteIds.length === 0) {
+        return { data: [], total: 0, page, limit, totalPages: 0 };
+      }
+    }
 
     // Find all sessions that the current user has registered for (Pending/Approved)
     const where: Prisma.SessionWhereInput = {
@@ -1880,6 +1895,10 @@ export class PlayersService {
         },
       },
     };
+
+    if (favoriteIds) {
+      where.id = { in: favoriteIds };
+    }
 
     if (filters?.status) {
       where.status = filters.status as SessionStatus;
@@ -1963,6 +1982,7 @@ export class PlayersService {
       this.prisma.session.count({ where }),
     ]);
 
+    let pageData = sessions;
     if (isStatusSort) {
       // Custom status priority: IN_PROGRESS -> PREPARING -> FINISHED
       const statusPriority: Record<string, number> = {
@@ -1978,17 +1998,19 @@ export class PlayersService {
         const dateB = b.startTime ? new Date(b.startTime).getTime() : 0;
         return dateA - dateB;
       });
-      return {
-        data: sorted.slice(skip, skip + limit),
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
+      pageData = sorted.slice(skip, skip + limit);
     }
 
+    const favoriteSet = filters?.favoriteOnly
+      ? new Set(pageData.map((s) => s.id))
+      : await this.favoritesService.isFavoritedMap(
+          userId,
+          FavoriteType.SESSION,
+          pageData.map((s) => s.id)
+        );
+
     return {
-      data: sessions,
+      data: pageData.map((s) => ({ ...s, isFavorite: favoriteSet.has(s.id) })),
       total,
       page,
       limit,

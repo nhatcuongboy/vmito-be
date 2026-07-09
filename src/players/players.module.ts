@@ -10,6 +10,7 @@ import { FeeModule } from '../fee/fee.module';
 import { ClubsModule } from '../clubs/clubs.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SessionAccessModule } from '../common/session-access/session-access.module';
+import { FavoritesModule } from '../favorites/favorites.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { SessionAccessModule } from '../common/session-access/session-access.mod
     ClubsModule,
     NotificationsModule,
     SessionAccessModule,
+    FavoritesModule,
   ],
   controllers: [PlayersController, SessionPlayersController],
   providers: [PlayersService],
