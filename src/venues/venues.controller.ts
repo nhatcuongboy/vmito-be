@@ -82,6 +82,7 @@ export class VenuesController {
     return this.venuesService.findOne(id);
   }
 
+  @Public()
   @Get(':venueId/price-books')
   findPriceBooks(@Param('venueId') venueId: string) {
     return this.venuesService.findPriceBooks(venueId);
