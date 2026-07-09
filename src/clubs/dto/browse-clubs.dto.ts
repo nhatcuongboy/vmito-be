@@ -5,6 +5,7 @@ import {
   Min,
   Max,
   IsNumber,
+  IsBoolean,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -42,6 +43,11 @@ export class BrowseClubsDto {
   @IsOptional()
   @IsString()
   sortOrder?: string;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  favoriteOnly?: boolean;
 
   @IsOptional()
   @IsInt()

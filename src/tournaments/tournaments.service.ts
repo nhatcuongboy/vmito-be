@@ -25,6 +25,7 @@ import {
   TournamentPermission,
   SportType,
   Gender,
+  FavoriteType,
 } from '@prisma/client';
 import { MATCH_SCORING_INCLUDE } from '../categories/scoring/match-include';
 import { normalizeMatchForBroadcast } from '../categories/scoring/normalize-match';
@@ -37,6 +38,7 @@ import {
   TournamentsGateway,
   TournamentEventType,
 } from './realtime/tournaments.gateway';
+import { FavoritesService } from '../favorites/favorites.service';
 
 @Injectable()
 export class TournamentsService {
@@ -44,7 +46,8 @@ export class TournamentsService {
     private prisma: PrismaService,
     private access: TournamentAccessService,
     private scheduleService: ScheduleService,
-    private gateway: TournamentsGateway
+    private gateway: TournamentsGateway,
+    private favoritesService: FavoritesService
   ) {}
 
   private generateSlug(name: string): string {
@@ -120,8 +123,20 @@ export class TournamentsService {
     return { tournamentId: tournament.id, isHost, isAdmin, permissions };
   }
 
-  async findAll() {
+  async findAll(favoriteOnly?: boolean, userId?: string) {
+    let favoriteIds: string[] | undefined;
+    if (favoriteOnly) {
+      favoriteIds = userId
+        ? await this.favoritesService.getFavoritedTargetIds(
+            userId,
+            FavoriteType.TOURNAMENT
+          )
+        : [];
+      if (favoriteIds.length === 0) return [];
+    }
+
     const tournaments = await this.prisma.tournament.findMany({
+      where: favoriteIds ? { id: { in: favoriteIds } } : undefined,
       include: {
         host: {
           select: {
@@ -144,7 +159,20 @@ export class TournamentsService {
       },
     });
 
-    return tournaments;
+    const favoriteSet = favoriteOnly
+      ? new Set(tournaments.map((t) => t.id))
+      : userId
+        ? await this.favoritesService.isFavoritedMap(
+            userId,
+            FavoriteType.TOURNAMENT,
+            tournaments.map((t) => t.id)
+          )
+        : new Set<string>();
+
+    return tournaments.map((t) => ({
+      ...t,
+      isFavorite: favoriteSet.has(t.id),
+    }));
   }
 
   async findOne(idOrSlug: string) {
@@ -1125,10 +1153,7 @@ export class TournamentsService {
     ).tournamentVenue.findFirst({
       where: {
         tournamentId,
-        OR: [
-          { venueId: venueOrRecordId },
-          { id: venueOrRecordId },
-        ],
+        OR: [{ venueId: venueOrRecordId }, { id: venueOrRecordId }],
       },
     });
     if (!tournamentVenue)

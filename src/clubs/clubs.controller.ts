@@ -21,12 +21,14 @@ import {
   JoinRequestDto,
 } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { PlayerVipGuard } from '../auth/guards/player-vip.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { Role } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 interface JwtUser {
   userId: string;
@@ -46,9 +48,13 @@ export class ClubsController {
    * Browse public clubs
    */
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get()
-  async browseClubs(@Query() query: BrowseClubsDto) {
-    return this.clubsService.browsePublicClubs(query);
+  async browseClubs(
+    @Query() query: BrowseClubsDto,
+    @CurrentUser() user?: AuthenticatedUser
+  ) {
+    return this.clubsService.browsePublicClubs(query, user?.userId);
   }
 
   /**

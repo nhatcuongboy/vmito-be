@@ -91,6 +91,15 @@ export class SearchVenueDto {
 
   @ApiProperty({
     required: false,
+    description: "Show only the caller's favorited venues",
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  favoriteOnly?: boolean;
+
+  @ApiProperty({
+    required: false,
     description:
       'Filter by new-era address presence. true = has new address, false = missing new address.',
   })

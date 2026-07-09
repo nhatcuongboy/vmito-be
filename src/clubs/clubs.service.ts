@@ -22,6 +22,7 @@ import {
   ClubJoinPolicy,
   ClubStatus,
   Role,
+  FavoriteType,
 } from '@prisma/client';
 import {
   removeVietnameseTones,
@@ -29,12 +30,14 @@ import {
 } from '../common/utils/string.utils';
 import { NotificationsService } from '../notifications/notifications.service';
 import { VALID_LEVELS } from '../common/constants/level.constants';
+import { FavoritesService } from '../favorites/favorites.service';
 
 @Injectable()
 export class ClubsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly notificationsService: NotificationsService
+    private readonly notificationsService: NotificationsService,
+    private readonly favoritesService: FavoritesService
   ) {}
 
   private validateRequiredLevels(requiredLevels?: number[]) {
@@ -118,7 +121,7 @@ export class ClubsService {
   /**
    * Browse public clubs with search and pagination
    */
-  async browsePublicClubs(query: BrowseClubsDto) {
+  async browsePublicClubs(query: BrowseClubsDto, userId?: string) {
     const {
       search,
       location,
@@ -130,13 +133,31 @@ export class ClubsService {
       sortOrder = 'desc',
       page = 1,
       limit = 10,
+      favoriteOnly,
     } = query;
     const skip = (page - 1) * limit;
+
+    let favoriteIds: string[] | undefined;
+    if (favoriteOnly) {
+      favoriteIds = userId
+        ? await this.favoritesService.getFavoritedTargetIds(
+            userId,
+            FavoriteType.CLUB
+          )
+        : [];
+      if (favoriteIds.length === 0) {
+        return { items: [], total: 0, page, limit, totalPages: 0 };
+      }
+    }
 
     const andConditions: Prisma.ClubWhereInput[] = [
       { isPublic: true },
       { status: ClubStatus.APPROVED },
     ];
+
+    if (favoriteIds) {
+      andConditions.push({ id: { in: favoriteIds } });
+    }
 
     if (search) {
       andConditions.push({
@@ -257,8 +278,18 @@ export class ClubsService {
       });
     }
 
+    const favoriteSet = favoriteOnly
+      ? new Set(result.map((c) => c.id))
+      : userId
+        ? await this.favoritesService.isFavoritedMap(
+            userId,
+            FavoriteType.CLUB,
+            result.map((c) => c.id)
+          )
+        : new Set<string>();
+
     return {
-      items: result,
+      items: result.map((c) => ({ ...c, isFavorite: favoriteSet.has(c.id) })),
       total,
       page,
       limit,
