@@ -1338,6 +1338,44 @@ export class ClubsService {
     });
   }
 
+  async getManagedJoinRequests(userId: string) {
+    return this.prisma.clubJoinRequest.findMany({
+      where: {
+        status: JoinRequestStatus.PENDING,
+        club: {
+          OR: [
+            { hostId: userId },
+            {
+              members: {
+                some: {
+                  userId,
+                  status: MemberStatus.ACTIVE,
+                  role: { in: [MemberRole.ADMIN, MemberRole.MODERATOR] },
+                },
+              },
+            },
+          ],
+        },
+      },
+      include: {
+        club: {
+          select: { id: true, slug: true, name: true, image: true },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+            gender: true,
+            level: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async getJoinRequests(clubId: string, hostId: string, userRole?: Role) {
     const club = await this.prisma.club.findFirst({
       where: userRole === Role.ADMIN ? { id: clubId } : { id: clubId, hostId },

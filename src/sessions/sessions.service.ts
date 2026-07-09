@@ -726,6 +726,17 @@ export class SessionsService {
             id: true,
             name: true,
             color: true,
+            feeConfigs: {
+              where: {
+                month: new Date().getMonth() + 1,
+                year: new Date().getFullYear(),
+              },
+              select: {
+                maleFeePerSession: true,
+                femaleFeePerSession: true,
+              },
+              take: 1,
+            },
           },
         },
         _count: {
@@ -795,6 +806,13 @@ export class SessionsService {
       players: approvedPlayers,
       pendingPlayers: pendingPlayers,
       courts: processedCourts,
+      club: session.club
+        ? {
+            ...session.club,
+            currentMonthFee: session.club.feeConfigs[0] || null,
+            feeConfigs: undefined,
+          }
+        : session.club,
     };
   }
 

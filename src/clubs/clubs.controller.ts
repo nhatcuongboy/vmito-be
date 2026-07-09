@@ -247,6 +247,18 @@ export class ClubsController {
     return this.clubsService.getAllPendingJoinRequests();
   }
 
+  /**
+   * Pending join requests across every club the current user manages
+   * (host or ADMIN/MODERATOR member). Single query, avoids N+1 calls to
+   * `:id/join-requests` from the notification bell / my-clubs pages.
+   */
+  @Get('my/join-requests')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async getMyManagedJoinRequests(@CurrentUser() user: JwtUser) {
+    return this.clubsService.getManagedJoinRequests(user.userId);
+  }
+
   @Get(':id/join-requests')
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
   @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
