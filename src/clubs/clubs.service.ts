@@ -22,6 +22,7 @@ import {
   ClubJoinPolicy,
   ClubStatus,
   Role,
+  FavoriteType,
 } from '@prisma/client';
 import {
   removeVietnameseTones,
@@ -29,13 +30,33 @@ import {
 } from '../common/utils/string.utils';
 import { NotificationsService } from '../notifications/notifications.service';
 import { VALID_LEVELS } from '../common/constants/level.constants';
+import { FavoritesService } from '../favorites/favorites.service';
 
 @Injectable()
 export class ClubsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly notificationsService: NotificationsService
+    private readonly notificationsService: NotificationsService,
+    private readonly favoritesService: FavoritesService
   ) {}
+
+  private stripHtmlTags(html: string | null | undefined): string {
+    if (!html) return '';
+    return html.replace(/<[^>]*>/g, '').trim();
+  }
+
+  private generateSearchTerms(
+    name: string,
+    hostName: string | null | undefined,
+    description: string | null | undefined,
+    location: string | null | undefined,
+    venueInfo: string = ''
+  ): string {
+    const cleanDescription = this.stripHtmlTags(description);
+    return removeVietnameseTones(
+      `${name} ${hostName || ''} ${cleanDescription} ${location || ''} ${venueInfo}`
+    ).toLowerCase();
+  }
 
   private validateRequiredLevels(requiredLevels?: number[]) {
     if (requiredLevels === undefined) return;
@@ -118,7 +139,7 @@ export class ClubsService {
   /**
    * Browse public clubs with search and pagination
    */
-  async browsePublicClubs(query: BrowseClubsDto) {
+  async browsePublicClubs(query: BrowseClubsDto, userId?: string) {
     const {
       search,
       location,
@@ -130,13 +151,31 @@ export class ClubsService {
       sortOrder = 'desc',
       page = 1,
       limit = 10,
+      favoriteOnly,
     } = query;
     const skip = (page - 1) * limit;
+
+    let favoriteIds: string[] | undefined;
+    if (favoriteOnly) {
+      favoriteIds = userId
+        ? await this.favoritesService.getFavoritedTargetIds(
+            userId,
+            FavoriteType.CLUB
+          )
+        : [];
+      if (favoriteIds.length === 0) {
+        return { items: [], total: 0, page, limit, totalPages: 0 };
+      }
+    }
 
     const andConditions: Prisma.ClubWhereInput[] = [
       { isPublic: true },
       { status: ClubStatus.APPROVED },
     ];
+
+    if (favoriteIds) {
+      andConditions.push({ id: { in: favoriteIds } });
+    }
 
     if (search) {
       andConditions.push({
@@ -257,8 +296,18 @@ export class ClubsService {
       });
     }
 
+    const favoriteSet = favoriteOnly
+      ? new Set(result.map((c) => c.id))
+      : userId
+        ? await this.favoritesService.isFavoritedMap(
+            userId,
+            FavoriteType.CLUB,
+            result.map((c) => c.id)
+          )
+        : new Set<string>();
+
     return {
-      items: result,
+      items: result.map((c) => ({ ...c, isFavorite: favoriteSet.has(c.id) })),
       total,
       page,
       limit,
@@ -915,6 +964,18 @@ export class ClubsService {
     // All clubs are approved immediately upon creation
     const clubStatus = ClubStatus.APPROVED;
 
+    // Fetch venue info for searchTerms if defaultVenueId provided
+    let venueInfo = '';
+    if (dto.defaultVenueId) {
+      const venue = await this.prisma.venue.findUnique({
+        where: { id: dto.defaultVenueId },
+        select: { name: true, address: true, district: true, city: true },
+      });
+      if (venue) {
+        venueInfo = `${venue.name} ${venue.address} ${venue.district || ''} ${venue.city || ''}`;
+      }
+    }
+
     const club = await this.prisma.$transaction(async (tx) => {
       const slug = await this.uniqueClubSlug(dto.name);
       const club = await tx.club.create({
@@ -934,9 +995,13 @@ export class ClubsService {
               })),
             },
           }),
-          searchTerms: removeVietnameseTones(
-            `${dto.name} ${dto.description || ''} ${dto.location || ''}`
-          ).toLowerCase(),
+          searchTerms: this.generateSearchTerms(
+            dto.name,
+            dto.hostName,
+            dto.description,
+            dto.location,
+            venueInfo
+          ),
         },
         include: {
           schedules: true,
@@ -1061,6 +1126,31 @@ export class ClubsService {
       return this.prisma.$transaction(async (tx) => {
         await tx.clubSchedule.deleteMany({ where: { clubId } });
 
+        // Fetch current club info for searchTerms calculation
+        const currentClub = await tx.club.findUnique({
+          where: { id: clubId },
+          select: {
+            name: true,
+            hostName: true,
+            description: true,
+            location: true,
+            defaultVenueId: true,
+          },
+        });
+
+        // Fetch venue info if exists
+        let venueInfo = '';
+        const venueId = clubData.defaultVenueId || currentClub?.defaultVenueId;
+        if (venueId) {
+          const venue = await tx.venue.findUnique({
+            where: { id: venueId },
+            select: { name: true, address: true, district: true, city: true },
+          });
+          if (venue) {
+            venueInfo = `${venue.name} ${venue.address} ${venue.district || ''} ${venue.city || ''}`;
+          }
+        }
+
         return tx.club.update({
           where: { id: clubId },
           data: {
@@ -1075,13 +1165,15 @@ export class ClubsService {
                 })),
               },
             }),
-            ...(clubData.name || clubData.description || clubData.location
+            ...(clubData.name || clubData.description || clubData.location || clubData.hostName
               ? {
-                  searchTerms: removeVietnameseTones(
-                    `${clubData.name || ''} ${clubData.description || ''} ${
-                      clubData.location || ''
-                    }`
-                  ).toLowerCase(),
+                  searchTerms: this.generateSearchTerms(
+                    clubData.name || currentClub?.name || '',
+                    clubData.hostName !== undefined ? clubData.hostName : currentClub?.hostName,
+                    clubData.description !== undefined ? clubData.description : currentClub?.description,
+                    clubData.location !== undefined ? clubData.location : currentClub?.location,
+                    venueInfo
+                  ),
                 }
               : {}),
           },
@@ -1101,17 +1193,44 @@ export class ClubsService {
       });
     }
 
+    // Fetch current club info for searchTerms calculation
+    const currentClub = await this.prisma.club.findUnique({
+      where: { id: clubId },
+      select: {
+        name: true,
+        hostName: true,
+        description: true,
+        location: true,
+        defaultVenueId: true,
+      },
+    });
+
+    // Fetch venue info if exists
+    let venueInfo = '';
+    const venueId = clubData.defaultVenueId || currentClub?.defaultVenueId;
+    if (venueId) {
+      const venue = await this.prisma.venue.findUnique({
+        where: { id: venueId },
+        select: { name: true, address: true, district: true, city: true },
+      });
+      if (venue) {
+        venueInfo = `${venue.name} ${venue.address} ${venue.district || ''} ${venue.city || ''}`;
+      }
+    }
+
     return this.prisma.club.update({
       where: { id: clubId },
       data: {
         ...clubData,
-        ...(clubData.name || clubData.description || clubData.location
+        ...(clubData.name || clubData.description || clubData.location || clubData.hostName
           ? {
-              searchTerms: removeVietnameseTones(
-                `${clubData.name || ''} ${clubData.description || ''} ${
-                  clubData.location || ''
-                }`
-              ).toLowerCase(),
+              searchTerms: this.generateSearchTerms(
+                clubData.name || currentClub?.name || '',
+                clubData.hostName !== undefined ? clubData.hostName : currentClub?.hostName,
+                clubData.description !== undefined ? clubData.description : currentClub?.description,
+                clubData.location !== undefined ? clubData.location : currentClub?.location,
+                venueInfo
+              ),
             }
           : {}),
       },
@@ -1319,6 +1438,44 @@ export class ClubsService {
   async getAllPendingJoinRequests() {
     return this.prisma.clubJoinRequest.findMany({
       where: { status: JoinRequestStatus.PENDING },
+      include: {
+        club: {
+          select: { id: true, slug: true, name: true, image: true },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+            gender: true,
+            level: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getManagedJoinRequests(userId: string) {
+    return this.prisma.clubJoinRequest.findMany({
+      where: {
+        status: JoinRequestStatus.PENDING,
+        club: {
+          OR: [
+            { hostId: userId },
+            {
+              members: {
+                some: {
+                  userId,
+                  status: MemberStatus.ACTIVE,
+                  role: { in: [MemberRole.ADMIN, MemberRole.MODERATOR] },
+                },
+              },
+            },
+          ],
+        },
+      },
       include: {
         club: {
           select: { id: true, slug: true, name: true, image: true },

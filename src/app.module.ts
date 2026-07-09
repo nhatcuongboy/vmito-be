@@ -37,6 +37,7 @@ import { ViewsModule } from './views/views.module';
 import { UmpiresModule } from './umpires/umpires.module';
 import { TournamentManagersModule } from './tournament-managers/tournament-managers.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
+import { FavoritesModule } from './favorites/favorites.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { UserOrIpThrottlerGuard } from './common/guards/user-or-ip-throttler.guard';
 import configuration from './config';
@@ -48,7 +49,10 @@ import configuration from './config';
       load: configuration,
       envFilePath: ['.env.local', '.env'],
     }),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    // 300 req/min per user (or IP for unauthenticated) – generous enough for
+    // normal page navigation (each page loads 3-6 parallel API calls) while
+    // still protecting against scripted abuse.
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 300 }]),
     ScheduleModule.forRoot(),
     PrismaModule,
     HealthModule,
@@ -82,6 +86,7 @@ import configuration from './config';
     UmpiresModule,
     TournamentManagersModule,
     WebhooksModule,
+    FavoritesModule,
   ],
   controllers: [AppController],
   providers: [

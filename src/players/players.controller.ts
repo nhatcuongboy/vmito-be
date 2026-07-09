@@ -135,7 +135,8 @@ export class PlayersController {
     @Query('sortBy') sortBy?: string,
     @Query('sortOrder') sortOrder?: 'asc' | 'desc',
     @Query('status') status?: string,
-    @Query('excludeStatuses') excludeStatusesRaw?: string
+    @Query('excludeStatuses') excludeStatusesRaw?: string,
+    @Query('favoriteOnly') favoriteOnly?: string
   ) {
     if (!user || typeof user.userId !== 'string') {
       throw new Error('Invalid user object');
@@ -151,6 +152,7 @@ export class PlayersController {
       sortOrder,
       status,
       excludeStatuses,
+      favoriteOnly: favoriteOnly === 'true',
     });
   }
 

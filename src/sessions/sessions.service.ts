@@ -11,6 +11,7 @@ import { UpdateSessionDto } from './dto/update-session.dto';
 import { ConfigService } from '@nestjs/config';
 import {
   CourtDirection,
+  FavoriteType,
   ImageCategory,
   Prisma,
   SessionStatus,
@@ -32,6 +33,7 @@ import {
   removeVietnameseTones,
 } from '../common/utils/string.utils';
 import { ExtractedSessionDto } from '../ai/dto/extract-session.dto';
+import { FavoritesService } from '../favorites/favorites.service';
 
 @Injectable()
 export class SessionsService {
@@ -42,7 +44,8 @@ export class SessionsService {
     private notificationsService: NotificationsService,
     private cloudinaryService: CloudinaryService,
     private clubsService: ClubsService,
-    private userImagesService: UserImagesService
+    private userImagesService: UserImagesService,
+    private favoritesService: FavoritesService
   ) {}
 
   private readonly STATUS_PRIORITY: Record<string, number> = {
@@ -123,11 +126,25 @@ export class SessionsService {
       endTimeBefore?: string;
       endTimeAfter?: string;
       sessionType?: 'all' | 'regular' | 'facebook';
+      favoriteOnly?: boolean;
     }
   ) {
     const page = filters?.page || 1;
     const limit = filters?.limit || 12;
     const skip = (page - 1) * limit;
+
+    let favoriteIds: string[] | undefined;
+    if (filters?.favoriteOnly) {
+      favoriteIds = user?.userId
+        ? await this.favoritesService.getFavoritedTargetIds(
+            user.userId,
+            FavoriteType.SESSION
+          )
+        : [];
+      if (favoriteIds.length === 0) {
+        return { data: [], total: 0, page, limit, totalPages: 0 };
+      }
+    }
 
     const where: Prisma.SessionWhereInput = {};
 
@@ -137,6 +154,10 @@ export class SessionsService {
     } else if (user && user.role !== 'ADMIN') {
       // Default to filtering by current user if not admin
       where.hostId = user.userId;
+    }
+
+    if (favoriteIds) {
+      where.id = { in: favoriteIds };
     }
 
     if (filters?.searchQuery) {
@@ -204,19 +225,22 @@ export class SessionsService {
       ...(isStatusSort ? {} : { skip, take: limit }),
     });
 
-    if (isStatusSort) {
-      const sorted = this.sortByStatus(data);
-      return {
-        data: sorted.slice(skip, skip + limit),
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
-    }
+    const pageData = isStatusSort
+      ? this.sortByStatus(data).slice(skip, skip + limit)
+      : data;
+
+    const favoriteSet = filters?.favoriteOnly
+      ? new Set(pageData.map((s) => s.id))
+      : user?.userId
+        ? await this.favoritesService.isFavoritedMap(
+            user.userId,
+            FavoriteType.SESSION,
+            pageData.map((s) => s.id)
+          )
+        : new Set<string>();
 
     return {
-      data,
+      data: pageData.map((s) => ({ ...s, isFavorite: favoriteSet.has(s.id) })),
       total,
       page,
       limit,
@@ -240,30 +264,50 @@ export class SessionsService {
     return this.findAll(undefined, { ...filters, hostId });
   }
 
-  async findAvailable(filters?: {
-    date?: string;
-    level?: number;
-    city?: string;
-    district?: string;
-    venueId?: string;
-    minFee?: number;
-    maxFee?: number;
-    hasSlots?: boolean;
-    minAvailableSlots?: number;
-    searchQuery?: string;
-    lat?: number;
-    lng?: number;
-    sortByDistance?: boolean;
-    page?: number;
-    limit?: number;
-    hostId?: string;
-    sortBy?: string;
-    sortOrder?: 'asc' | 'desc';
-    sessionType?: 'all' | 'regular' | 'facebook';
-  }) {
+  async findAvailable(
+    filters?: {
+      date?: string;
+      level?: number;
+      city?: string;
+      district?: string;
+      venueId?: string;
+      minFee?: number;
+      maxFee?: number;
+      hasSlots?: boolean;
+      minAvailableSlots?: number;
+      searchQuery?: string;
+      lat?: number;
+      lng?: number;
+      sortByDistance?: boolean;
+      page?: number;
+      limit?: number;
+      hostId?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      sessionType?: 'all' | 'regular' | 'facebook';
+      favoriteOnly?: boolean;
+    },
+    userId?: string
+  ) {
     const page = filters?.page || 1;
     const limit = filters?.limit || 12;
     const skip = (page - 1) * limit;
+
+    let favoriteIds: string[] | undefined;
+    if (filters?.favoriteOnly) {
+      favoriteIds = userId
+        ? await this.favoritesService.getFavoritedTargetIds(
+            userId,
+            FavoriteType.SESSION
+          )
+        : [];
+      if (favoriteIds.length === 0) {
+        return {
+          data: [],
+          pagination: { page, limit, total: 0, totalPages: 0 },
+        };
+      }
+    }
 
     const where: Prisma.SessionWhereInput = {
       status: 'PREPARING', // Only show sessions that haven't started
@@ -280,6 +324,10 @@ export class SessionsService {
 
     // Initialize AND array if not present to avoid overwriting
     const andConditions: Prisma.SessionWhereInput[] = [];
+
+    if (favoriteIds) {
+      andConditions.push({ id: { in: favoriteIds } });
+    }
 
     // Date filter
     if (filters?.date) {
@@ -561,8 +609,21 @@ export class SessionsService {
         });
     }
 
+    const favoriteSet = filters?.favoriteOnly
+      ? new Set(sessionsToReturn.map((s) => s.id))
+      : userId
+        ? await this.favoritesService.isFavoritedMap(
+            userId,
+            FavoriteType.SESSION,
+            sessionsToReturn.map((s) => s.id)
+          )
+        : new Set<string>();
+
     return {
-      data: sessionsToReturn,
+      data: sessionsToReturn.map((s) => ({
+        ...s,
+        isFavorite: favoriteSet.has(s.id),
+      })),
       pagination: {
         page,
         limit,
@@ -726,6 +787,17 @@ export class SessionsService {
             id: true,
             name: true,
             color: true,
+            feeConfigs: {
+              where: {
+                month: new Date().getMonth() + 1,
+                year: new Date().getFullYear(),
+              },
+              select: {
+                maleFeePerSession: true,
+                femaleFeePerSession: true,
+              },
+              take: 1,
+            },
           },
         },
         _count: {
@@ -795,6 +867,13 @@ export class SessionsService {
       players: approvedPlayers,
       pendingPlayers: pendingPlayers,
       courts: processedCourts,
+      club: session.club
+        ? {
+            ...session.club,
+            currentMonthFee: session.club.feeConfigs[0] || null,
+            feeConfigs: undefined,
+          }
+        : session.club,
     };
   }
 

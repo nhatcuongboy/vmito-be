@@ -25,7 +25,9 @@ import { AddTournamentVenueDto } from './dto/add-tournament-venue.dto';
 import { ScoreboardQueryDto } from './dto/scoreboard-query.dto';
 import { SaveTournamentPairDto } from './dto/tournament-pair.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 
 @ApiTags('tournaments')
@@ -40,9 +42,16 @@ export class TournamentsController {
   ) {}
 
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get()
-  findAll() {
-    return this.tournamentsService.findAll();
+  findAll(
+    @Query('favoriteOnly') favoriteOnly?: string,
+    @CurrentUser() user?: AuthenticatedUser
+  ) {
+    return this.tournamentsService.findAll(
+      favoriteOnly === 'true',
+      user?.userId
+    );
   }
 
   @Get('my')

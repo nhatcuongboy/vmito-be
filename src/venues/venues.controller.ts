@@ -13,8 +13,11 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { VenuesService } from './venues.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
 import { Public } from '../auth/decorators/public.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { CreateVenueDto } from './dto/create-venue.dto';
 import { UpdateVenueDto } from './dto/update-venue.dto';
 import { SearchVenueDto } from './dto/search-venue.dto';
@@ -35,14 +38,18 @@ export class VenuesController {
   constructor(private readonly venuesService: VenuesService) {}
 
   @Public()
-  @Throttle({ default: { limit: 40, ttl: 60000 } })
+  @UseGuards(OptionalJwtAuthGuard)
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Get('search')
-  search(@Query() searchVenueDto: SearchVenueDto) {
-    return this.venuesService.searchVenues(searchVenueDto);
+  search(
+    @Query() searchVenueDto: SearchVenueDto,
+    @CurrentUser() user?: AuthenticatedUser
+  ) {
+    return this.venuesService.searchVenues(searchVenueDto, user?.userId);
   }
 
   @Public()
-  @Throttle({ default: { limit: 40, ttl: 60000 } })
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Get()
   findAll(@Query('page') page?: string, @Query('limit') limit?: string) {
     return this.venuesService.findAll({
@@ -75,6 +82,7 @@ export class VenuesController {
     return this.venuesService.findOne(id);
   }
 
+  @Public()
   @Get(':venueId/price-books')
   findPriceBooks(@Param('venueId') venueId: string) {
     return this.venuesService.findPriceBooks(venueId);

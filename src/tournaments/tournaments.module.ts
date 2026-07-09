@@ -13,6 +13,7 @@ import { ScheduleAlgorithmService } from './services/schedule-algorithm.service'
 import { TournamentMatchGenerationService } from './services/tournament-match-generation.service';
 import { ScheduleModule } from './schedule.module';
 import { TournamentsGatewayModule } from './realtime/tournaments-gateway.module';
+import { FavoritesModule } from '../favorites/favorites.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { TournamentsGatewayModule } from './realtime/tournaments-gateway.module'
     TournamentAccessModule,
     ScheduleModule,
     TournamentsGatewayModule,
+    FavoritesModule,
   ],
   controllers: [
     TournamentsController,

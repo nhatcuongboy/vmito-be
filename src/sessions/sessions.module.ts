@@ -10,6 +10,7 @@ import { SessionExpensesModule } from './expenses/session-expenses.module';
 import { SessionSchedulerService } from './session-scheduler.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SessionAccessModule } from '../common/session-access/session-access.module';
+import { FavoritesModule } from '../favorites/favorites.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { SessionAccessModule } from '../common/session-access/session-access.mod
     SessionsGatewayModule,
     NotificationsModule,
     SessionAccessModule,
+    FavoritesModule,
   ],
   controllers: [SessionsController],
   providers: [SessionsService, SessionSchedulerService],

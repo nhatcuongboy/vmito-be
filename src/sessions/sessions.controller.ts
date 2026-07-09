@@ -33,7 +33,9 @@ import { BulkSessionCreationDto } from './dto/bulk-session.dto';
 import { RecommendationResponseDto } from './dto/recommendation-response.dto';
 import { SessionSuggestionsQueryDto } from './dto/session-suggestions.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { ConfigService } from '@nestjs/config';
 import { SessionStatus } from '@prisma/client';
@@ -64,7 +66,8 @@ export class SessionsController {
     @Query('excludeStatuses') excludeStatusesRaw?: string,
     @Query('endTimeBefore') endTimeBefore?: string,
     @Query('endTimeAfter') endTimeAfter?: string,
-    @Query('sessionType') sessionType?: 'all' | 'regular' | 'facebook'
+    @Query('sessionType') sessionType?: 'all' | 'regular' | 'facebook',
+    @Query('favoriteOnly') favoriteOnly?: string
   ) {
     // Security: non-admin users can only see their own hosted sessions
     const effectiveHostId = user.role === 'ADMIN' ? hostId : user.userId;
@@ -85,6 +88,7 @@ export class SessionsController {
       endTimeBefore,
       endTimeAfter,
       sessionType,
+      favoriteOnly: favoriteOnly === 'true',
     });
   }
 
@@ -117,6 +121,7 @@ export class SessionsController {
   }
 
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get('available')
   getAvailable(
     @Query('date') date?: string,
@@ -137,32 +142,38 @@ export class SessionsController {
     @Query('hostId') hostId?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortOrder') sortOrder?: 'asc' | 'desc',
-    @Query('sessionType') sessionType?: 'all' | 'regular' | 'facebook'
+    @Query('sessionType') sessionType?: 'all' | 'regular' | 'facebook',
+    @Query('favoriteOnly') favoriteOnly?: string,
+    @CurrentUser() user?: AuthenticatedUser
   ) {
-    return this.sessionsService.findAvailable({
-      date,
-      level,
-      city,
-      district,
-      venueId,
-      minFee: minFee ? parseFloat(minFee) : undefined,
-      maxFee: maxFee ? parseFloat(maxFee) : undefined,
-      hasSlots:
-        hasSlots === 'true' ? true : hasSlots === 'false' ? false : undefined,
-      minAvailableSlots: minAvailableSlots
-        ? parseInt(minAvailableSlots, 10)
-        : undefined,
-      searchQuery,
-      lat: lat ? parseFloat(lat) : undefined,
-      lng: lng ? parseFloat(lng) : undefined,
-      sortByDistance: sortByDistance === 'true',
-      page: page ? parseInt(page, 10) : undefined,
-      limit: limit ? parseInt(limit, 10) : undefined,
-      hostId,
-      sortBy,
-      sortOrder,
-      sessionType,
-    });
+    return this.sessionsService.findAvailable(
+      {
+        date,
+        level,
+        city,
+        district,
+        venueId,
+        minFee: minFee ? parseFloat(minFee) : undefined,
+        maxFee: maxFee ? parseFloat(maxFee) : undefined,
+        hasSlots:
+          hasSlots === 'true' ? true : hasSlots === 'false' ? false : undefined,
+        minAvailableSlots: minAvailableSlots
+          ? parseInt(minAvailableSlots, 10)
+          : undefined,
+        searchQuery,
+        lat: lat ? parseFloat(lat) : undefined,
+        lng: lng ? parseFloat(lng) : undefined,
+        sortByDistance: sortByDistance === 'true',
+        page: page ? parseInt(page, 10) : undefined,
+        limit: limit ? parseInt(limit, 10) : undefined,
+        hostId,
+        sortBy,
+        sortOrder,
+        sessionType,
+        favoriteOnly: favoriteOnly === 'true',
+      },
+      user?.userId
+    );
   }
 
   @ApiOperation({

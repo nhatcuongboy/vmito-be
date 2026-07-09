@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import {
   ClosureStatus,
+  FavoriteType,
   Prisma,
   SportType,
   VenueCustomerType,
@@ -13,6 +14,7 @@ import {
   VenueStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { FavoritesService } from '../favorites/favorites.service';
 import { CreateVenueDto } from './dto/create-venue.dto';
 import { UpdateVenueDto } from './dto/update-venue.dto';
 import { SearchVenueDto } from './dto/search-venue.dto';
@@ -28,6 +30,9 @@ import {
   generateSlug,
 } from '../common/utils/string.utils';
 import { AddressMappingService } from './address-mapping.service';
+import { VENUE_PUBLIC_OMIT } from './venue-public-omit.constant';
+
+export { VENUE_PUBLIC_OMIT };
 
 /**
  * Per-sport display/search prefixes. Raw venue names don't include the
@@ -41,29 +46,12 @@ const SPORT_PREFIX: Record<SportType, { label: string; search: string }> = {
   [SportType.PICKLEBALL]: { label: 'Sân pickleball', search: 'san pickleball' },
 };
 
-/**
- * Fields to hide from bulk/public venue listings (search, findAll) and from
- * nested `venue` includes on other public endpoints (session/tournament
- * detail). Excludes credentials (wifi) and internal-only fields never read
- * by list/card UI — kept separate from `findOne`, which still needs these
- * for the public venue detail page and the admin edit form.
- */
-export const VENUE_PUBLIC_OMIT = {
-  wifiName: true,
-  wifiPassword: true,
-  searchTerms: true,
-  imagePublicIds: true,
-  coverPhotoPublicId: true,
-  courtLayoutImagePublicId: true,
-  bookingPolicy: true,
-  locatedWithin: true,
-} satisfies Prisma.VenueOmit;
-
 @Injectable()
 export class VenuesService {
   constructor(
     private prisma: PrismaService,
-    private addressMapping: AddressMappingService
+    private addressMapping: AddressMappingService,
+    private favoritesService: FavoritesService
   ) {}
 
   /**
@@ -131,7 +119,7 @@ export class VenuesService {
     ).toLowerCase();
   }
 
-  async searchVenues(filters: SearchVenueDto) {
+  async searchVenues(filters: SearchVenueDto, userId?: string) {
     const {
       placeId,
       keyword,
@@ -144,11 +132,28 @@ export class VenuesService {
       isVerified,
       hasNewAddress,
       closureStatus,
+      favoriteOnly,
       sortBy: rawSortBy,
       sortOrder = 'asc',
       page = 1,
       limit = 12,
     } = filters;
+
+    let favoriteIds: string[] | undefined;
+    if (favoriteOnly) {
+      favoriteIds = userId
+        ? await this.favoritesService.getFavoritedTargetIds(
+            userId,
+            FavoriteType.VENUE
+          )
+        : [];
+      if (favoriteIds.length === 0) {
+        return {
+          data: [],
+          pagination: { page, limit, total: 0, totalPages: 0 },
+        };
+      }
+    }
 
     // Auto-set sortBy to 'relevance' if keyword is provided and sortBy is not explicitly set
     const sortBy = rawSortBy || (keyword ? 'relevance' : 'name');
@@ -253,6 +258,10 @@ export class VenuesService {
       andConditions.push(
         hasNewAddress ? { newAddress: { not: null } } : { newAddress: null }
       );
+    }
+
+    if (favoriteIds) {
+      andConditions.push({ id: { in: favoriteIds } });
     }
 
     const where: Prisma.VenueWhereInput =
@@ -367,8 +376,18 @@ export class VenuesService {
       result = result.slice(skip, skip + limit);
     }
 
+    const favoriteSet = favoriteOnly
+      ? new Set(result.map((v) => v.id))
+      : userId
+        ? await this.favoritesService.isFavoritedMap(
+            userId,
+            FavoriteType.VENUE,
+            result.map((v) => v.id)
+          )
+        : new Set<string>();
+
     return {
-      data: result,
+      data: result.map((v) => ({ ...v, isFavorite: favoriteSet.has(v.id) })),
       pagination: {
         page,
         limit,
