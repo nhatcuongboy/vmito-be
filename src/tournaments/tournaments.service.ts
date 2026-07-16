@@ -87,6 +87,11 @@ export class TournamentsService {
           where: { userId },
           select: { permissions: true },
         },
+        venue: { omit: VENUE_PUBLIC_OMIT },
+        tournamentVenues: {
+          include: { venue: { omit: VENUE_PUBLIC_OMIT } },
+          orderBy: { createdAt: 'asc' },
+        },
         _count: {
           select: { categories: true, players: true, pairs: true },
         },
@@ -146,6 +151,11 @@ export class TournamentsService {
             image: true,
           },
         },
+        venue: { omit: VENUE_PUBLIC_OMIT },
+        tournamentVenues: {
+          include: { venue: { omit: VENUE_PUBLIC_OMIT } },
+          orderBy: { createdAt: 'asc' },
+        },
         _count: {
           select: {
             players: true,
@@ -189,6 +199,14 @@ export class TournamentsService {
             email: true,
             image: true,
           },
+        },
+        venue: { omit: VENUE_PUBLIC_OMIT },
+        tournamentVenues: {
+          include: {
+            venue: { omit: VENUE_PUBLIC_OMIT },
+            courts: { orderBy: { courtNumber: 'asc' } },
+          },
+          orderBy: { createdAt: 'asc' },
         },
         categories: {
           include: {
@@ -237,7 +255,7 @@ export class TournamentsService {
   }
 
   async create(dto: CreateTournamentDto, hostId: string) {
-    const { name, description, startDate, endDate, venueId } = dto;
+    const { name, description, startDate, endDate, venueId, location } = dto;
 
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -250,20 +268,66 @@ export class TournamentsService {
       throw new BadRequestException('End date must not be before start date');
     }
 
+    // Resolve the primary venue. Never create a Venue record here — either
+    // link an existing one (by id or placeId) or fall back to an inline
+    // TournamentVenue row.
+    let resolvedVenueId: string | null = null;
+    if (venueId) {
+      const venue = await this.prisma.venue.findUnique({
+        where: { id: venueId },
+      });
+      if (!venue) throw new NotFoundException('Venue not found');
+      resolvedVenueId = venueId;
+    } else if (location?.placeId) {
+      const venue = await this.prisma.venue.findUnique({
+        where: { placeId: location.placeId },
+      });
+      if (venue) resolvedVenueId = venue.id;
+    }
+
     const slug = await this.uniqueSlug(name);
 
-    const tournament = await this.prisma.tournament.create({
-      data: {
-        name,
-        description: description?.trim() || null,
-        slug,
-        startDate: start,
-        endDate: end,
-        hostId,
-        venueId: venueId || undefined,
-        sportType: (dto.sportType ?? 'BADMINTON') as SportType,
-        status: 'PREPARING',
-      },
+    const created = await this.prisma.$transaction(async (tx) => {
+      const tournament = await tx.tournament.create({
+        data: {
+          name,
+          description: description?.trim() || null,
+          slug,
+          startDate: start,
+          endDate: end,
+          hostId,
+          venueId: resolvedVenueId ?? undefined,
+          sportType: (dto.sportType ?? 'BADMINTON') as SportType,
+          status: 'PREPARING',
+        },
+      });
+
+      if (resolvedVenueId) {
+        await (tx as any).tournamentVenue.create({
+          data: { tournamentId: tournament.id, venueId: resolvedVenueId },
+        });
+      } else if (location) {
+        await (tx as any).tournamentVenue.create({
+          data: {
+            tournamentId: tournament.id,
+            venueId: null,
+            name: location.name,
+            acronym: location.acronym ?? null,
+            placeId: location.placeId ?? null,
+            address: location.address ?? null,
+            lat: location.lat ?? null,
+            lng: location.lng ?? null,
+            district: location.district ?? null,
+            city: location.city ?? null,
+          },
+        });
+      }
+
+      return tournament;
+    });
+
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: created.id },
       include: {
         host: {
           select: {
@@ -273,7 +337,14 @@ export class TournamentsService {
             image: true,
           },
         },
-        venue: true,
+        venue: { omit: VENUE_PUBLIC_OMIT },
+        tournamentVenues: {
+          include: {
+            venue: { omit: VENUE_PUBLIC_OMIT },
+            courts: { orderBy: { courtNumber: 'asc' } },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
         categories: true,
         umpires: true,
         scoringDevices: true,
@@ -383,7 +454,7 @@ export class TournamentsService {
             startDate: start,
             endDate: end,
             hostId: source.hostId,
-            venueId: dto.venueId || null,
+            venueId: dto.venueId || (copyVenues ? source.venueId : null),
             status: 'PREPARING',
             sportType: source.sportType,
             isPublished: false,
@@ -431,7 +502,20 @@ export class TournamentsService {
         if (copyVenues) {
           for (const tv of source.tournamentVenues) {
             const ntv = await db.tournamentVenue.create({
-              data: { tournamentId: newTournament.id, venueId: tv.venueId },
+              data: {
+                tournamentId: newTournament.id,
+                venueId: tv.venueId,
+                // Inline address fields — carried over so inline venues don't
+                // become empty shells on the copy.
+                name: tv.name,
+                acronym: tv.acronym,
+                placeId: tv.placeId,
+                address: tv.address,
+                lat: tv.lat,
+                lng: tv.lng,
+                district: tv.district,
+                city: tv.city,
+              },
             });
             venueMap.set(tv.id, ntv.id);
           }
@@ -451,6 +535,26 @@ export class TournamentsService {
               },
             });
             courtMap.set(court.id, nc.id);
+          }
+        }
+
+        // Primary-pointer invariant: a non-null tournament.venueId must have a
+        // matching TournamentVenue row (e.g. dto.venueId points at a venue not
+        // among the copied rows, or venues weren't copied at all).
+        if (newTournament.venueId) {
+          const linkedRow = await db.tournamentVenue.findFirst({
+            where: {
+              tournamentId: newTournament.id,
+              venueId: newTournament.venueId,
+            },
+          });
+          if (!linkedRow) {
+            await db.tournamentVenue.create({
+              data: {
+                tournamentId: newTournament.id,
+                venueId: newTournament.venueId,
+              },
+            });
           }
         }
 
@@ -700,7 +804,7 @@ export class TournamentsService {
       sportType?: SportType;
       isPublished?: boolean;
       scheduleType?: ScheduleType;
-      venueId?: string;
+      venueId?: string | null;
       coverPhoto?: string;
       coverPhotoPublicId?: string;
       youtubeVideoUrls?: string[];
@@ -752,7 +856,13 @@ export class TournamentsService {
     }
 
     if (dto.venueId !== undefined) {
-      updateData.venueId = dto.venueId;
+      if (dto.venueId) {
+        const venue = await this.prisma.venue.findUnique({
+          where: { id: dto.venueId },
+        });
+        if (!venue) throw new NotFoundException('Venue not found');
+      }
+      updateData.venueId = dto.venueId || null;
     }
 
     if (dto.coverPhoto !== undefined) {
@@ -801,26 +911,50 @@ export class TournamentsService {
       await this.assertNoIncompleteTeamRegistrations(id);
     }
 
-    const tournament = await this.prisma.tournament.update({
-      where: { id },
-      data: updateData,
-      include: {
-        host: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            image: true,
+    const tournament = await this.prisma.$transaction(async (tx) => {
+      // TournamentVenue is the source of truth for the venue list; keep it in
+      // sync when the primary venue pointer is set through this endpoint.
+      // Clearing the pointer (venueId: null) never touches TournamentVenue.
+      if (updateData.venueId) {
+        const existing = await (tx as any).tournamentVenue.findFirst({
+          where: { tournamentId: id, venueId: updateData.venueId },
+        });
+        if (!existing) {
+          await (tx as any).tournamentVenue.create({
+            data: { tournamentId: id, venueId: updateData.venueId },
+          });
+        }
+      }
+
+      return tx.tournament.update({
+        where: { id },
+        data: updateData,
+        include: {
+          host: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
+          },
+          venue: { omit: VENUE_PUBLIC_OMIT },
+          tournamentVenues: {
+            include: {
+              venue: { omit: VENUE_PUBLIC_OMIT },
+              courts: { orderBy: { courtNumber: 'asc' } },
+            },
+            orderBy: { createdAt: 'asc' },
+          },
+          _count: {
+            select: {
+              players: true,
+              pairs: true,
+              categories: true,
+            },
           },
         },
-        _count: {
-          select: {
-            players: true,
-            pairs: true,
-            categories: true,
-          },
-        },
-      },
+      });
     });
 
     // Keep the live queue consistent when the schedule type changes.
@@ -1083,6 +1217,15 @@ export class TournamentsService {
           data: { tournamentId, venueId: dto.venueId },
         });
       }
+
+      // Denormalized primary-venue pointer: point it at the first linked
+      // venue when the tournament doesn't have one yet.
+      if (!tournament.venueId) {
+        await this.prisma.tournament.update({
+          where: { id: tournamentId },
+          data: { venueId: dto.venueId },
+        });
+      }
     } else {
       // ── Inline mode ───────────────────────────────────────────────────────
       // Store address fields directly — no Venue record is created.
@@ -1147,6 +1290,11 @@ export class TournamentsService {
   }
 
   async removeVenue(tournamentId: string, venueOrRecordId: string) {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId },
+    });
+    if (!tournament) throw new NotFoundException('Tournament not found');
+
     // Support both linked mode (venueId) and inline mode (tournamentVenue.id)
     const tournamentVenue = await (
       this.prisma as any
@@ -1169,6 +1317,23 @@ export class TournamentsService {
     await (this.prisma as any).tournamentVenue.delete({
       where: { id: tournamentVenue.id },
     });
+
+    // If the removed venue was the primary pointer, repoint to the oldest
+    // remaining linked venue (or clear it).
+    if (
+      tournamentVenue.venueId &&
+      tournament.venueId === tournamentVenue.venueId
+    ) {
+      const next = await (this.prisma as any).tournamentVenue.findFirst({
+        where: { tournamentId, venueId: { not: null } },
+        orderBy: { createdAt: 'asc' },
+      });
+      await this.prisma.tournament.update({
+        where: { id: tournamentId },
+        data: { venueId: next?.venueId ?? null },
+      });
+    }
+
     return { success: true };
   }
 
