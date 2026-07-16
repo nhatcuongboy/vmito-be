@@ -42,6 +42,7 @@ describe('TournamentsService venue sync', () => {
         deleteMany: jest.fn(),
         createMany: jest.fn(),
         create: jest.fn(),
+        update: jest.fn(),
       },
       // Interactive transactions run the callback against the same mock set.
       $transaction: jest.fn((cb: any) => cb(prisma)),
@@ -297,6 +298,77 @@ describe('TournamentsService venue sync', () => {
         where: { id: 't1' },
         data: { venueId: 'v1' },
       });
+    });
+
+    it('diff-syncs courts: renames kept, deletes removed, creates new — never touches survivors', async () => {
+      prisma.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        venueId: 'v1',
+      });
+      prisma.tournamentVenue.findFirst.mockResolvedValue({
+        id: 'tv1',
+        venueId: 'v1',
+      });
+      prisma.tournamentCourt.findMany.mockResolvedValue([
+        { id: 'c1', courtNumber: 1, courtName: 'Sân 1' },
+        { id: 'c2', courtNumber: 2, courtName: 'Sân 2' },
+        { id: 'c3', courtNumber: 3, courtName: 'Sân 3' },
+      ]);
+      prisma.tournamentCourt.aggregate.mockResolvedValue({
+        _max: { courtNumber: 3 },
+      });
+
+      // Keep c1 unchanged, rename c2, drop c3, add one new court.
+      await service.addVenue('t1', {
+        venueId: 'v1',
+        courts: [
+          { id: 'c1', courtNumber: 1, courtName: 'Sân 1' },
+          { id: 'c2', courtNumber: 2, courtName: 'Sân VIP' },
+          { courtNumber: 4, courtName: 'Sân 4' },
+        ],
+      });
+
+      expect(prisma.tournamentCourt.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['c3'] } },
+      });
+      expect(prisma.tournamentCourt.update).toHaveBeenCalledTimes(1);
+      expect(prisma.tournamentCourt.update).toHaveBeenCalledWith({
+        where: { id: 'c2' },
+        data: { courtName: 'Sân VIP' },
+      });
+      expect(prisma.tournamentCourt.createMany).toHaveBeenCalledWith({
+        data: [
+          {
+            tournamentId: 't1',
+            tournamentVenueId: 'tv1',
+            courtNumber: 4,
+            courtName: 'Sân 4',
+          },
+        ],
+      });
+    });
+
+    it('does not delete anything when all existing courts are kept', async () => {
+      prisma.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        venueId: 'v1',
+      });
+      prisma.tournamentVenue.findFirst.mockResolvedValue({
+        id: 'tv1',
+        venueId: 'v1',
+      });
+      prisma.tournamentCourt.findMany.mockResolvedValue([
+        { id: 'c1', courtNumber: 1, courtName: 'Sân 1' },
+      ]);
+
+      await service.addVenue('t1', {
+        venueId: 'v1',
+        courts: [{ id: 'c1', courtNumber: 1, courtName: 'Sân 1' }],
+      });
+
+      expect(prisma.tournamentCourt.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.tournamentCourt.update).not.toHaveBeenCalled();
+      expect(prisma.tournamentCourt.createMany).not.toHaveBeenCalled();
     });
 
     it('stores inline when the placeId matches no directory venue', async () => {

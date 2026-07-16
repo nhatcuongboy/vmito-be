@@ -11,6 +11,14 @@ import {
 import { Type } from 'class-transformer';
 
 class CourtDto {
+  /**
+   * Existing TournamentCourt id. Present = keep/rename that court in place;
+   * absent = create a new court. Courts omitted from the list are deleted.
+   */
+  @IsOptional()
+  @IsString()
+  id?: string;
+
   @IsInt()
   @Min(1)
   courtNumber!: number;

@@ -1170,7 +1170,14 @@ export class TournamentsService {
       where: { tournamentId },
       include: {
         venue: { omit: VENUE_PUBLIC_OMIT },
-        courts: { orderBy: { courtNumber: 'asc' } },
+        courts: {
+          orderBy: { courtNumber: 'asc' },
+          include: {
+            // Usage counters so the client can warn before deleting a court
+            // that has assigned matches or schedule slots.
+            _count: { select: { matches: true, courtTimeSlots: true } },
+          },
+        },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -1188,7 +1195,7 @@ export class TournamentsService {
       lng?: number;
       district?: string;
       city?: string;
-      courts?: { courtNumber: number; courtName?: string }[];
+      courts?: { id?: string; courtNumber: number; courtName?: string }[];
     }
   ) {
     const tournament = await this.prisma.tournament.findUnique({
@@ -1259,36 +1266,65 @@ export class TournamentsService {
     }
 
     if (dto.courts && dto.courts.length > 0) {
-      // Get the current courts for this venue (before deleting) to preserve their courtNumbers
+      // Diff-sync the venue's courts instead of delete-recreate: surviving
+      // courts keep their ids, so match court assignments (Match.courtId,
+      // SetNull on delete) and schedule court slots (CourtTimeSlot, Cascade)
+      // are only lost for courts the host explicitly removed.
       const currentCourts = await this.prisma.tournamentCourt.findMany({
         where: { tournamentVenueId: tournamentVenue.id },
         orderBy: { courtNumber: 'asc' },
       });
+      const currentById = new Map(currentCourts.map((c) => [c.id, c]));
+      const keptIds = new Set(
+        dto.courts
+          .filter((c) => c.id && currentById.has(c.id))
+          .map((c) => c.id!)
+      );
 
-      // Get max courtNumber across the whole tournament BEFORE deletion
-      const maxCourt = await this.prisma.tournamentCourt.aggregate({
-        where: { tournamentId },
-        _max: { courtNumber: true },
-      });
-      let nextCourtNumber = (maxCourt._max.courtNumber ?? 0) + 1;
+      // 1) Delete only the courts removed from the list.
+      const removedIds = currentCourts
+        .filter((c) => !keptIds.has(c.id))
+        .map((c) => c.id);
+      if (removedIds.length > 0) {
+        await this.prisma.tournamentCourt.deleteMany({
+          where: { id: { in: removedIds } },
+        });
+      }
 
-      // Remove existing courts for this venue then recreate
-      await this.prisma.tournamentCourt.deleteMany({
-        where: { tournamentVenueId: tournamentVenue.id },
-      });
+      // 2) Rename kept courts in place (courtNumber never changes here).
+      for (const c of dto.courts) {
+        if (!c.id) continue;
+        const current = currentById.get(c.id);
+        if (!current) continue;
+        const nextName = c.courtName ?? null;
+        if ((current.courtName ?? null) !== nextName) {
+          await this.prisma.tournamentCourt.update({
+            where: { id: c.id },
+            data: { courtName: nextName },
+          });
+        }
+      }
 
-      await this.prisma.tournamentCourt.createMany({
-        data: dto.courts.map((c, index) => {
-          // Reuse existing courtNumber for courts that already existed (by position)
-          const existingCourtNumber = currentCourts[index]?.courtNumber;
-          return {
+      // 3) Create new courts with the next free courtNumber in the tournament
+      //    (computed after deletion so freed numbers can be reused).
+      const newCourts = dto.courts.filter(
+        (c) => !c.id || !currentById.has(c.id)
+      );
+      if (newCourts.length > 0) {
+        const maxCourt = await this.prisma.tournamentCourt.aggregate({
+          where: { tournamentId },
+          _max: { courtNumber: true },
+        });
+        let nextCourtNumber = (maxCourt._max.courtNumber ?? 0) + 1;
+        await this.prisma.tournamentCourt.createMany({
+          data: newCourts.map((c) => ({
             tournamentId,
             tournamentVenueId: tournamentVenue.id,
-            courtNumber: existingCourtNumber ?? nextCourtNumber++,
+            courtNumber: nextCourtNumber++,
             courtName: c.courtName,
-          };
-        }),
-      });
+          })),
+        });
+      }
     }
 
     return (this.prisma as any).tournamentVenue.findUnique({
