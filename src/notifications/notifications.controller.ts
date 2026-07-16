@@ -82,6 +82,14 @@ export class NotificationsController {
   }
 
   /**
+   * Delete all notifications for the current user
+   */
+  @Delete()
+  async deleteAll(@CurrentUser() user: AuthenticatedUser) {
+    return this.notificationsService.deleteAll(user.userId);
+  }
+
+  /**
    * Delete a notification
    */
   @Delete(':id')
