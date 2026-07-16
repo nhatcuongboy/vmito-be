@@ -253,6 +253,17 @@ export class NotificationsService {
   }
 
   /**
+   * Delete all notifications for a user
+   */
+  async deleteAll(userId: string) {
+    await this.prisma.notification.deleteMany({
+      where: { userId },
+    });
+
+    return { message: 'All notifications deleted successfully' };
+  }
+
+  /**
    * Delete any notification as admin
    */
   async deleteAsAdmin(id: string) {
