@@ -28,6 +28,7 @@ import {
 import { FeeService } from '../fee/fee.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { FavoritesService } from '../favorites/favorites.service';
+import { calculatePlayerPointDifferentials } from './player-statistics.utils';
 
 @Injectable()
 export class PlayersService {
@@ -1524,8 +1525,15 @@ export class PlayersService {
       where: { sessionId },
       include: {
         players: true,
+        court: {
+          select: {
+            direction: true,
+          },
+        },
       },
     });
+
+    const pointDifferentials = calculatePlayerPointDifferentials(matches);
 
     // Build statistics for each player
     const playerStats = players.map((player) => {
@@ -1620,6 +1628,8 @@ export class PlayersService {
             )
           : null;
 
+      const pointDifferential = pointDifferentials.get(player.id);
+
       return {
         playerId: player.id,
         playerNumber: player.playerNumber,
@@ -1633,6 +1643,9 @@ export class PlayersService {
         losses,
         winRate,
         averageScore: 0, // Simplified - would need score parsing
+        scoredMatches: pointDifferential?.scoredMatches ?? 0,
+        averagePointDifferential:
+          pointDifferential?.averagePointDifferential ?? null,
         totalPlayTime,
         totalWaitTime: player.totalWaitTime,
         totalShuttlecocks,

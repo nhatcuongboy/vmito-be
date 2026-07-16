@@ -46,7 +46,7 @@ export class UpdateTournamentDto {
 
   @IsOptional()
   @IsString()
-  venueId?: string;
+  venueId?: string | null;
 
   @IsOptional()
   @IsString()
