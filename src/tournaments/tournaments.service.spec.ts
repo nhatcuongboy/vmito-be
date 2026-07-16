@@ -68,6 +68,76 @@ describe('TournamentsService venue sync', () => {
     service = module.get(TournamentsService);
   });
 
+  describe('findAll', () => {
+    beforeEach(() => {
+      prisma.tournament.findMany.mockResolvedValue([]);
+    });
+
+    it('combines public browse filters and interval-overlap dates', async () => {
+      await service.findAll({
+        keyword: 'Open',
+        status: ['PREPARING', 'IN_PROGRESS'],
+        sportType: ['BADMINTON'],
+        city: 'Ho Chi Minh,Hanoi',
+        district: 'District 1',
+        dateFrom: '2026-07-17',
+        dateTo: '2026-07-24',
+        sortBy: 'startDate',
+        sortOrder: 'asc',
+        publishedOnly: true,
+      });
+
+      expect(prisma.tournament.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            isPublished: true,
+            name: {
+              contains: 'Open',
+              mode: 'insensitive',
+            },
+            status: { in: ['PREPARING', 'IN_PROGRESS'] },
+            sportType: { in: ['BADMINTON'] },
+            startDate: { lte: new Date('2026-07-24T23:59:59.999Z') },
+            endDate: { gte: new Date('2026-07-17T00:00:00.000Z') },
+            AND: [expect.any(Object), expect.any(Object)],
+          }),
+          orderBy: { startDate: 'asc' },
+        })
+      );
+
+      const call = prisma.tournament.findMany.mock.calls[0][0];
+      expect(JSON.stringify(call.where.AND)).toContain('newCity');
+      expect(JSON.stringify(call.where.AND)).toContain('tournamentVenues');
+      expect(JSON.stringify(call.where.AND)).toContain('newDistrict');
+    });
+
+    it('short-circuits when an authenticated favorite filter has no matches', async () => {
+      const getFavoritedTargetIds = jest.fn().mockResolvedValue([]);
+      (service as any).favoritesService = { getFavoritedTargetIds };
+
+      await expect(
+        service.findAll({ favoriteOnly: true }, 'user-1')
+      ).resolves.toEqual([]);
+
+      expect(getFavoritedTargetIds).toHaveBeenCalledWith(
+        'user-1',
+        'TOURNAMENT'
+      );
+      expect(prisma.tournament.findMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects a date range whose start is after its end', async () => {
+      await expect(
+        service.findAll({
+          dateFrom: '2026-07-24',
+          dateTo: '2026-07-17',
+        })
+      ).rejects.toThrow('Start date cannot be after end date');
+
+      expect(prisma.tournament.findMany).not.toHaveBeenCalled();
+    });
+  });
+
   describe('create', () => {
     const baseDto = {
       name: 'Test Cup',

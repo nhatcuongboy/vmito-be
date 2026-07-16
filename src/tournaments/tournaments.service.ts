@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
 import { DuplicateTournamentDto } from './dto/duplicate-tournament.dto';
+import { BrowseTournamentsDto } from './dto/browse-tournaments.dto';
 import {
   CreateTournamentPlayerDto,
   BulkTournamentPlayersDto,
@@ -26,6 +27,7 @@ import {
   SportType,
   Gender,
   FavoriteType,
+  Prisma,
 } from '@prisma/client';
 import { MATCH_SCORING_INCLUDE } from '../categories/scoring/match-include';
 import { normalizeMatchForBroadcast } from '../categories/scoring/normalize-match';
@@ -128,9 +130,17 @@ export class TournamentsService {
     return { tournamentId: tournament.id, isHost, isAdmin, permissions };
   }
 
-  async findAll(favoriteOnly?: boolean, userId?: string) {
+  async findAll(query: BrowseTournamentsDto = {}, userId?: string) {
+    if (
+      query.dateFrom &&
+      query.dateTo &&
+      new Date(query.dateFrom) > new Date(query.dateTo)
+    ) {
+      throw new BadRequestException('Start date cannot be after end date');
+    }
+
     let favoriteIds: string[] | undefined;
-    if (favoriteOnly) {
+    if (query.favoriteOnly) {
       favoriteIds = userId
         ? await this.favoritesService.getFavoritedTargetIds(
             userId,
@@ -140,8 +150,102 @@ export class TournamentsService {
       if (favoriteIds.length === 0) return [];
     }
 
+    const where: Prisma.TournamentWhereInput = {
+      ...(favoriteIds ? { id: { in: favoriteIds } } : {}),
+      ...(query.publishedOnly ? { isPublished: true } : {}),
+      ...(query.keyword
+        ? { name: { contains: query.keyword.trim(), mode: 'insensitive' } }
+        : {}),
+      ...(query.status?.length ? { status: { in: query.status } } : {}),
+      ...(query.sportType?.length
+        ? { sportType: { in: query.sportType } }
+        : {}),
+      ...(query.dateFrom || query.dateTo
+        ? {
+            startDate: query.dateTo
+              ? { lte: new Date(`${query.dateTo}T23:59:59.999Z`) }
+              : undefined,
+            endDate: query.dateFrom
+              ? { gte: new Date(`${query.dateFrom}T00:00:00.000Z`) }
+              : undefined,
+          }
+        : {}),
+    };
+
+    const locationConditions: Prisma.TournamentWhereInput[] = [];
+    const buildLocationCondition = (
+      values: string[],
+      legacyField: 'city' | 'district',
+      currentField: 'newCity' | 'newDistrict'
+    ): Prisma.TournamentWhereInput => ({
+      OR: values.flatMap((value) => [
+        {
+          venue: {
+            is: {
+              OR: [
+                { [legacyField]: { contains: value, mode: 'insensitive' } },
+                { [currentField]: { contains: value, mode: 'insensitive' } },
+              ],
+            },
+          },
+        },
+        {
+          tournamentVenues: {
+            some: {
+              OR: [
+                { [legacyField]: { contains: value, mode: 'insensitive' } },
+                {
+                  venue: {
+                    is: {
+                      OR: [
+                        {
+                          [legacyField]: {
+                            contains: value,
+                            mode: 'insensitive',
+                          },
+                        },
+                        {
+                          [currentField]: {
+                            contains: value,
+                            mode: 'insensitive',
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ]),
+    });
+
+    const cities = query.city
+      ?.split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (cities?.length) {
+      locationConditions.push(
+        buildLocationCondition(cities, 'city', 'newCity')
+      );
+    }
+    const districts = query.district
+      ?.split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (districts?.length) {
+      locationConditions.push(
+        buildLocationCondition(districts, 'district', 'newDistrict')
+      );
+    }
+    if (locationConditions.length) where.AND = locationConditions;
+
+    const sortBy = query.sortBy ?? 'createdAt';
+    const sortOrder = query.sortOrder ?? 'desc';
+
     const tournaments = await this.prisma.tournament.findMany({
-      where: favoriteIds ? { id: { in: favoriteIds } } : undefined,
+      where,
       include: {
         host: {
           select: {
@@ -164,12 +268,10 @@ export class TournamentsService {
           },
         },
       },
-      orderBy: {
-        createdAt: 'desc',
-      },
+      orderBy: { [sortBy]: sortOrder },
     });
 
-    const favoriteSet = favoriteOnly
+    const favoriteSet = query.favoriteOnly
       ? new Set(tournaments.map((t) => t.id))
       : userId
         ? await this.favoritesService.isFavoritedMap(
