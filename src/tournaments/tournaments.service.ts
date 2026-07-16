@@ -251,7 +251,16 @@ export class TournamentsService {
       throw new NotFoundException('Tournament not found');
     }
 
-    return tournament;
+    // Matches with a time or court assigned — lets the dashboard mark the
+    // schedule setup step as done without fetching the full schedule.
+    const scheduledMatchesCount = await this.prisma.categoryMatch.count({
+      where: {
+        category: { tournamentId: tournament.id },
+        OR: [{ startTime: { not: null } }, { courtId: { not: null } }],
+      },
+    });
+
+    return { ...tournament, scheduledMatchesCount };
   }
 
   async create(dto: CreateTournamentDto, hostId: string) {
