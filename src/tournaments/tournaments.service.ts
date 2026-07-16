@@ -1198,23 +1198,34 @@ export class TournamentsService {
 
     let tournamentVenue: any;
 
-    if (dto.venueId) {
-      // ── Linked mode ──────────────────────────────────────────────────────
+    // Resolve to a directory venue when possible (find-only, never create):
+    // an explicit venueId must exist; otherwise a Google placeId that matches
+    // an existing Venue upgrades the request from inline to linked mode.
+    let linkedVenueId = dto.venueId ?? null;
+    if (linkedVenueId) {
       const venue = await this.prisma.venue.findUnique({
-        where: { id: dto.venueId },
+        where: { id: linkedVenueId },
       });
       if (!venue) throw new NotFoundException('Venue not found');
+    } else if (dto.placeId) {
+      const venue = await this.prisma.venue.findUnique({
+        where: { placeId: dto.placeId },
+      });
+      if (venue) linkedVenueId = venue.id;
+    }
 
+    if (linkedVenueId) {
+      // ── Linked mode ──────────────────────────────────────────────────────
       // Upsert by (tournamentId, venueId)
       const existing = await (this.prisma as any).tournamentVenue.findFirst({
-        where: { tournamentId, venueId: dto.venueId },
+        where: { tournamentId, venueId: linkedVenueId },
       });
 
       if (existing) {
         tournamentVenue = existing;
       } else {
         tournamentVenue = await (this.prisma as any).tournamentVenue.create({
-          data: { tournamentId, venueId: dto.venueId },
+          data: { tournamentId, venueId: linkedVenueId },
         });
       }
 
@@ -1223,7 +1234,7 @@ export class TournamentsService {
       if (!tournament.venueId) {
         await this.prisma.tournament.update({
           where: { id: tournamentId },
-          data: { venueId: dto.venueId },
+          data: { venueId: linkedVenueId },
         });
       }
     } else {

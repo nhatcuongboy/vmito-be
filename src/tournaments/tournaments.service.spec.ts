@@ -272,6 +272,56 @@ describe('TournamentsService venue sync', () => {
 
       expect(prisma.tournament.update).not.toHaveBeenCalled();
     });
+
+    it('upgrades an inline request to linked mode when the placeId matches a directory venue', async () => {
+      prisma.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        venueId: null,
+      });
+      prisma.venue.findUnique.mockImplementation(({ where }: any) =>
+        where.placeId === 'gp1'
+          ? Promise.resolve({ id: 'v1' })
+          : Promise.resolve(null)
+      );
+
+      await service.addVenue('t1', {
+        name: 'Be Badminton',
+        placeId: 'gp1',
+        address: '262/1 Quang Trung',
+      });
+
+      expect(prisma.tournamentVenue.create).toHaveBeenCalledWith({
+        data: { tournamentId: 't1', venueId: 'v1' },
+      });
+      expect(prisma.tournament.update).toHaveBeenCalledWith({
+        where: { id: 't1' },
+        data: { venueId: 'v1' },
+      });
+    });
+
+    it('stores inline when the placeId matches no directory venue', async () => {
+      prisma.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        venueId: null,
+      });
+      prisma.venue.findUnique.mockResolvedValue(null);
+
+      await service.addVenue('t1', {
+        name: 'Loca Badminton Club',
+        placeId: 'gp-unknown',
+        address: '127 Lê Lợi',
+      });
+
+      expect(prisma.tournamentVenue.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          tournamentId: 't1',
+          venueId: null,
+          name: 'Loca Badminton Club',
+          placeId: 'gp-unknown',
+        }),
+      });
+      expect(prisma.tournament.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('removeVenue', () => {
