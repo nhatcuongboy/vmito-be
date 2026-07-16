@@ -125,6 +125,10 @@ export class SessionsService {
       excludeStatuses?: SessionStatus[];
       endTimeBefore?: string;
       endTimeAfter?: string;
+      startTimeFrom?: string;
+      startTimeTo?: string;
+      city?: string;
+      district?: string;
       sessionType?: 'all' | 'regular' | 'facebook';
       favoriteOnly?: boolean;
     }
@@ -185,6 +189,41 @@ export class SessionsService {
       where.endTime = { lt: new Date(filters.endTimeBefore) };
     } else if (filters?.endTimeAfter) {
       where.endTime = { gte: new Date(filters.endTimeAfter) };
+    }
+
+    // Date range filter on when the session takes place. Prefer actual
+    // startTime, fall back to scheduledStartTime for sessions not yet started.
+    if (filters?.startTimeFrom || filters?.startTimeTo) {
+      const range: Prisma.DateTimeNullableFilter = {};
+      if (filters.startTimeFrom) range.gte = new Date(filters.startTimeFrom);
+      if (filters.startTimeTo) range.lte = new Date(filters.startTimeTo);
+      where.AND = [
+        ...(Array.isArray(where.AND)
+          ? (where.AND as Prisma.SessionWhereInput[])
+          : where.AND
+            ? [where.AND as Prisma.SessionWhereInput]
+            : []),
+        {
+          OR: [
+            { startTime: range },
+            { startTime: null, scheduledStartTime: range },
+          ],
+        },
+      ];
+    }
+
+    if (filters?.city) {
+      where.venue = {
+        ...(where.venue as Prisma.VenueWhereInput | undefined),
+        city: { equals: filters.city, mode: 'insensitive' },
+      };
+    }
+
+    if (filters?.district) {
+      where.venue = {
+        ...(where.venue as Prisma.VenueWhereInput | undefined),
+        district: { equals: filters.district, mode: 'insensitive' },
+      };
     }
 
     if (filters?.sessionType === 'regular') {

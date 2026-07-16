@@ -66,6 +66,10 @@ export class SessionsController {
     @Query('excludeStatuses') excludeStatusesRaw?: string,
     @Query('endTimeBefore') endTimeBefore?: string,
     @Query('endTimeAfter') endTimeAfter?: string,
+    @Query('startTimeFrom') startTimeFrom?: string,
+    @Query('startTimeTo') startTimeTo?: string,
+    @Query('city') city?: string,
+    @Query('district') district?: string,
     @Query('sessionType') sessionType?: 'all' | 'regular' | 'facebook',
     @Query('favoriteOnly') favoriteOnly?: string
   ) {
@@ -87,6 +91,10 @@ export class SessionsController {
       excludeStatuses,
       endTimeBefore,
       endTimeAfter,
+      startTimeFrom,
+      startTimeTo,
+      city,
+      district,
       sessionType,
       favoriteOnly: favoriteOnly === 'true',
     });
