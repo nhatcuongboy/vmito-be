@@ -146,6 +146,17 @@ export class CategoriesService {
 
   // ─── Helpers ───────────────────────────────────────────────
 
+  private async getNextTournamentMatchNumber(
+    tournamentId: string,
+    db: Pick<Prisma.TransactionClient, 'categoryMatch'> = this.prisma
+  ): Promise<number> {
+    const tournamentMatchMax = await db.categoryMatch.aggregate({
+      where: { category: { tournamentId } },
+      _max: { matchNumber: true },
+    });
+    return (tournamentMatchMax._max.matchNumber ?? 0) + 1;
+  }
+
   private async getCategoryWithOwnership(
     categoryId: string,
     userId: string,
@@ -2036,21 +2047,22 @@ export class CategoriesService {
     const regIds = groupRegs.map((gr) => gr.categoryRegistrationId);
 
     // Generate round-robin matches: n*(n-1)/2
-    const matchPairs: { reg1: string; reg2: string; matchNumber: number }[] =
-      [];
-    let matchNumber = 1;
+    const matchPairs: { reg1: string; reg2: string }[] = [];
 
     for (let i = 0; i < regIds.length; i++) {
       for (let j = i + 1; j < regIds.length; j++) {
         matchPairs.push({
           reg1: regIds[i],
           reg2: regIds[j],
-          matchNumber: matchNumber++,
         });
       }
     }
 
     return this.prisma.$transaction(async (tx) => {
+      let nextMatchNumber = await this.getNextTournamentMatchNumber(
+        category.tournamentId,
+        tx
+      );
       const created: Awaited<ReturnType<typeof tx.categoryMatch.create>>[] = [];
       for (const mp of matchPairs) {
         const match = await tx.categoryMatch.create({
@@ -2058,7 +2070,7 @@ export class CategoriesService {
             categoryId,
             groupId,
             round: 'GROUP',
-            matchNumber: mp.matchNumber,
+            matchNumber: nextMatchNumber++,
             status: 'SCHEDULED',
             matchFormat: category.matchFormat,
             participants: {
@@ -2172,14 +2184,22 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getCategoryWithOwnership(categoryId, userId, role, 'STRUCTURE');
+    const category = await this.getCategoryWithOwnership(
+      categoryId,
+      userId,
+      role,
+      'STRUCTURE'
+    );
+    const nextMatchNumber = await this.getNextTournamentMatchNumber(
+      category.tournamentId
+    );
 
     return this.prisma.categoryMatch.create({
       data: {
         categoryId,
         groupId: dto.groupId,
         round: dto.round,
-        matchNumber: dto.matchNumber,
+        matchNumber: Math.max(dto.matchNumber, nextMatchNumber),
         matchCode: dto.matchCode,
         status: 'SCHEDULED',
         courtId: dto.courtId,
@@ -2259,7 +2279,27 @@ export class CategoriesService {
     userId: string,
     role?: string
   ) {
-    await this.getMatchWithOwnership(id, userId, role, 'SCHEDULE');
+    const existingMatch = await this.getMatchWithOwnership(
+      id,
+      userId,
+      role,
+      'SCHEDULE'
+    );
+    if (data.matchNumber !== undefined) {
+      const duplicate = await this.prisma.categoryMatch.findFirst({
+        where: {
+          id: { not: id },
+          matchNumber: data.matchNumber,
+          category: { tournamentId: existingMatch.category.tournamentId },
+        },
+        select: { id: true },
+      });
+      if (duplicate) {
+        throw new ConflictException(
+          'Match number already exists in this tournament'
+        );
+      }
+    }
 
     return this.prisma.categoryMatch.update({
       where: { id },
@@ -3264,8 +3304,9 @@ export class CategoriesService {
       where: { categoryId, groupId: null, round: { not: 'GROUP' } },
     });
 
-    let globalMatchNumber =
-      (await this.prisma.categoryMatch.count({ where: { categoryId } })) + 1;
+    let globalMatchNumber = await this.getNextTournamentMatchNumber(
+      category!.tournamentId
+    );
 
     type BracketMatch = Awaited<
       ReturnType<typeof this.prisma.categoryMatch.create>
@@ -3427,8 +3468,9 @@ export class CategoriesService {
       where: { categoryId, groupId: null, round: { not: 'GROUP' } },
     });
 
-    let globalMatchNumber =
-      (await this.prisma.categoryMatch.count({ where: { categoryId } })) + 1;
+    let globalMatchNumber = await this.getNextTournamentMatchNumber(
+      category!.tournamentId
+    );
 
     type BracketMatch = Awaited<
       ReturnType<typeof this.prisma.categoryMatch.create>
@@ -4021,8 +4063,9 @@ export class CategoriesService {
     const roundNames = this.determineRoundNames(totalRounds);
     const formatForRound = this.buildFormatForRound(category);
 
-    let globalMatchNumber =
-      (await this.prisma.categoryMatch.count({ where: { categoryId } })) + 1;
+    let globalMatchNumber = await this.getNextTournamentMatchNumber(
+      category.tournamentId
+    );
 
     // First round (most matches) gets the lowest numbers, then later rounds,
     // matching the numbering generateEliminationBracket / feeder logic expect.
