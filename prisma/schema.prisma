@@ -437,6 +437,8 @@ model VenuePriceRule {
 enum VenueRequestType {
   CREATE
   UPDATE
+  PRICE_CORRECTION
+  IMAGE_CORRECTION
 }
 
 enum VenueRequestStatus {
