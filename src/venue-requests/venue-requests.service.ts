@@ -12,7 +12,11 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { VenuesService } from '../venues/venues.service';
-import { CreateVenueRequestDto, QueryVenueRequestsDto } from './dto';
+import {
+  ApproveVenueRequestDto,
+  CreateVenueRequestDto,
+  QueryVenueRequestsDto,
+} from './dto';
 import { VenueRequestPayloadDto } from './dto/venue-request-payload.dto';
 
 const VENUE_REQUEST_INCLUDE = {
@@ -35,7 +39,17 @@ type VenuePatchPayload = Partial<{
   website: string;
   locatedWithin: string;
   bookingPolicy: string;
+  description: string;
 }>;
+
+// Payload keys that describe a correction attachment rather than a venue
+// column — they must never be spread onto the Venue row.
+const NON_VENUE_PAYLOAD_KEYS = [
+  'note',
+  'priceImageUrl',
+  'priceImagePublicId',
+  'suggestedImages',
+] as const;
 
 @Injectable()
 export class VenueRequestsService {
@@ -48,7 +62,10 @@ export class VenueRequestsService {
     const payload = this.sanitizePayload(dto.payload);
     this.validateRequest(dto.type, dto.venueId, payload);
 
-    if (dto.type === VenueRequestType.UPDATE) {
+    // Every non-CREATE type targets an existing venue.
+    const targetsVenue = dto.type !== VenueRequestType.CREATE;
+
+    if (targetsVenue) {
       const venue = await this.prisma.venue.findUnique({
         where: { id: dto.venueId! },
         select: { id: true },
@@ -60,7 +77,7 @@ export class VenueRequestsService {
       data: {
         type: dto.type,
         submittedByUserId: userId,
-        venueId: dto.type === VenueRequestType.UPDATE ? dto.venueId : null,
+        venueId: targetsVenue ? dto.venueId : null,
         payload: payload as Prisma.InputJsonObject,
       },
       include: VENUE_REQUEST_INCLUDE,
@@ -103,7 +120,11 @@ export class VenueRequestsService {
     return request;
   }
 
-  async approve(id: string, adminUserId: string) {
+  async approve(
+    id: string,
+    adminUserId: string,
+    dto: ApproveVenueRequestDto = {}
+  ) {
     const request = await this.getPendingRequest(id);
     const payload = this.sanitizePayload(
       request.payload as VenueRequestPayloadDto
@@ -139,6 +160,22 @@ export class VenueRequestsService {
       throw new BadRequestException('Update request must target a venue');
     }
 
+    // Price corrections are photo suggestions only — approving just closes the
+    // review; the admin configures the structured price book separately.
+    if (request.type === VenueRequestType.PRICE_CORRECTION) {
+      return this.markApproved(id, adminUserId, request.venueId);
+    }
+
+    // Image corrections apply the admin-selected subset of suggested photos.
+    if (request.type === VenueRequestType.IMAGE_CORRECTION) {
+      await this.applyImageCorrection(
+        request.venueId,
+        payload,
+        dto.applyImagePublicIds
+      );
+      return this.markApproved(id, adminUserId, request.venueId);
+    }
+
     const patchPayload = this.toVenuePatchPayload(payload);
     if (Object.keys(patchPayload).length === 0) {
       throw new BadRequestException('No venue fields to update');
@@ -159,6 +196,57 @@ export class VenueRequestsService {
       },
       include: VENUE_REQUEST_INCLUDE,
     });
+  }
+
+  private markApproved(id: string, adminUserId: string, appliedVenueId: string) {
+    return this.prisma.venueRequest.update({
+      where: { id },
+      data: {
+        status: VenueRequestStatus.APPROVED,
+        appliedVenueId,
+        reviewedByUserId: adminUserId,
+        reviewedAt: new Date(),
+      },
+      include: VENUE_REQUEST_INCLUDE,
+    });
+  }
+
+  private async applyImageCorrection(
+    venueId: string,
+    payload: VenueRequestPayloadDto,
+    applyImagePublicIds?: string[]
+  ) {
+    const suggested = payload.suggestedImages ?? [];
+    // If the admin passed a selection, keep only those; otherwise apply all.
+    const selected = applyImagePublicIds
+      ? suggested.filter(
+          (image) => image.publicId && applyImagePublicIds.includes(image.publicId)
+        )
+      : suggested;
+
+    if (selected.length === 0) {
+      throw new BadRequestException('No images selected to apply');
+    }
+
+    const venue = await this.prisma.venue.findUnique({
+      where: { id: venueId },
+      select: { images: true, imagePublicIds: true },
+    });
+    if (!venue) throw new NotFoundException('Venue not found');
+
+    const images = [...venue.images];
+    const imagePublicIds = [...venue.imagePublicIds];
+    const existing = new Set([...venue.images, ...venue.imagePublicIds]);
+
+    for (const image of selected) {
+      const key = image.publicId || image.url;
+      if (existing.has(key) || images.includes(image.url)) continue;
+      images.push(image.url);
+      imagePublicIds.push(image.publicId ?? '');
+      existing.add(key);
+    }
+
+    await this.venuesService.update(venueId, { images, imagePublicIds });
   }
 
   async reject(id: string, adminUserId: string, adminNote: string) {
@@ -199,6 +287,24 @@ export class VenueRequestsService {
 
     if (!venueId) {
       throw new BadRequestException('venueId is required for update requests');
+    }
+
+    if (type === VenueRequestType.PRICE_CORRECTION) {
+      if (!payload.priceImageUrl) {
+        throw new BadRequestException(
+          'A price board image is required for price correction requests'
+        );
+      }
+      return;
+    }
+
+    if (type === VenueRequestType.IMAGE_CORRECTION) {
+      if (!payload.suggestedImages || payload.suggestedImages.length === 0) {
+        throw new BadRequestException(
+          'At least one image is required for image correction requests'
+        );
+      }
+      return;
     }
 
     if (Object.keys(this.toVenuePatchPayload(payload)).length === 0) {
@@ -246,16 +352,38 @@ export class VenueRequestsService {
     assignString('website');
     assignString('locatedWithin');
     assignString('bookingPolicy');
+    assignString('description');
+    assignString('priceImageUrl');
+    assignString('priceImagePublicId');
     assignString('note');
     assignNumber('numberOfCourts');
     assignNumber('hourlyRateFixed');
     assignNumber('hourlyRateWalkIn');
 
+    if (Array.isArray(payload?.suggestedImages)) {
+      const images = payload.suggestedImages
+        .filter(
+          (image): image is { url: string; publicId?: string } =>
+            !!image && typeof image.url === 'string' && image.url.trim() !== ''
+        )
+        .map((image) => ({
+          url: image.url.trim(),
+          publicId:
+            typeof image.publicId === 'string' ? image.publicId.trim() : '',
+        }));
+      if (images.length > 0) {
+        sanitized.suggestedImages = images;
+      }
+    }
+
     return sanitized;
   }
 
   private toVenuePatchPayload(payload: VenueRequestPayloadDto) {
-    const { note: _note, ...venueFields } = payload;
+    const venueFields = { ...payload } as Record<string, unknown>;
+    for (const key of NON_VENUE_PAYLOAD_KEYS) {
+      delete venueFields[key];
+    }
     return venueFields as VenuePatchPayload;
   }
 }

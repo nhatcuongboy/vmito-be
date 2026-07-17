@@ -13,6 +13,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import {
+  ApproveVenueRequestDto,
   CreateVenueRequestDto,
   QueryVenueRequestsDto,
   RejectVenueRequestDto,
@@ -59,8 +60,12 @@ export class VenueRequestsController {
   @Post(':id/approve')
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN)
-  approve(@Param('id') id: string, @CurrentUser() user: JwtUser) {
-    return this.venueRequestsService.approve(id, user.userId);
+  approve(
+    @Param('id') id: string,
+    @Body() dto: ApproveVenueRequestDto,
+    @CurrentUser() user: JwtUser
+  ) {
+    return this.venueRequestsService.approve(id, user.userId, dto);
   }
 
   @Post(':id/reject')
