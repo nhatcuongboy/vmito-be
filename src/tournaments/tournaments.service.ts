@@ -1192,6 +1192,87 @@ export class TournamentsService {
     });
   }
 
+  /**
+   * Lightweight per-category completion roll-up powering the tournament guide
+   * stepper (group/elimination finished counts, bracket-generated flag).
+   * Kept small on purpose — the full match list is far too heavy to fetch on
+   * every tournament page just to derive step completion.
+   */
+  async getProgress(idOrSlug: string) {
+    const tournament = await this.prisma.tournament.findFirst({
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
+      select: { id: true, status: true },
+    });
+    if (!tournament) throw new NotFoundException('Tournament not found');
+
+    const [categories, matches] = await Promise.all([
+      this.prisma.category.findMany({
+        where: { tournamentId: tournament.id },
+        select: { id: true, name: true, type: true, format: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.categoryMatch.findMany({
+        where: { category: { tournamentId: tournament.id } },
+        select: {
+          categoryId: true,
+          round: true,
+          status: true,
+          score: true,
+          _count: { select: { participants: true } },
+        },
+      }),
+    ]);
+
+    const byCategory = new Map<string, typeof matches>();
+    for (const match of matches) {
+      const list = byCategory.get(match.categoryId);
+      if (list) list.push(match);
+      else byCategory.set(match.categoryId, [match]);
+    }
+
+    return {
+      tournamentStatus: tournament.status,
+      categories: categories.map((category) => {
+        const categoryMatches = byCategory.get(category.id) ?? [];
+        const groupMatches = categoryMatches.filter((m) => m.round === 'GROUP');
+        // BYE shells auto-finish without being played; they never count
+        // toward playoff progress.
+        const elimMatches = categoryMatches.filter(
+          (m) => m.round !== 'GROUP' && m.score !== 'BYE'
+        );
+        const hasElimShells = categoryMatches.some((m) => m.round !== 'GROUP');
+        // For ROUND_ROBIN_TO_SE, empty elimination shells can exist before the
+        // group stage is completed — the bracket only counts as generated once
+        // it has been seeded with participants (same rule as
+        // CategoriesService.getGroupStageCompletion).
+        const elimGenerated =
+          hasElimShells &&
+          (category.format !== 'ROUND_ROBIN_TO_SE' ||
+            categoryMatches.some(
+              (m) => m.round !== 'GROUP' && m._count.participants > 0
+            ));
+
+        return {
+          categoryId: category.id,
+          categoryName: category.name,
+          categoryType: category.type,
+          format: category.format,
+          hasGroupStage: groupMatches.length > 0,
+          groupTotal: groupMatches.length,
+          groupFinished: groupMatches.filter(
+            (m) => m.status === MatchStatus.FINISHED
+          ).length,
+          hasEliminationStage: category.format !== 'ROUND_ROBIN',
+          elimGenerated,
+          elimTotal: elimMatches.length,
+          elimFinished: elimMatches.filter(
+            (m) => m.status === MatchStatus.FINISHED
+          ).length,
+        };
+      }),
+    };
+  }
+
   // --- Public live scoreboard ---
   async getScoreboard(idOrSlug: string, query: ScoreboardQueryDto) {
     const tournament = await this.prisma.tournament.findFirst({

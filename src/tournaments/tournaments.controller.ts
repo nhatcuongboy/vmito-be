@@ -139,6 +139,12 @@ export class TournamentsController {
   }
 
   @Public()
+  @Get(':id/progress')
+  getProgress(@Param('id') id: string) {
+    return this.tournamentsService.getProgress(id);
+  }
+
+  @Public()
   @Get(':id/scoreboard')
   getScoreboard(@Param('id') id: string, @Query() query: ScoreboardQueryDto) {
     return this.tournamentsService.getScoreboard(id, query);
