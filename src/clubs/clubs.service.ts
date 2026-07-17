@@ -12,6 +12,8 @@ import {
   CreateClubFeeDto,
   UpsertClubMonthlyMemberDto,
   BrowseClubsDto,
+  CreateAnnouncementDto,
+  UpdateAnnouncementDto,
 } from './dto';
 import {
   Prisma,
@@ -23,6 +25,7 @@ import {
   ClubStatus,
   Role,
   FavoriteType,
+  NotificationType,
 } from '@prisma/client';
 import {
   removeVietnameseTones,
@@ -1966,6 +1969,129 @@ export class ClubsService {
 
     await this.prisma.clubMonthlyMember.deleteMany({
       where: { clubId, userId, year, month },
+    });
+
+    return { success: true };
+  }
+
+  // ===========================================
+  // Announcements
+  // ===========================================
+
+  async getClubAnnouncements(clubId: string) {
+    const club = await this.prisma.club.findUnique({
+      where: { id: clubId },
+      select: { status: true, isPublic: true },
+    });
+
+    if (!club || club.status === ClubStatus.PENDING || !club.isPublic) {
+      throw new NotFoundException('Club not found');
+    }
+
+    return this.prisma.clubAnnouncement.findMany({
+      where: { clubId },
+      orderBy: [{ pinnedUntil: 'desc' }, { createdAt: 'desc' }],
+      include: {
+        author: {
+          select: { id: true, name: true, image: true },
+        },
+      },
+    });
+  }
+
+  async createAnnouncement(
+    clubId: string,
+    userId: string,
+    dto: CreateAnnouncementDto,
+    userRole?: Role
+  ) {
+    await this.ensureManagedClub(clubId, userId, userRole);
+
+    const announcement = await this.prisma.clubAnnouncement.create({
+      data: {
+        clubId,
+        authorId: userId,
+        title: dto.title,
+        content: dto.content,
+        pinnedUntil: dto.pinnedUntil,
+      },
+      include: {
+        author: {
+          select: { id: true, name: true, image: true },
+        },
+      },
+    });
+
+    const members = await this.prisma.clubMember.findMany({
+      where: {
+        clubId,
+        status: MemberStatus.ACTIVE,
+        userId: { not: userId },
+      },
+      select: { userId: true },
+    });
+
+    await Promise.all(
+      members.map((member) =>
+        this.notificationsService.createForUser(
+          member.userId,
+          NotificationType.CLUB,
+          announcement.title,
+          announcement.content,
+          { clubId, announcementId: announcement.id }
+        )
+      )
+    );
+
+    return announcement;
+  }
+
+  async updateAnnouncement(
+    clubId: string,
+    announcementId: string,
+    userId: string,
+    dto: UpdateAnnouncementDto,
+    userRole?: Role
+  ) {
+    await this.ensureManagedClub(clubId, userId, userRole);
+
+    const announcement = await this.prisma.clubAnnouncement.findFirst({
+      where: { id: announcementId, clubId },
+    });
+
+    if (!announcement) {
+      throw new NotFoundException('Announcement not found');
+    }
+
+    return this.prisma.clubAnnouncement.update({
+      where: { id: announcementId },
+      data: dto,
+      include: {
+        author: {
+          select: { id: true, name: true, image: true },
+        },
+      },
+    });
+  }
+
+  async deleteAnnouncement(
+    clubId: string,
+    announcementId: string,
+    userId: string,
+    userRole?: Role
+  ) {
+    await this.ensureManagedClub(clubId, userId, userRole);
+
+    const announcement = await this.prisma.clubAnnouncement.findFirst({
+      where: { id: announcementId, clubId },
+    });
+
+    if (!announcement) {
+      throw new NotFoundException('Announcement not found');
+    }
+
+    await this.prisma.clubAnnouncement.delete({
+      where: { id: announcementId },
     });
 
     return { success: true };

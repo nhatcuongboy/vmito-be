@@ -16,6 +16,7 @@ import { CategoriesService } from '../categories/categories.service';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
 import { DuplicateTournamentDto } from './dto/duplicate-tournament.dto';
+import { BrowseTournamentsDto } from './dto/browse-tournaments.dto';
 import { CreateCategoryDto } from '../categories/dto/create-category.dto';
 import {
   CreateTournamentPlayerDto,
@@ -45,13 +46,10 @@ export class TournamentsController {
   @UseGuards(OptionalJwtAuthGuard)
   @Get()
   findAll(
-    @Query('favoriteOnly') favoriteOnly?: string,
+    @Query() query: BrowseTournamentsDto,
     @CurrentUser() user?: AuthenticatedUser
   ) {
-    return this.tournamentsService.findAll(
-      favoriteOnly === 'true',
-      user?.userId
-    );
+    return this.tournamentsService.findAll(query, user?.userId);
   }
 
   @Get('my')
@@ -138,6 +136,12 @@ export class TournamentsController {
   @Get(':id/all-matches')
   getAllMatches(@Param('id') id: string) {
     return this.tournamentsService.getAllMatches(id);
+  }
+
+  @Public()
+  @Get(':id/progress')
+  getProgress(@Param('id') id: string) {
+    return this.tournamentsService.getProgress(id);
   }
 
   @Public()

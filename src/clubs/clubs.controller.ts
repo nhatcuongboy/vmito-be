@@ -19,6 +19,8 @@ import {
   UpdateMemberRoleDto,
   RejectJoinRequestDto,
   JoinRequestDto,
+  CreateAnnouncementDto,
+  UpdateAnnouncementDto,
 } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
@@ -425,6 +427,66 @@ export class ClubsController {
       memberUserId,
       parseInt(year, 10),
       parseInt(month, 10),
+      user.role
+    );
+  }
+
+  // ===========================================
+  // Announcement Endpoints
+  // ===========================================
+
+  @Public()
+  @Get(':id/announcements')
+  async getClubAnnouncements(@Param('id') clubId: string) {
+    return this.clubsService.getClubAnnouncements(clubId);
+  }
+
+  @Post(':id/announcements')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async createAnnouncement(
+    @Param('id') clubId: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: CreateAnnouncementDto
+  ) {
+    return this.clubsService.createAnnouncement(
+      clubId,
+      user.userId,
+      dto,
+      user.role
+    );
+  }
+
+  @Put(':id/announcements/:announcementId')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async updateAnnouncement(
+    @Param('id') clubId: string,
+    @Param('announcementId') announcementId: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: UpdateAnnouncementDto
+  ) {
+    return this.clubsService.updateAnnouncement(
+      clubId,
+      announcementId,
+      user.userId,
+      dto,
+      user.role
+    );
+  }
+
+  @Delete(':id/announcements/:announcementId')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async deleteAnnouncement(
+    @Param('id') clubId: string,
+    @Param('announcementId') announcementId: string,
+    @CurrentUser() user: JwtUser
+  ) {
+    return this.clubsService.deleteAnnouncement(
+      clubId,
+      announcementId,
+      user.userId,
       user.role
     );
   }
