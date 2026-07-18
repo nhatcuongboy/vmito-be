@@ -37,6 +37,14 @@ export interface ExtractedCourt {
 }
 
 export interface ExtractedSessionDto {
+  // Classification gate: true only when the post is actively recruiting
+  // other players for a casual/pickup session (tuyển vãng lai). Class ads,
+  // court-rental/availability listings, equipment sales, and tournament
+  // announcements must come back false so the crawler skips them.
+  isRecruitmentPost?: boolean;
+  // Short reason from the model when isRecruitmentPost is false — logged by
+  // the crawler ingest so false negatives can be spotted and the prompt tuned.
+  nonRecruitmentReason?: string;
   name?: string;
   description?: string;
   notes?: string;

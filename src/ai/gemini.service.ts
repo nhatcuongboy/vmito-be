@@ -43,6 +43,8 @@ type RawExtractedCourt = {
 };
 
 type RawExtractedSession = {
+  isRecruitmentPost?: boolean | null;
+  nonRecruitmentReason?: string | null;
   name?: string | null;
   description?: string | null;
   notes?: string | null;
@@ -93,6 +95,8 @@ const nullableIntegerSchema = { type: GenAIType.INTEGER, nullable: true };
 const SESSION_EXTRACTION_SCHEMA = {
   type: GenAIType.OBJECT,
   properties: {
+    isRecruitmentPost: { type: GenAIType.BOOLEAN },
+    nonRecruitmentReason: nullableStringSchema,
     name: nullableStringSchema,
     description: nullableStringSchema,
     notes: nullableStringSchema,
@@ -167,6 +171,8 @@ const SESSION_EXTRACTION_SCHEMA = {
     },
   },
   required: [
+    'isRecruitmentPost',
+    'nonRecruitmentReason',
     'name',
     'description',
     'notes',
@@ -188,6 +194,8 @@ const SESSION_EXTRACTION_SCHEMA = {
     'feeConfig',
   ],
   propertyOrdering: [
+    'isRecruitmentPost',
+    'nonRecruitmentReason',
     'name',
     'description',
     'notes',
@@ -661,6 +669,8 @@ Only use another language if the user explicitly asks you to translate, compare 
         feeNotes);
 
     return {
+      isRecruitmentPost: raw.isRecruitmentPost === true,
+      nonRecruitmentReason: this.normalizeTextValue(raw.nonRecruitmentReason),
       name: this.normalizeTextValue(raw.name),
       description: this.normalizeTextValue(raw.description),
       notes: this.normalizeTextValue(raw.notes),
@@ -939,8 +949,6 @@ Only use another language if the user explicitly asks you to translate, compare 
 
 ${languageInstruction}
 
-Analyze the following article/post and extract every session detail that is explicitly present or strongly implied. The post is typically a recruitment for casual badminton players (tuyển vãng lai), but it may mention pickleball, tennis, football, or another sport.
-
 Article content:
 """
 ${articleContent}
@@ -948,7 +956,18 @@ ${articleContent}
 
 Current date in Vietnam timezone: ${currentDate.date}
 
-Return a JSON object that matches the provided schema. Use null for fields that cannot be determined.
+STEP 1 — Classify the post first (isRecruitmentPost).
+Set isRecruitmentPost = true ONLY if the post is actively recruiting/inviting other players to join a specific casual/pickup play session at a stated (or clearly implied) time and place — "tuyển vãng lai", "tìm người đánh cùng", "cần thêm X người", "giao lưu cầu lông" with an open slot to join, etc. This may be badminton, pickleball, tennis, football, or another sport.
+Set isRecruitmentPost = false for anything else, including:
+- Class/lesson posts (lớp học, khóa học, dạy cầu lông, huấn luyện viên nhận học viên).
+- Court availability/rental listings (sân trống, cho thuê sân, lịch sân trống) that are just advertising open court time, not a host organizing a group session and inviting players to join.
+- Equipment/service ads or sales (bán vợt, bán cầu, quấn cán, dịch vụ ép vợt, quảng cáo shop).
+- Tournament/event announcements, results, or general club news without an open recruitment call.
+- Questions, requests for info, or general chit-chat (e.g. "ai biết sân nào còn trống không?").
+- Anything you are not reasonably confident is a specific pickup-session recruitment.
+When isRecruitmentPost is false, set nonRecruitmentReason to a short phrase explaining why (e.g. "class ad", "court rental listing", "equipment sale") and still return the rest of the schema with null for fields you can't responsibly fill — do not fabricate details to make it look like a session. If uncertain, prefer false: a missed real post can be re-added manually, but a wrongly imported non-session post pollutes the public listing.
+
+STEP 2 — If isRecruitmentPost is true, extract every session detail that is explicitly present or strongly implied. Return a JSON object that matches the provided schema. Use null for fields that cannot be determined.
 
 Field guidance:
 - name: Session name. If the post has no title, create a short descriptive name from venue + time, but do not invent hidden facts.

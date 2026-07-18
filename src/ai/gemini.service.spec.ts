@@ -242,4 +242,37 @@ describe('GeminiService.extractSessionFromArticle', () => {
 
     expect(result.venueId).toBeUndefined();
   });
+
+  it('passes through isRecruitmentPost=true for a genuine recruitment post', async () => {
+    mockAiResponse(
+      makeRawSession({ isRecruitmentPost: true, nonRecruitmentReason: null })
+    );
+
+    const result = await service.extractSessionFromArticle(
+      'Tuyển vãng lai tối nay 18h-20h sân ABC',
+      Language.VI
+    );
+
+    expect(result.isRecruitmentPost).toBe(true);
+    expect(result.nonRecruitmentReason).toBeUndefined();
+  });
+
+  it('flags a class ad as isRecruitmentPost=false with a reason', async () => {
+    mockAiResponse(
+      makeRawSession({
+        isRecruitmentPost: false,
+        nonRecruitmentReason: 'class ad',
+        startTime: null,
+        endTime: null,
+      })
+    );
+
+    const result = await service.extractSessionFromArticle(
+      'Khai giảng lớp học cầu lông cho người mới, học phí 500k/khoá',
+      Language.VI
+    );
+
+    expect(result.isRecruitmentPost).toBe(false);
+    expect(result.nonRecruitmentReason).toBe('class ad');
+  });
 });

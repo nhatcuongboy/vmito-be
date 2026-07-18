@@ -9,6 +9,7 @@ export interface IngestResult {
   received: number;
   imported: number;
   skippedDuplicate: number;
+  skippedNonRecruitment: number;
   skippedNoise: number;
   failed: number;
 }
@@ -25,8 +26,10 @@ export class WebhooksService {
 
   /**
    * Ingest crawled Facebook posts from an Apify run: for each post, run Gemini
-   * extraction, filter out noise (ads/sales/non-sessions), and create a
-   * view-only crawled session. Dedup is enforced downstream via externalUrl.
+   * extraction (which also classifies whether the post is actually a player
+   * recruitment — class ads, court-rental listings, and equipment sales are
+   * rejected), filter out remaining noise, and create a view-only crawled
+   * session. Dedup is enforced downstream via externalUrl.
    *
    * Apify's native webhook only sends run metadata, so when the payload carries
    * a `resource.defaultDatasetId` we fetch the actual items from the Apify
@@ -39,6 +42,7 @@ export class WebhooksService {
       received: items.length,
       imported: 0,
       skippedDuplicate: 0,
+      skippedNonRecruitment: 0,
       skippedNoise: 0,
       failed: 0,
     };
@@ -56,8 +60,22 @@ export class WebhooksService {
         const extracted =
           await this.geminiService.extractSessionFromArticle(content);
 
-        // Noise filter: a real recruitment session must have at least a time
-        // or a venue. Ads / racket sales / generic posts lack both.
+        // Gate 1: the model classifies post intent. Class ads, court-rental
+        // listings, equipment sales, and tournament announcements come back
+        // isRecruitmentPost=false and must not become sessions.
+        if (!extracted.isRecruitmentPost) {
+          result.skippedNonRecruitment++;
+          this.logger.debug(
+            `Skipped non-recruitment post ${externalUrl}: ${
+              extracted.nonRecruitmentReason || '(no reason given)'
+            }`
+          );
+          continue;
+        }
+
+        // Gate 2: heuristic safety net for the classifier being wrong the
+        // other way — a real recruitment post must have at least a time or
+        // a venue; the model returns nulls for fields it can't determine.
         if (!this.isValidSession(extracted)) {
           result.skippedNoise++;
           continue;
@@ -97,8 +115,8 @@ export class WebhooksService {
 
     this.logger.log(
       `Apify ingest: received=${result.received} imported=${result.imported} ` +
-        `dup=${result.skippedDuplicate} noise=${result.skippedNoise} ` +
-        `failed=${result.failed}`
+        `dup=${result.skippedDuplicate} nonRecruitment=${result.skippedNonRecruitment} ` +
+        `noise=${result.skippedNoise} failed=${result.failed}`
     );
     return result;
   }
