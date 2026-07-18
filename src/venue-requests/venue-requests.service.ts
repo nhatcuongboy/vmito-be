@@ -33,12 +33,13 @@ type VenuePatchPayload = Partial<{
   district: string;
   numberOfCourts: number;
   openingHours: string;
-  hourlyRateFixed: number;
-  hourlyRateWalkIn: number;
   phone: string;
   website: string;
   locatedWithin: string;
   bookingPolicy: string;
+  wifiName: string;
+  wifiPassword: string;
+  closureStatus: ClosureStatus;
   description: string;
 }>;
 
@@ -352,13 +353,20 @@ export class VenueRequestsService {
     assignString('website');
     assignString('locatedWithin');
     assignString('bookingPolicy');
+    assignString('wifiName');
+    assignString('wifiPassword');
     assignString('description');
     assignString('priceImageUrl');
     assignString('priceImagePublicId');
     assignString('note');
     assignNumber('numberOfCourts');
-    assignNumber('hourlyRateFixed');
-    assignNumber('hourlyRateWalkIn');
+
+    if (
+      payload?.closureStatus &&
+      Object.values(ClosureStatus).includes(payload.closureStatus)
+    ) {
+      sanitized.closureStatus = payload.closureStatus;
+    }
 
     if (Array.isArray(payload?.suggestedImages)) {
       const images = payload.suggestedImages

@@ -1,7 +1,9 @@
+import { ClosureStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -53,16 +55,6 @@ export class VenueRequestPayloadDto {
   openingHours?: string;
 
   @IsOptional()
-  @IsInt()
-  @Min(0)
-  hourlyRateFixed?: number;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  hourlyRateWalkIn?: number;
-
-  @IsOptional()
   @IsString()
   @MaxLength(40)
   phone?: string;
@@ -81,6 +73,20 @@ export class VenueRequestPayloadDto {
   @IsString()
   @MaxLength(2000)
   bookingPolicy?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  wifiName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  wifiPassword?: string;
+
+  @IsOptional()
+  @IsEnum(ClosureStatus)
+  closureStatus?: ClosureStatus;
 
   @IsOptional()
   @IsString()
