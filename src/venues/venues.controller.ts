@@ -29,6 +29,11 @@ import {
   UpdateVenuePriceBookDto,
   UpdateVenuePriceRuleDto,
 } from './dto/venue-pricing.dto';
+import {
+  AddVenueManagerDto,
+  UpdateVenueManagerDto,
+  UpdateVenueRentalSettingsDto,
+} from './dto/venue-management.dto';
 
 @ApiTags('venues')
 @ApiBearerAuth('JWT-auth')
@@ -76,6 +81,11 @@ export class VenuesController {
     return this.venuesService.migrateAddresses();
   }
 
+  @Get('managed-by-me')
+  findManagedByMe(@CurrentUser() user: AuthenticatedUser) {
+    return this.venuesService.findManagedByUser(user.userId, user.role);
+  }
+
   @Public()
   @Get(':id')
   findOne(@Param('id') id: string) {
@@ -91,11 +101,18 @@ export class VenuesController {
   @Post(':venueId/price-books')
   createPriceBook(
     @Param('venueId') venueId: string,
-    @Body() dto: CreateVenuePriceBookDto
+    @Body() dto: CreateVenuePriceBookDto,
+    @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.venuesService.createPriceBook(venueId, dto);
+    return this.venuesService.createPriceBook(
+      venueId,
+      dto,
+      user.userId,
+      user.role
+    );
   }
 
+  @Public()
   @Get(':venueId/price-books/:priceBookId')
   findPriceBook(
     @Param('venueId') venueId: string,
@@ -108,26 +125,46 @@ export class VenuesController {
   updatePriceBook(
     @Param('venueId') venueId: string,
     @Param('priceBookId') priceBookId: string,
-    @Body() dto: UpdateVenuePriceBookDto
+    @Body() dto: UpdateVenuePriceBookDto,
+    @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.venuesService.updatePriceBook(venueId, priceBookId, dto);
+    return this.venuesService.updatePriceBook(
+      venueId,
+      priceBookId,
+      dto,
+      user.userId,
+      user.role
+    );
   }
 
   @Delete(':venueId/price-books/:priceBookId')
   deletePriceBook(
     @Param('venueId') venueId: string,
-    @Param('priceBookId') priceBookId: string
+    @Param('priceBookId') priceBookId: string,
+    @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.venuesService.deletePriceBook(venueId, priceBookId);
+    return this.venuesService.deletePriceBook(
+      venueId,
+      priceBookId,
+      user.userId,
+      user.role
+    );
   }
 
   @Post(':venueId/price-books/:priceBookId/rules')
   createPriceRule(
     @Param('venueId') venueId: string,
     @Param('priceBookId') priceBookId: string,
-    @Body() dto: CreateVenuePriceRuleDto
+    @Body() dto: CreateVenuePriceRuleDto,
+    @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.venuesService.createPriceRule(venueId, priceBookId, dto);
+    return this.venuesService.createPriceRule(
+      venueId,
+      priceBookId,
+      dto,
+      user.userId,
+      user.role
+    );
   }
 
   @Patch(':venueId/price-books/:priceBookId/rules/:ruleId')
@@ -135,13 +172,16 @@ export class VenuesController {
     @Param('venueId') venueId: string,
     @Param('priceBookId') priceBookId: string,
     @Param('ruleId') ruleId: string,
-    @Body() dto: UpdateVenuePriceRuleDto
+    @Body() dto: UpdateVenuePriceRuleDto,
+    @CurrentUser() user: AuthenticatedUser
   ) {
     return this.venuesService.updatePriceRule(
       venueId,
       priceBookId,
       ruleId,
-      dto
+      dto,
+      user.userId,
+      user.role
     );
   }
 
@@ -149,9 +189,91 @@ export class VenuesController {
   deletePriceRule(
     @Param('venueId') venueId: string,
     @Param('priceBookId') priceBookId: string,
-    @Param('ruleId') ruleId: string
+    @Param('ruleId') ruleId: string,
+    @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.venuesService.deletePriceRule(venueId, priceBookId, ruleId);
+    return this.venuesService.deletePriceRule(
+      venueId,
+      priceBookId,
+      ruleId,
+      user.userId,
+      user.role
+    );
+  }
+
+  @Get(':venueId/managers')
+  findManagers(
+    @Param('venueId') venueId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.venuesService.findManagers(venueId, user.userId, user.role);
+  }
+
+  @Get(':venueId/manager-candidates')
+  searchManagerCandidates(
+    @Param('venueId') venueId: string,
+    @Query('query') query: string,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.venuesService.searchManagerCandidates(
+      venueId,
+      query || '',
+      user.userId,
+      user.role
+    );
+  }
+
+  @Post(':venueId/managers')
+  addManager(
+    @Param('venueId') venueId: string,
+    @Body() dto: AddVenueManagerDto,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.venuesService.addManager(venueId, dto, user.userId, user.role);
+  }
+
+  @Patch(':venueId/managers/:managerId')
+  updateManager(
+    @Param('venueId') venueId: string,
+    @Param('managerId') managerId: string,
+    @Body() dto: UpdateVenueManagerDto,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.venuesService.updateManager(
+      venueId,
+      managerId,
+      dto,
+      user.userId,
+      user.role
+    );
+  }
+
+  @Delete(':venueId/managers/:managerId')
+  removeManager(
+    @Param('venueId') venueId: string,
+    @Param('managerId') managerId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.venuesService.removeManager(
+      venueId,
+      managerId,
+      user.userId,
+      user.role
+    );
+  }
+
+  @Patch(':venueId/rental-settings')
+  updateRentalSettings(
+    @Param('venueId') venueId: string,
+    @Body() dto: UpdateVenueRentalSettingsDto,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.venuesService.updateRentalSettings(
+      venueId,
+      dto,
+      user.userId,
+      user.role
+    );
   }
 
   @Post(':venueId/calculate-rental-price')

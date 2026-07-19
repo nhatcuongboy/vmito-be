@@ -62,6 +62,17 @@ model User {
   submittedVenueRequests VenueRequest[] @relation("SubmittedVenueRequests")
   reviewedVenueRequests  VenueRequest[] @relation("ReviewedVenueRequests")
 
+  // Venue rental management
+  managedVenues      VenueManager[]        @relation("VenueManagers")
+  rentalQuotes       VenueRentalQuote[]    @relation("RentalQuoteRequester")
+  rentalRequests     VenueRentalRequest[]  @relation("RentalRequester")
+  reviewedRentals    VenueRentalRequest[]  @relation("RentalReviewer")
+  cancelledRentals   VenueRentalRequest[]  @relation("RentalCanceller")
+  rentalProposals    VenueRentalProposal[]
+  rentalEvents       VenueRentalEvent[]
+  createdCourtBlocks VenueCourtBlock[]     @relation("CourtBlockCreator")
+  createdRentals     VenueRentalRequest[]  @relation("RentalCreator")
+
   // Post relations
   posts        Post[]        @relation("UserPosts")
   postLikes    PostLike[]    @relation("UserPostLikes")
@@ -82,6 +93,7 @@ enum NotificationType {
   PAYMENT // Payment-related notifications
   CLUB // Club-related notifications
   POST // Post interactions (like, comment)
+  VENUE_RENTAL // Venue rental workflow updates
 }
 
 model Notification {
@@ -245,11 +257,12 @@ model Session {
   club      Club?    @relation(fields: [clubId], references: [id], onDelete: SetNull)
 
   // Fee & Payment relations
-  feeConfig      SessionFeeConfig?
-  paymentRecords PaymentRecord[]
-  expenses       SessionExpense[]
-  ratings        Rating[]
-  clubSessions   ClubSession[]
+  feeConfig           SessionFeeConfig?
+  paymentRecords      PaymentRecord[]
+  expenses            SessionExpense[]
+  ratings             Rating[]
+  clubSessions        ClubSession[]
+  venueRentalRequests VenueRentalRequest[]
 
   @@index([isCrawled])
   @@index([clubId])
@@ -298,11 +311,11 @@ model Favorite {
 }
 
 model Venue {
-  id               String            @id @default(cuid())
-  slug             String?           @unique
-  placeId          String?           @unique // Google Place ID
+  id               String                       @id @default(cuid())
+  slug             String?                      @unique
+  placeId          String?                      @unique // Google Place ID
   name             String
-  sportType        SportType         @default(BADMINTON)
+  sportType        SportType                    @default(BADMINTON)
   acronym          String? // Venue acronym
   description      String? // Venue description
   searchTerms      String? // Normalized search string
@@ -314,23 +327,30 @@ model Venue {
   newAddress       String? // New admin unit address (post Nghị quyết 60)
   newDistrict      String? // New ward/district name
   newCity          String? // New city/province name if changed
-  isVerified       Boolean           @default(false)
+  isVerified       Boolean                      @default(false)
   openingHours     String?
   numberOfCourts   Int?
-  status           VenueStatus       @default(ACTIVE)
+  status           VenueStatus                  @default(ACTIVE)
   phone            String?
   website          String?
   hourlyRateFixed  Int?
   hourlyRateWalkIn Int?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
   sessions         Session[]
   clubs            Club[]
   tournaments      Tournament[]
   tournamentVenues TournamentVenue[]
-  venueRequests    VenueRequest[]    @relation("RequestedVenue")
-  appliedRequests  VenueRequest[]    @relation("AppliedVenue")
+  venueRequests    VenueRequest[]               @relation("RequestedVenue")
+  appliedRequests  VenueRequest[]               @relation("AppliedVenue")
   priceBooks       VenuePriceBook[]
+  managers         VenueManager[]
+  rentalQuotes     VenueRentalQuote[]
+  rentalRequests   VenueRentalRequest[]
+  courts           VenueCourt[]
+  operatingPeriods VenueOperatingPeriod[]
+  courtBlocks      VenueCourtBlock[]
+  courtAllocations VenueRentalCourtAllocation[]
 
   // Amenities
   hasCarParking Boolean?
@@ -339,9 +359,13 @@ model Venue {
   wifiPassword  String?
 
   // Status & Policy
-  closureStatus ClosureStatus @default(OPERATING)
-  bookingPolicy String?
-  locatedWithin String?
+  closureStatus         ClosureStatus @default(OPERATING)
+  bookingPolicy         String?
+  locatedWithin         String?
+  timezone              String        @default("Asia/Ho_Chi_Minh")
+  rentalEnabled         Boolean       @default(false)
+  courtSelectionEnabled Boolean       @default(false)
+  scheduleNeedsReview   Boolean       @default(true)
 
   // Images
   coverPhoto               String?
@@ -386,22 +410,23 @@ enum VenueCustomerType {
 }
 
 model VenuePriceBook {
-  id                 String   @id @default(cuid())
+  id                 String    @id @default(cuid())
   venueId            String
   name               String
-  currency           String   @default("VND")
+  currency           String    @default("VND")
   effectiveFrom      DateTime
   effectiveTo        DateTime?
-  isActive           Boolean  @default(true)
-  priority           Int      @default(0)
+  isActive           Boolean   @default(true)
+  priority           Int       @default(0)
   notes              String?
   priceImageUrl      String?
   priceImagePublicId String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  venue Venue            @relation(fields: [venueId], references: [id], onDelete: Cascade)
-  rules VenuePriceRule[]
+  venue        Venue              @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  rules        VenuePriceRule[]
+  rentalQuotes VenueRentalQuote[]
 
   @@index([venueId])
   @@index([isActive])
@@ -432,6 +457,296 @@ model VenuePriceRule {
   @@index([dayType])
   @@index([customerType])
   @@map("venue_price_rules")
+}
+
+enum VenueManagerRole {
+  OWNER
+  MANAGER
+}
+
+model VenueManager {
+  id        String           @id @default(cuid())
+  venueId   String
+  userId    String
+  role      VenueManagerRole @default(MANAGER)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  user  User  @relation("VenueManagers", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([venueId, userId])
+  @@index([userId])
+  @@map("venue_managers")
+}
+
+enum VenueCourtStatus {
+  ACTIVE
+  MAINTENANCE
+  INACTIVE
+}
+
+enum VenueCourtBlockType {
+  MAINTENANCE
+  CLOSED
+  PRIVATE_EVENT
+  MANUAL_HOLD
+}
+
+enum VenueRentalAllocationStatus {
+  HELD
+  CONFIRMED
+  RELEASED
+}
+
+model VenueCourt {
+  id           String           @id @default(cuid())
+  venueId      String
+  name         String
+  code         String
+  status       VenueCourtStatus @default(ACTIVE)
+  displayOrder Int              @default(0)
+  notes        String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  venue       Venue                        @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  blocks      VenueCourtBlock[]
+  allocations VenueRentalCourtAllocation[]
+
+  @@unique([venueId, code])
+  @@index([venueId, status, displayOrder])
+  @@map("venue_courts")
+}
+
+model VenueOperatingPeriod {
+  id          String   @id @default(cuid())
+  venueId     String
+  dayOfWeek   Int
+  startMinute Int
+  endMinute   Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@index([venueId, dayOfWeek, startMinute])
+  @@map("venue_operating_periods")
+}
+
+model VenueCourtBlock {
+  id              String              @id @default(cuid())
+  venueId         String
+  courtId         String?
+  type            VenueCourtBlockType
+  startTime       DateTime
+  endTime         DateTime
+  reason          String?
+  createdByUserId String
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  venue     Venue       @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  court     VenueCourt? @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  createdBy User        @relation("CourtBlockCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([venueId, startTime, endTime])
+  @@index([courtId, startTime, endTime])
+  @@map("venue_court_blocks")
+}
+
+enum VenueRentalStatus {
+  PENDING
+  COUNTER_OFFERED
+  CONFIRMED
+  REJECTED
+  CANCELLED
+  COMPLETED
+}
+
+enum VenueRentalProposalStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  SUPERSEDED
+  EXPIRED
+}
+
+enum VenueRentalEventType {
+  CREATED
+  APPROVED
+  REJECTED
+  COUNTER_OFFERED
+  PROPOSAL_ACCEPTED
+  PROPOSAL_DECLINED
+  PROPOSAL_EXPIRED
+  CANCELLED
+  SESSION_LINKED
+  COMPLETED
+  MANUAL_CREATED
+  COURTS_ALLOCATED
+  COURTS_REALLOCATED
+}
+
+enum VenueRentalSelectionMode {
+  AUTO_ASSIGN
+  SELECT_COURTS
+}
+
+enum VenueRentalSource {
+  ONLINE
+  MANUAL
+}
+
+model VenueRentalQuote {
+  id                String                   @id @default(cuid())
+  venueId           String
+  requesterId       String
+  startTime         DateTime
+  endTime           DateTime
+  numberOfCourts    Int
+  customerType      VenueCustomerType
+  currency          String                   @default("VND")
+  totalAmount       Int
+  priceBookId       String?
+  breakdown         Json
+  expiresAt         DateTime
+  consumedAt        DateTime?
+  selectionMode     VenueRentalSelectionMode @default(AUTO_ASSIGN)
+  requestedCourtIds String[]                 @default([])
+  createdAt         DateTime                 @default(now())
+
+  venue       Venue                        @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  requester   User                         @relation("RentalQuoteRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  priceBook   VenuePriceBook?              @relation(fields: [priceBookId], references: [id], onDelete: SetNull)
+  request     VenueRentalRequest?
+  allocations VenueRentalCourtAllocation[]
+
+  @@index([venueId, startTime, endTime])
+  @@index([requesterId, createdAt])
+  @@index([expiresAt])
+  @@map("venue_rental_quotes")
+}
+
+model VenueRentalRequest {
+  id                      String                   @id @default(cuid())
+  venueId                 String
+  requesterId             String?
+  quoteId                 String?                  @unique
+  createdByUserId         String?
+  source                  VenueRentalSource        @default(ONLINE)
+  selectionMode           VenueRentalSelectionMode @default(AUTO_ASSIGN)
+  requestedCourtIds       String[]                 @default([])
+  allocationNeedsReview   Boolean                  @default(false)
+  sessionId               String?
+  status                  VenueRentalStatus        @default(PENDING)
+  contactName             String
+  contactPhone            String
+  notes                   String?
+  rejectionReason         String?
+  confirmedStartTime      DateTime?
+  confirmedEndTime        DateTime?
+  confirmedNumberOfCourts Int?
+  confirmedCustomerType   VenueCustomerType?
+  confirmedAmount         Int?
+  confirmedCurrency       String?
+  confirmedBreakdown      Json?
+  reviewedByUserId        String?
+  cancelledByUserId       String?
+  cancellationReason      String?
+  confirmedAt             DateTime?
+  rejectedAt              DateTime?
+  cancelledAt             DateTime?
+  completedAt             DateTime?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+
+  venue            Venue                        @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  requester        User?                        @relation("RentalRequester", fields: [requesterId], references: [id], onDelete: SetNull)
+  quote            VenueRentalQuote?            @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  createdBy        User?                        @relation("RentalCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  session          Session?                     @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  reviewedBy       User?                        @relation("RentalReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  cancelledBy      User?                        @relation("RentalCanceller", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  proposals        VenueRentalProposal[]
+  events           VenueRentalEvent[]
+  courtAllocations VenueRentalCourtAllocation[]
+
+  @@index([venueId, status, createdAt])
+  @@index([venueId, confirmedStartTime, confirmedEndTime])
+  @@index([requesterId, createdAt])
+  @@index([sessionId])
+  @@map("venue_rental_requests")
+}
+
+model VenueRentalProposal {
+  id                String                    @id @default(cuid())
+  requestId         String
+  proposedById      String
+  startTime         DateTime
+  endTime           DateTime
+  numberOfCourts    Int
+  customerType      VenueCustomerType
+  currency          String                    @default("VND")
+  totalAmount       Int
+  priceBookId       String?
+  breakdown         Json
+  selectionMode     VenueRentalSelectionMode  @default(AUTO_ASSIGN)
+  requestedCourtIds String[]                  @default([])
+  status            VenueRentalProposalStatus @default(PENDING)
+  expiresAt         DateTime
+  respondedAt       DateTime?
+  createdAt         DateTime                  @default(now())
+
+  request    VenueRentalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  proposedBy User               @relation(fields: [proposedById], references: [id], onDelete: Restrict)
+
+  @@index([requestId, status, createdAt])
+  @@index([expiresAt, status])
+  @@map("venue_rental_proposals")
+}
+
+model VenueRentalEvent {
+  id         String               @id @default(cuid())
+  requestId  String
+  actorId    String?
+  type       VenueRentalEventType
+  fromStatus VenueRentalStatus?
+  toStatus   VenueRentalStatus?
+  payload    Json?
+  createdAt  DateTime             @default(now())
+
+  request VenueRentalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  actor   User?              @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([requestId, createdAt])
+  @@map("venue_rental_events")
+}
+
+model VenueRentalCourtAllocation {
+  id         String                      @id @default(cuid())
+  venueId    String
+  courtId    String
+  quoteId    String?
+  requestId  String?
+  startTime  DateTime
+  endTime    DateTime
+  status     VenueRentalAllocationStatus
+  expiresAt  DateTime?
+  releasedAt DateTime?
+  createdAt  DateTime                    @default(now())
+  updatedAt  DateTime                    @updatedAt
+
+  venue   Venue               @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  court   VenueCourt          @relation(fields: [courtId], references: [id], onDelete: Restrict)
+  quote   VenueRentalQuote?   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  request VenueRentalRequest? @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([venueId, startTime, endTime, status])
+  @@index([courtId, startTime, endTime, status])
+  @@index([quoteId, status])
+  @@index([requestId, status])
+  @@map("venue_rental_court_allocations")
 }
 
 enum VenueRequestType {
