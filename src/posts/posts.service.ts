@@ -55,6 +55,7 @@ export class PostsService {
     actorId: string,
     action: 'post_liked' | 'post_commented',
     actorName: string,
+    actorAvatar: string | null = null,
     extraData: Record<string, string> = {}
   ) {
     if (post.authorId === actorId) return;
@@ -65,7 +66,14 @@ export class PostsService {
         'POST',
         action,
         actorName,
-        { postId: post.id, actorId, actorName, action, ...extraData }
+        {
+          postId: post.id,
+          actorId,
+          actorName,
+          actorAvatar,
+          action,
+          ...extraData,
+        }
       );
     } catch (error) {
       this.logger.warn(
@@ -361,13 +369,14 @@ export class PostsService {
         if (!alreadyNotified) {
           const actor = await this.prisma.user.findUnique({
             where: { id: userId },
-            select: { name: true },
+            select: { name: true, image: true },
           });
           await this.notifyPostInteraction(
             post,
             userId,
             'post_liked',
-            actor?.name || ''
+            actor?.name || '',
+            actor?.image ?? null
           );
         }
       }
@@ -404,6 +413,7 @@ export class PostsService {
       userId,
       'post_commented',
       comment.user.name || '',
+      comment.user.image,
       { commentId: comment.id }
     );
 

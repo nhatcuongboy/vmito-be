@@ -12,6 +12,8 @@ import {
   VenueCustomerType,
   VenueDayType,
   VenueStatus,
+  Role,
+  VenueManagerRole,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { FavoritesService } from '../favorites/favorites.service';
@@ -31,6 +33,13 @@ import {
 } from '../common/utils/string.utils';
 import { AddressMappingService } from './address-mapping.service';
 import { VENUE_PUBLIC_OMIT } from './venue-public-omit.constant';
+import { VenuePricingService } from '../venue-rentals/venue-pricing.service';
+import { VenueAccessService } from './venue-access.service';
+import {
+  AddVenueManagerDto,
+  UpdateVenueManagerDto,
+  UpdateVenueRentalSettingsDto,
+} from './dto/venue-management.dto';
 
 export { VENUE_PUBLIC_OMIT };
 
@@ -51,7 +60,9 @@ export class VenuesService {
   constructor(
     private prisma: PrismaService,
     private addressMapping: AddressMappingService,
-    private favoritesService: FavoritesService
+    private favoritesService: FavoritesService,
+    private pricingService: VenuePricingService,
+    private venueAccess: VenueAccessService
   ) {}
 
   /**
@@ -448,7 +459,13 @@ export class VenuesService {
     });
   }
 
-  async createPriceBook(venueId: string, dto: CreateVenuePriceBookDto) {
+  async createPriceBook(
+    venueId: string,
+    dto: CreateVenuePriceBookDto,
+    userId: string,
+    role: string
+  ) {
+    await this.venueAccess.assertManager(venueId, userId, role);
     await this.ensureVenueExists(venueId);
 
     return this.prisma.venuePriceBook.create({
@@ -475,8 +492,11 @@ export class VenuesService {
   async updatePriceBook(
     venueId: string,
     priceBookId: string,
-    dto: UpdateVenuePriceBookDto
+    dto: UpdateVenuePriceBookDto,
+    userId: string,
+    role: string
   ) {
+    await this.venueAccess.assertManager(venueId, userId, role);
     await this.ensurePriceBook(venueId, priceBookId);
 
     return this.prisma.venuePriceBook.update({
@@ -505,7 +525,13 @@ export class VenuesService {
     });
   }
 
-  async deletePriceBook(venueId: string, priceBookId: string) {
+  async deletePriceBook(
+    venueId: string,
+    priceBookId: string,
+    userId: string,
+    role: string
+  ) {
+    await this.venueAccess.assertManager(venueId, userId, role);
     await this.ensurePriceBook(venueId, priceBookId);
 
     await this.prisma.venuePriceBook.delete({
@@ -518,8 +544,11 @@ export class VenuesService {
   async createPriceRule(
     venueId: string,
     priceBookId: string,
-    dto: CreateVenuePriceRuleDto
+    dto: CreateVenuePriceRuleDto,
+    userId: string,
+    role: string
   ) {
+    await this.venueAccess.assertManager(venueId, userId, role);
     await this.ensurePriceBook(venueId, priceBookId);
     this.validatePriceRule(dto);
 
@@ -532,8 +561,11 @@ export class VenuesService {
     venueId: string,
     priceBookId: string,
     ruleId: string,
-    dto: UpdateVenuePriceRuleDto
+    dto: UpdateVenuePriceRuleDto,
+    userId: string,
+    role: string
   ) {
+    await this.venueAccess.assertManager(venueId, userId, role);
     await this.ensurePriceBook(venueId, priceBookId);
     const existing = await this.prisma.venuePriceRule.findFirst({
       where: { id: ruleId, priceBookId },
@@ -569,7 +601,14 @@ export class VenuesService {
     });
   }
 
-  async deletePriceRule(venueId: string, priceBookId: string, ruleId: string) {
+  async deletePriceRule(
+    venueId: string,
+    priceBookId: string,
+    ruleId: string,
+    userId: string,
+    role: string
+  ) {
+    await this.venueAccess.assertManager(venueId, userId, role);
     await this.ensurePriceBook(venueId, priceBookId);
     const existing = await this.prisma.venuePriceRule.findFirst({
       where: { id: ruleId, priceBookId },
@@ -587,141 +626,286 @@ export class VenuesService {
     venueId: string,
     dto: CalculateVenueRentalPriceDto
   ) {
-    const venue = await this.prisma.venue.findUnique({
-      where: { id: venueId },
-      select: {
-        id: true,
-        hourlyRateFixed: true,
-        hourlyRateWalkIn: true,
-        priceBooks: {
-          where: {
-            isActive: true,
-            effectiveFrom: { lte: new Date(dto.startTime) },
-            OR: [
-              { effectiveTo: null },
-              { effectiveTo: { gte: new Date(dto.startTime) } },
-            ],
+    return this.pricingService.calculate(venueId, dto);
+  }
+
+  async findManagedByUser(userId: string, role: string) {
+    if (role === Role.ADMIN) {
+      return this.prisma.venue.findMany({
+        orderBy: { name: 'asc' },
+        include: {
+          managers: {
+            include: {
+              user: {
+                select: { id: true, name: true, email: true, image: true },
+              },
+            },
           },
-          include: { rules: true },
-          orderBy: [{ priority: 'desc' }, { effectiveFrom: 'desc' }],
-          take: 1,
+        },
+      });
+    }
+    return this.prisma.venue.findMany({
+      where: { managers: { some: { userId } } },
+      orderBy: { name: 'asc' },
+      include: {
+        managers: {
+          where: { userId },
+          select: { id: true, role: true, userId: true },
         },
       },
     });
+  }
 
-    if (!venue) {
-      throw new NotFoundException('Venue not found');
+  async findManagers(venueId: string, userId: string, role: string) {
+    await this.venueAccess.assertManager(venueId, userId, role);
+    return this.prisma.venueManager.findMany({
+      where: { venueId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+            role: true,
+          },
+        },
+      },
+      orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  async searchManagerCandidates(
+    venueId: string,
+    query: string,
+    userId: string,
+    role: string
+  ) {
+    await this.venueAccess.assertOwner(venueId, userId, role);
+    const value = query.trim();
+    if (value.length < 2) return [];
+    return this.prisma.user.findMany({
+      where: {
+        managedVenues: { none: { venueId } },
+        OR: [
+          { name: { contains: value, mode: 'insensitive' } },
+          { email: { contains: value, mode: 'insensitive' } },
+          { phone: { contains: value } },
+        ],
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        image: true,
+        role: true,
+      },
+      take: 20,
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async addManager(
+    venueId: string,
+    dto: AddVenueManagerDto,
+    userId: string,
+    role: string
+  ) {
+    await this.venueAccess.assertOwner(venueId, userId, role);
+    await this.venueAccess.ensureVenue(venueId);
+    const user = await this.prisma.user.findUnique({
+      where: { id: dto.userId },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    try {
+      return await this.prisma.venueManager.create({
+        data: { venueId, userId: dto.userId, role: dto.role },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+              role: true,
+            },
+          },
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('User already manages this venue');
+      }
+      throw error;
     }
+  }
 
-    const start = new Date(dto.startTime);
-    const end = new Date(dto.endTime);
+  async updateManager(
+    venueId: string,
+    managerId: string,
+    dto: UpdateVenueManagerDto,
+    userId: string,
+    role: string
+  ) {
+    await this.venueAccess.assertOwner(venueId, userId, role);
+    const manager = await this.prisma.venueManager.findFirst({
+      where: { id: managerId, venueId },
+    });
+    if (!manager) throw new NotFoundException('Venue manager not found');
     if (
-      Number.isNaN(start.getTime()) ||
-      Number.isNaN(end.getTime()) ||
-      end <= start
+      manager.role === VenueManagerRole.OWNER &&
+      dto.role !== VenueManagerRole.OWNER
     ) {
-      throw new BadRequestException('endTime must be after startTime');
+      await this.assertCanRemoveOwner(venueId);
     }
+    return this.prisma.venueManager.update({
+      where: { id: managerId },
+      data: { role: dto.role },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+            role: true,
+          },
+        },
+      },
+    });
+  }
 
-    const startDateKey = this.getDateKey(dto.startTime);
-    const endDateKey = this.getDateKey(dto.endTime);
-    if (startDateKey !== endDateKey) {
-      throw new BadRequestException(
-        'Rental price calculation supports one calendar day at a time'
-      );
+  async removeManager(
+    venueId: string,
+    managerId: string,
+    userId: string,
+    role: string
+  ) {
+    await this.venueAccess.assertOwner(venueId, userId, role);
+    const manager = await this.prisma.venueManager.findFirst({
+      where: { id: managerId, venueId },
+    });
+    if (!manager) throw new NotFoundException('Venue manager not found');
+    if (manager.role === VenueManagerRole.OWNER)
+      await this.assertCanRemoveOwner(venueId);
+    await this.prisma.venueManager.delete({ where: { id: managerId } });
+    return { message: 'Venue manager removed successfully' };
+  }
+
+  async updateRentalSettings(
+    venueId: string,
+    dto: UpdateVenueRentalSettingsDto,
+    userId: string,
+    role: string
+  ) {
+    await this.venueAccess.assertOwner(venueId, userId, role);
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: dto.timezone }).format();
+    } catch {
+      throw new BadRequestException('Invalid venue timezone');
     }
-
-    const startMinute = this.getMinuteOfDay(dto.startTime);
-    const endMinute = this.getMinuteOfDay(dto.endTime);
-    if (endMinute <= startMinute) {
-      throw new BadRequestException(
-        'endTime must be after startTime on the same day'
-      );
-    }
-
-    const priceBook = venue.priceBooks[0] || null;
-    const dayOfWeek = this.getDayOfWeek(startDateKey);
-    const rules = priceBook
-      ? priceBook.rules.filter((rule) =>
-          this.ruleAppliesToDate(
-            rule,
-            startDateKey,
-            dayOfWeek,
-            dto.customerType
-          )
-        )
-      : [];
-    const boundaries = new Set<number>([startMinute, endMinute]);
-
-    for (const rule of rules) {
-      if (rule.endMinute > startMinute && rule.startMinute < endMinute) {
-        boundaries.add(Math.max(startMinute, rule.startMinute));
-        boundaries.add(Math.min(endMinute, rule.endMinute));
+    if (dto.rentalEnabled) {
+      const venue = await this.prisma.venue.findUnique({
+        where: { id: venueId },
+        select: {
+          numberOfCourts: true,
+          hourlyRateFixed: true,
+          hourlyRateWalkIn: true,
+          _count: {
+            select: {
+              managers: { where: { role: VenueManagerRole.OWNER } },
+              priceBooks: { where: { isActive: true } },
+            },
+          },
+        },
+      });
+      if (!venue) throw new NotFoundException('Venue not found');
+      if (!venue.numberOfCourts || venue._count.managers < 1) {
+        throw new BadRequestException(
+          'Venue capacity and at least one owner are required'
+        );
+      }
+      if (
+        venue._count.priceBooks < 1 &&
+        !venue.hourlyRateFixed &&
+        !venue.hourlyRateWalkIn
+      ) {
+        throw new BadRequestException(
+          'An active price book or legacy price is required'
+        );
       }
     }
-
-    const points = Array.from(boundaries).sort((a, b) => a - b);
-    const breakdown: Array<{
-      fromMinute: number;
-      toMinute: number;
-      from: string;
-      to: string;
-      minutes: number;
-      billableMinutes: number;
-      numberOfCourts: number;
-      pricePerHour: number;
-      amount: number;
-      ruleId: string | null;
-      source: 'PRICE_BOOK' | 'LEGACY';
-    }> = [];
-    let totalAmount = 0;
-
-    for (let index = 0; index < points.length - 1; index++) {
-      const fromMinute = points[index];
-      const toMinute = points[index + 1];
-      if (toMinute <= fromMinute) continue;
-
-      const matchingRules = rules
-        .filter(
-          (rule) => rule.startMinute < toMinute && rule.endMinute > fromMinute
-        )
-        .sort(
-          (a, b) => b.priority - a.priority || b.pricePerHour - a.pricePerHour
+    if (dto.courtSelectionEnabled) {
+      if (!dto.rentalEnabled) {
+        throw new BadRequestException(
+          'Online rental must be enabled before visual court selection'
         );
-      const rule = matchingRules[0];
-      const pricePerHour =
-        rule?.pricePerHour ?? this.getLegacyHourlyRate(venue, dto.customerType);
-
-      if (!pricePerHour) continue;
-
-      const rawMinutes = toMinute - fromMinute;
-      const billableMinutes = this.getBillableMinutes(rawMinutes, rule);
-      const amount = Math.round(
-        (pricePerHour * billableMinutes * dto.numberOfCourts) / 60
-      );
-
-      totalAmount += amount;
-      breakdown.push({
-        fromMinute,
-        toMinute,
-        from: this.formatMinute(fromMinute),
-        to: this.formatMinute(toMinute),
-        minutes: rawMinutes,
-        billableMinutes,
-        numberOfCourts: dto.numberOfCourts,
-        pricePerHour,
-        amount,
-        ruleId: rule?.id ?? null,
-        source: rule ? 'PRICE_BOOK' : 'LEGACY',
+      }
+      const readiness = await this.prisma.venue.findUnique({
+        where: { id: venueId },
+        select: {
+          scheduleNeedsReview: true,
+          _count: {
+            select: {
+              courts: { where: { status: 'ACTIVE' } },
+              operatingPeriods: true,
+              rentalRequests: {
+                where: {
+                  status: 'CONFIRMED',
+                  confirmedEndTime: { gt: new Date() },
+                  courtAllocations: { none: { status: 'CONFIRMED' } },
+                },
+              },
+            },
+          },
+        },
       });
+      if (
+        !readiness ||
+        readiness.scheduleNeedsReview ||
+        readiness._count.courts < 1 ||
+        readiness._count.operatingPeriods < 1 ||
+        readiness._count.rentalRequests > 0
+      ) {
+        throw new BadRequestException({
+          code: 'COURT_SCHEDULE_NOT_READY',
+          message:
+            'Review inventory and operating hours, then allocate all future bookings',
+        });
+      }
     }
+    return this.prisma.venue.update({
+      where: { id: venueId },
+      data: {
+        rentalEnabled: dto.rentalEnabled,
+        timezone: dto.timezone,
+        ...(dto.courtSelectionEnabled !== undefined
+          ? { courtSelectionEnabled: dto.courtSelectionEnabled }
+          : {}),
+      },
+    });
+  }
 
-    return {
-      totalAmount,
-      priceBookId: priceBook?.id ?? null,
-      currency: priceBook?.currency ?? 'VND',
-      breakdown,
-    };
+  private async assertCanRemoveOwner(venueId: string) {
+    const venue = await this.prisma.venue.findUnique({
+      where: { id: venueId },
+      select: {
+        rentalEnabled: true,
+        _count: {
+          select: { managers: { where: { role: VenueManagerRole.OWNER } } },
+        },
+      },
+    });
+    if (venue?.rentalEnabled && venue._count.managers <= 1) {
+      throw new ConflictException(
+        'Cannot remove the final owner while online rental is enabled'
+      );
+    }
   }
 
   async create(createVenueDto: CreateVenueDto) {
