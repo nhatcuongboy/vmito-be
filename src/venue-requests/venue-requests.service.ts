@@ -31,6 +31,9 @@ type VenuePatchPayload = Partial<{
   address: string;
   city: string;
   district: string;
+  newAddress: string;
+  newCity: string;
+  newDistrict: string;
   numberOfCourts: number;
   openingHours: string;
   phone: string;
@@ -137,9 +140,12 @@ export class VenueRequestsService {
       const createdVenue = await this.venuesService.create({
         ...createPayload,
         name: payload.name!,
-        address: payload.address!,
-        city: payload.city!,
-        district: payload.district!,
+        // The Venue table still requires the legacy address column. Keep it
+        // populated as a compatibility fallback without treating it as the
+        // source of truth for the new administrative address.
+        address: payload.address ?? payload.newAddress!,
+        city: payload.city ?? payload.newCity,
+        district: payload.district ?? payload.newDistrict,
         status: VenueStatus.ACTIVE,
         closureStatus: ClosureStatus.OPERATING,
         isVerified: false,
@@ -199,7 +205,11 @@ export class VenueRequestsService {
     });
   }
 
-  private markApproved(id: string, adminUserId: string, appliedVenueId: string) {
+  private markApproved(
+    id: string,
+    adminUserId: string,
+    appliedVenueId: string
+  ) {
     return this.prisma.venueRequest.update({
       where: { id },
       data: {
@@ -221,7 +231,8 @@ export class VenueRequestsService {
     // If the admin passed a selection, keep only those; otherwise apply all.
     const selected = applyImagePublicIds
       ? suggested.filter(
-          (image) => image.publicId && applyImagePublicIds.includes(image.publicId)
+          (image) =>
+            image.publicId && applyImagePublicIds.includes(image.publicId)
         )
       : suggested;
 
@@ -314,10 +325,15 @@ export class VenueRequestsService {
   }
 
   private validateCreatePayload(payload: VenueRequestPayloadDto) {
-    const missing = ['name', 'address', 'city', 'district'].filter((field) => {
-      const value = payload[field as keyof VenueRequestPayloadDto];
-      return typeof value !== 'string' || value.trim().length === 0;
-    });
+    const missing: string[] = [];
+    if (!payload.name) missing.push('name');
+    if (!payload.address && !payload.newAddress) {
+      missing.push('address/newAddress');
+    }
+    if (!payload.city && !payload.newCity) missing.push('city/newCity');
+    if (!payload.district && !payload.newDistrict) {
+      missing.push('district/newDistrict');
+    }
 
     if (missing.length > 0) {
       throw new BadRequestException(
@@ -348,6 +364,9 @@ export class VenueRequestsService {
     assignString('address');
     assignString('city');
     assignString('district');
+    assignString('newAddress');
+    assignString('newCity');
+    assignString('newDistrict');
     assignString('openingHours');
     assignString('phone');
     assignString('website');
