@@ -18,6 +18,7 @@ export const VENUE_PUBLIC_OMIT = {
   imagePublicIds: true,
   coverPhotoPublicId: true,
   courtLayoutImagePublicId: true,
+  logoPublicId: true,
   bookingPolicy: true,
   locatedWithin: true,
 } satisfies Prisma.VenueOmit;

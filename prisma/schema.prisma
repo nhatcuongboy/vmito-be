@@ -372,6 +372,8 @@ model Venue {
   coverPhotoPublicId       String?
   courtLayoutImage         String?
   courtLayoutImagePublicId String?
+  logo                     String?
+  logoPublicId             String?
   images                   String[] @default([])
   imagePublicIds           String[] @default([])
 
