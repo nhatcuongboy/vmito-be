@@ -1583,6 +1583,8 @@ model Club {
   maxMembers     Int?
   image          String? // Cloudinary URL for club image (primary/cover)
   imagePublicId  String? // Cloudinary public ID (primary/cover)
+  logo           String? // Cloudinary URL for club logo/avatar (distinct from cover)
+  logoPublicId   String? // Cloudinary public ID for logo
   images         String[]       @default([]) // Multiple images functionality
   imagePublicIds String[]       @default([]) // Multiple image public IDs
   location       String? // Primary location/venue
