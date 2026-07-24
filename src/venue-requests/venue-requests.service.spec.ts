@@ -75,7 +75,7 @@ describe('VenueRequestsService', () => {
     });
   });
 
-  it('approves CREATE using new fields, composing a fallback address (never forwarding newAddress — VenuesService derives it)', async () => {
+  it('approves CREATE using new fields, composing a fallback address (never forwarding newAddress — VenuesService derives it), leaving legacy city/district null', async () => {
     venueRequestFindUnique.mockResolvedValue({
       id: 'request-1',
       type: VenueRequestType.CREATE,
@@ -91,13 +91,15 @@ describe('VenueRequestsService', () => {
 
     await service.approve('request-1', 'admin-1');
 
+    // district/city are intentionally left undefined (-> null in the DB):
+    // newDistrict is a ward, a different administrative tier than the
+    // legacy district (quận/huyện) column, so copying it over would look
+    // like real legacy data while actually being the wrong tier.
     expect(venueCreate).toHaveBeenCalledWith({
       name: 'Sân ABC',
       newDistrict: 'Cầu Kiệu',
       newCity: 'TP Hồ Chí Minh',
       address: '123 Nguyễn Văn Trỗi, Cầu Kiệu, TP Hồ Chí Minh',
-      district: 'Cầu Kiệu',
-      city: 'TP Hồ Chí Minh',
       status: VenueStatus.ACTIVE,
       closureStatus: ClosureStatus.OPERATING,
       isVerified: false,
