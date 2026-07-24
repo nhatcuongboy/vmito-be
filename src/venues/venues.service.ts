@@ -206,13 +206,17 @@ export class VenuesService {
         .filter(Boolean);
       if (cityList.length === 1) {
         andConditions.push({
-          city: { contains: cityList[0], mode: 'insensitive' },
+          OR: [
+            { city: { contains: cityList[0], mode: 'insensitive' } },
+            { newCity: { contains: cityList[0], mode: 'insensitive' } },
+          ],
         });
       } else {
         andConditions.push({
-          OR: cityList.map((c) => ({
-            city: { contains: c, mode: 'insensitive' },
-          })),
+          OR: cityList.flatMap((c) => [
+            { city: { contains: c, mode: 'insensitive' } },
+            { newCity: { contains: c, mode: 'insensitive' } },
+          ]),
         });
       }
     }
@@ -232,6 +236,7 @@ export class VenuesService {
                 mode: 'insensitive',
               },
             },
+            { newDistrict: { equals: districtList[0], mode: 'insensitive' } },
           ],
         });
       } else {
@@ -241,6 +246,7 @@ export class VenuesService {
             return [
               { district: { equals: d, mode: 'insensitive' } },
               { district: { equals: normalized, mode: 'insensitive' } },
+              { newDistrict: { equals: d, mode: 'insensitive' } },
             ];
           }),
         });
