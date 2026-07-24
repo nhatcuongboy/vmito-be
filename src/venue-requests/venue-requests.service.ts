@@ -31,7 +31,6 @@ type VenuePatchPayload = Partial<{
   address: string;
   city: string;
   district: string;
-  newAddress: string;
   newCity: string;
   newDistrict: string;
   numberOfCourts: number;
@@ -46,13 +45,18 @@ type VenuePatchPayload = Partial<{
   description: string;
 }>;
 
-// Payload keys that describe a correction attachment rather than a venue
-// column — they must never be spread onto the Venue row.
+// Payload keys that describe a correction attachment or a derivation input
+// rather than a venue column directly — they must never be spread onto the
+// Venue row. `street` is only ever consumed manually in the CREATE branch of
+// approve() (to build a fallback `address` when the venue has no old address
+// yet); VenuesService derives `newAddress`/`streetAddress` itself and never
+// accepts either as direct input.
 const NON_VENUE_PAYLOAD_KEYS = [
   'note',
   'priceImageUrl',
   'priceImagePublicId',
   'suggestedImages',
+  'street',
 ] as const;
 
 @Injectable()
@@ -137,15 +141,36 @@ export class VenueRequestsService {
     if (request.type === VenueRequestType.CREATE) {
       this.validateCreatePayload(payload);
       const createPayload = this.toVenuePatchPayload(payload);
+      // The Venue table still requires the legacy address column. When the
+      // submitter only has new-format info (venue never had an old address —
+      // e.g. it opened after the reform), fall back to street + new ward +
+      // new city as a compatibility placeholder, without treating it as the
+      // source of truth for the new administrative address (VenuesService
+      // re-derives streetAddress/newAddress from whatever `address` ends up
+      // here anyway).
+      //
+      // `city`/`district`, in contrast, are never backfilled from
+      // `newCity`/`newDistrict`: the reverse ward→ward mapping is
+      // many-to-one (several old wards can merge into one new ward), so we
+      // can't reliably reconstruct which old ward/district this venue used
+      // to belong to. Worse, `newDistrict` is a ward (Phường/Xã), a
+      // different administrative tier than `district` (Quận/Huyện) — storing
+      // one into the other would look like real legacy data while actually
+      // being the wrong tier. Leaving them null is honest: "no legacy
+      // address on file" rather than a guessed, possibly-wrong one.
+      const fallbackAddress = [
+        payload.street,
+        payload.newDistrict,
+        payload.newCity,
+      ]
+        .filter(Boolean)
+        .join(', ');
       const createdVenue = await this.venuesService.create({
         ...createPayload,
         name: payload.name!,
-        // The Venue table still requires the legacy address column. Keep it
-        // populated as a compatibility fallback without treating it as the
-        // source of truth for the new administrative address.
-        address: payload.address ?? payload.newAddress!,
-        city: payload.city ?? payload.newCity,
-        district: payload.district ?? payload.newDistrict,
+        address: payload.address || fallbackAddress,
+        city: payload.city,
+        district: payload.district,
         status: VenueStatus.ACTIVE,
         closureStatus: ClosureStatus.OPERATING,
         isVerified: false,
@@ -327,8 +352,8 @@ export class VenueRequestsService {
   private validateCreatePayload(payload: VenueRequestPayloadDto) {
     const missing: string[] = [];
     if (!payload.name) missing.push('name');
-    if (!payload.address && !payload.newAddress) {
-      missing.push('address/newAddress');
+    if (!payload.address && !payload.street) {
+      missing.push('address/street');
     }
     if (!payload.city && !payload.newCity) missing.push('city/newCity');
     if (!payload.district && !payload.newDistrict) {
@@ -364,7 +389,7 @@ export class VenueRequestsService {
     assignString('address');
     assignString('city');
     assignString('district');
-    assignString('newAddress');
+    assignString('street');
     assignString('newCity');
     assignString('newDistrict');
     assignString('openingHours');

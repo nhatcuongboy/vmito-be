@@ -320,11 +320,13 @@ model Venue {
   description      String? // Venue description
   searchTerms      String? // Normalized search string
   address          String
+  streetAddress    String? // House number + street, extracted from `address`; invariant across admin reform, shared by old/new address composition
   lat              Float?
   lng              Float?
   district         String?
   city             String?
-  newAddress       String? // New admin unit address (post Nghị quyết 60)
+  wardOld          String? // Old ward/commune, extracted from `address`
+  newAddress       String? // New admin unit address (post Nghị quyết 60) — derived from streetAddress + newDistrict + newCity, not directly editable
   newDistrict      String? // New ward/district name
   newCity          String? // New city/province name if changed
   isVerified       Boolean                      @default(false)

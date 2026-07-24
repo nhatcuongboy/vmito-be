@@ -1,3 +1,13 @@
+/**
+ * @deprecated Superseded by `AddressMappingService` + the admin endpoint
+ * `POST /venues/migrate-addresses` (VenuesService.migrateAddresses()), which
+ * share the same matching logic without this script's global `districtMatched`
+ * counter bug and without duplicating the ward-extraction regex a second time.
+ * For backfilling `streetAddress`/`wardOld` and recomputing `newAddress` to
+ * include the street portion, use `scripts/backfill-street-and-new-address.ts`
+ * instead. Kept only for historical reference — do not run this for new
+ * migrations.
+ */
 import { PrismaClient } from '@prisma/client';
 import { removeVietnameseTones } from '../src/common/utils/string.utils';
 import * as fs from 'fs';

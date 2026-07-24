@@ -63,6 +63,13 @@ export class VenuesController {
     });
   }
 
+  @Public()
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
+  @Get('new-admin-units')
+  getNewAdminUnits() {
+    return this.venuesService.getNewAdminUnits();
+  }
+
   @Post('backfill-slugs')
   @UseGuards(AdminGuard)
   backfillSlugs() {

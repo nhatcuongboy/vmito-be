@@ -199,9 +199,9 @@ export class SessionsService {
       if (filters.startTimeTo) range.lte = new Date(filters.startTimeTo);
       where.AND = [
         ...(Array.isArray(where.AND)
-          ? (where.AND as Prisma.SessionWhereInput[])
+          ? where.AND
           : where.AND
-            ? [where.AND as Prisma.SessionWhereInput]
+            ? [where.AND]
             : []),
         {
           OR: [
@@ -213,16 +213,46 @@ export class SessionsService {
     }
 
     if (filters?.city) {
+      const venueWhere =
+        (where.venue as Prisma.VenueWhereInput | undefined) ?? {};
       where.venue = {
-        ...(where.venue as Prisma.VenueWhereInput | undefined),
-        city: { equals: filters.city, mode: 'insensitive' },
+        ...venueWhere,
+        AND: [
+          ...(Array.isArray(venueWhere.AND)
+            ? venueWhere.AND
+            : venueWhere.AND
+              ? [venueWhere.AND]
+              : []),
+          {
+            OR: [
+              { city: { equals: filters.city, mode: 'insensitive' } },
+              { newCity: { equals: filters.city, mode: 'insensitive' } },
+            ],
+          },
+        ],
       };
     }
 
     if (filters?.district) {
+      const venueWhere =
+        (where.venue as Prisma.VenueWhereInput | undefined) ?? {};
       where.venue = {
-        ...(where.venue as Prisma.VenueWhereInput | undefined),
-        district: { equals: filters.district, mode: 'insensitive' },
+        ...venueWhere,
+        AND: [
+          ...(Array.isArray(venueWhere.AND)
+            ? venueWhere.AND
+            : venueWhere.AND
+              ? [venueWhere.AND]
+              : []),
+          {
+            OR: [
+              { district: { equals: filters.district, mode: 'insensitive' } },
+              {
+                newDistrict: { equals: filters.district, mode: 'insensitive' },
+              },
+            ],
+          },
+        ],
       };
     }
 
@@ -406,6 +436,11 @@ export class SessionsService {
                 city: { contains: cityList[0], mode: 'insensitive' },
               },
             },
+            {
+              venue: {
+                newCity: { contains: cityList[0], mode: 'insensitive' },
+              },
+            },
             { location: { contains: cityList[0], mode: 'insensitive' } },
           ],
         });
@@ -414,6 +449,7 @@ export class SessionsService {
           OR: cityList.map((c) => ({
             OR: [
               { venue: { city: { contains: c, mode: 'insensitive' } } },
+              { venue: { newCity: { contains: c, mode: 'insensitive' } } },
               { location: { contains: c, mode: 'insensitive' } },
             ],
           })),
@@ -438,6 +474,14 @@ export class SessionsService {
               },
             },
             {
+              venue: {
+                newDistrict: {
+                  contains: districtList[0],
+                  mode: 'insensitive',
+                },
+              },
+            },
+            {
               location: {
                 contains: districtList[0],
                 mode: 'insensitive',
@@ -450,6 +494,7 @@ export class SessionsService {
           OR: districtList.map((d) => ({
             OR: [
               { venue: { district: { contains: d, mode: 'insensitive' } } },
+              { venue: { newDistrict: { contains: d, mode: 'insensitive' } } },
               { location: { contains: d, mode: 'insensitive' } },
             ],
           })),

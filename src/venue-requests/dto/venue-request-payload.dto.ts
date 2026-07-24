@@ -44,10 +44,13 @@ export class VenueRequestPayloadDto {
   @MaxLength(120)
   district?: string;
 
+  // House number + street. Used (together with `address`, when present) to
+  // derive `newAddress` server-side — `newAddress` itself is never accepted
+  // from the client, it is always computed from street + newDistrict + newCity.
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  newAddress?: string;
+  street?: string;
 
   @IsOptional()
   @IsString()
