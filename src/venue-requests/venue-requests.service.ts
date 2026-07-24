@@ -147,13 +147,16 @@ export class VenueRequestsService {
     if (request.type === VenueRequestType.CREATE) {
       this.validateCreatePayload(payload);
       const createPayload = this.toVenuePatchPayload(payload);
-      const fallbackAddress = [
+      // Prefer newAddress (full formatted string from FE) as address fallback.
+      // If absent, compose from street + newDistrict + newCity.
+      const composedAddress = [
         payload.street,
         payload.newDistrict,
         payload.newCity,
       ]
         .filter(Boolean)
         .join(', ');
+      const fallbackAddress = payload.newAddress || composedAddress;
       const createdVenue = await this.venuesService.create({
         ...createPayload,
         name: payload.name!,
@@ -442,8 +445,8 @@ export class VenueRequestsService {
   private validateCreatePayload(payload: VenueRequestPayloadDto) {
     const missing: string[] = [];
     if (!payload.name) missing.push('name');
-    if (!payload.address && !payload.street) {
-      missing.push('address/street');
+    if (!payload.address && !payload.street && !payload.newAddress) {
+      missing.push('address/street/newAddress');
     }
     if (!payload.city && !payload.newCity) missing.push('city/newCity');
     if (!payload.district && !payload.newDistrict) {
