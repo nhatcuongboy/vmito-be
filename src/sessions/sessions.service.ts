@@ -355,6 +355,7 @@ export class SessionsService {
       sortOrder?: 'asc' | 'desc';
       sessionType?: 'all' | 'regular' | 'facebook';
       favoriteOnly?: boolean;
+      includeEnded?: boolean;
     },
     userId?: string
   ) {
@@ -378,18 +379,21 @@ export class SessionsService {
       }
     }
 
-    const where: Prisma.SessionWhereInput = {
-      status: 'PREPARING', // Only show sessions that haven't started
-      OR: [
-        // Sessions with scheduledEndTime — use it as the deadline
-        { scheduledEndTime: { gt: new Date() } },
-        // Sessions without scheduledEndTime — fall back to endTime
-        {
-          scheduledEndTime: null,
-          endTime: { gt: new Date() },
-        },
-      ],
-    };
+    const where: Prisma.SessionWhereInput =
+      filters?.favoriteOnly || filters?.includeEnded
+        ? {}
+        : {
+            status: 'PREPARING', // Only show sessions that haven't started
+            OR: [
+              // Sessions with scheduledEndTime — use it as the deadline
+              { scheduledEndTime: { gt: new Date() } },
+              // Sessions without scheduledEndTime — fall back to endTime
+              {
+                scheduledEndTime: null,
+                endTime: { gt: new Date() },
+              },
+            ],
+          };
 
     // Initialize AND array if not present to avoid overwriting
     const andConditions: Prisma.SessionWhereInput[] = [];
@@ -1287,15 +1291,36 @@ export class SessionsService {
       );
     }
 
-    const name = extracted.name?.trim() || 'Kèo vãng lai';
+    const matchedVenueId = extracted.venueId?.trim();
+
+    // Resolve the venue name for the session title:
+    // 1. If the AI matched a venue in our DB, fetch its canonical name.
+    // 2. Otherwise use the AI-extracted venue name from the post text.
+    // 3. Fall back to the extracted free-form name or the generic placeholder.
+    let resolvedVenueName: string | undefined;
+    if (matchedVenueId) {
+      const dbVenue = await this.prisma.venue.findUnique({
+        where: { id: matchedVenueId },
+        select: { name: true },
+      });
+      resolvedVenueName = dbVenue?.name?.trim() || undefined;
+    }
+    if (!resolvedVenueName) {
+      resolvedVenueName = extracted.venue?.name?.trim() || undefined;
+    }
+
+    // Session name follows the "Sân {tên sân}" convention so that cards in the
+    // discovery feed immediately convey the venue. Fall back to the AI's title
+    // or the generic placeholder when no venue could be determined.
+    const name = resolvedVenueName
+      ? `Sân ${resolvedVenueName}`
+      : extracted.name?.trim() || 'Kèo vãng lai';
     const sessionDuration = extracted.sessionDuration ?? 120;
 
     // Only keep valid level IDs; ignore anything else
     const requiredLevels = (extracted.requiredLevels || []).filter((level) =>
       VALID_LEVELS.includes(level)
     );
-
-    const matchedVenueId = extracted.venueId?.trim();
 
     // Prefer the AI's explicit location; otherwise compose "<venue name>,
     // <address>" so the court/venue name is never dropped.
