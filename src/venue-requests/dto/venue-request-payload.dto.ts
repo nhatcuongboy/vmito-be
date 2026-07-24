@@ -45,6 +45,21 @@ export class VenueRequestPayloadDto {
   district?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  newAddress?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  newDistrict?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  newCity?: string;
+
+  @IsOptional()
   @IsInt()
   @Min(1)
   numberOfCourts?: number;

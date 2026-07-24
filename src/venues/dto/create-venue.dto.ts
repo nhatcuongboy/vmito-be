@@ -205,6 +205,19 @@ export class CreateVenueDto {
   @IsString()
   courtLayoutImagePublicId?: string;
 
+  @ApiProperty({
+    required: false,
+    description: 'URL of the venue logo/avatar image',
+  })
+  @IsOptional()
+  @IsString()
+  logo?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  logoPublicId?: string;
+
   @ApiProperty({ required: false, type: [String] })
   @IsOptional()
   images?: string[] = [];
