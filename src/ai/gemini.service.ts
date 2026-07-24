@@ -31,7 +31,7 @@ type RawExtractedVenue = {
   address?: string | null;
   district?: string | null;
   city?: string | null;
-  newAddress?: string | null;
+  // No newAddress: it is always derived server-side, never AI-guessed.
   newDistrict?: string | null;
   newCity?: string | null;
 };
@@ -121,7 +121,6 @@ const SESSION_EXTRACTION_SCHEMA = {
         address: nullableStringSchema,
         district: nullableStringSchema,
         city: nullableStringSchema,
-        newAddress: nullableStringSchema,
         newDistrict: nullableStringSchema,
         newCity: nullableStringSchema,
       },
@@ -561,13 +560,16 @@ Only use another language if the user explicitly asks you to translate, compare 
     venue?: RawExtractedVenue | null
   ): ExtractedVenue | undefined {
     if (!venue) return undefined;
+    // newAddress is intentionally not populated here: it is always derived
+    // server-side (VenuesService) from streetAddress + newDistrict + newCity,
+    // never accepted as freeform AI-guessed text. The AI only suggests the
+    // administrative units (newDistrict/newCity) when it can identify them.
     const normalized: ExtractedVenue = {
       placeId: this.normalizeTextValue(venue.placeId),
       name: this.normalizeTextValue(venue.name),
       address: this.normalizeTextValue(venue.address),
       district: this.normalizeTextValue(venue.district),
       city: this.normalizeTextValue(venue.city),
-      newAddress: this.normalizeTextValue(venue.newAddress),
       newDistrict: this.normalizeTextValue(venue.newDistrict),
       newCity: this.normalizeTextValue(venue.newCity),
     };

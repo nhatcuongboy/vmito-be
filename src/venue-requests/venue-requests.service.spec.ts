@@ -42,7 +42,7 @@ describe('VenueRequestsService', () => {
         type: VenueRequestType.CREATE,
         payload: {
           name: '  Sân ABC  ',
-          newAddress: '  123 Nguyễn Văn Trỗi  ',
+          street: '  123 Nguyễn Văn Trỗi  ',
           newDistrict: '  Cầu Kiệu  ',
           newCity: '  TP Hồ Chí Minh  ',
         },
@@ -57,7 +57,7 @@ describe('VenueRequestsService', () => {
         venueId: null,
         payload: {
           name: 'Sân ABC',
-          newAddress: '123 Nguyễn Văn Trỗi',
+          street: '123 Nguyễn Văn Trỗi',
           newDistrict: 'Cầu Kiệu',
           newCity: 'TP Hồ Chí Minh',
         },
@@ -75,14 +75,14 @@ describe('VenueRequestsService', () => {
     });
   });
 
-  it('approves CREATE using new fields and only falls back for legacy columns', async () => {
+  it('approves CREATE using new fields, composing a fallback address (never forwarding newAddress — VenuesService derives it)', async () => {
     venueRequestFindUnique.mockResolvedValue({
       id: 'request-1',
       type: VenueRequestType.CREATE,
       status: VenueRequestStatus.PENDING,
       payload: {
         name: 'Sân ABC',
-        newAddress: '123 Nguyễn Văn Trỗi',
+        street: '123 Nguyễn Văn Trỗi',
         newDistrict: 'Cầu Kiệu',
         newCity: 'TP Hồ Chí Minh',
       },
@@ -93,10 +93,9 @@ describe('VenueRequestsService', () => {
 
     expect(venueCreate).toHaveBeenCalledWith({
       name: 'Sân ABC',
-      newAddress: '123 Nguyễn Văn Trỗi',
       newDistrict: 'Cầu Kiệu',
       newCity: 'TP Hồ Chí Minh',
-      address: '123 Nguyễn Văn Trỗi',
+      address: '123 Nguyễn Văn Trỗi, Cầu Kiệu, TP Hồ Chí Minh',
       district: 'Cầu Kiệu',
       city: 'TP Hồ Chí Minh',
       status: VenueStatus.ACTIVE,
@@ -105,14 +104,14 @@ describe('VenueRequestsService', () => {
     });
   });
 
-  it('approves UPDATE without copying new address values into legacy fields', async () => {
+  it('approves UPDATE without forwarding street or copying new values into legacy fields', async () => {
     venueRequestFindUnique.mockResolvedValue({
       id: 'request-1',
       type: VenueRequestType.UPDATE,
       status: VenueRequestStatus.PENDING,
       venueId: 'venue-1',
       payload: {
-        newAddress: '123 Nguyễn Văn Trỗi',
+        street: '123 Nguyễn Văn Trỗi',
         newDistrict: 'Cầu Kiệu',
         newCity: 'TP Hồ Chí Minh',
       },
@@ -121,8 +120,10 @@ describe('VenueRequestsService', () => {
 
     await service.approve('request-1', 'admin-1');
 
+    // `street` is never forwarded to VenuesService.update — it only exists to
+    // build the CREATE-path fallback address; an UPDATE always targets an
+    // existing venue that already has its own streetAddress.
     expect(venueUpdate).toHaveBeenCalledWith('venue-1', {
-      newAddress: '123 Nguyễn Văn Trỗi',
       newDistrict: 'Cầu Kiệu',
       newCity: 'TP Hồ Chí Minh',
     });

@@ -962,22 +962,29 @@ export class VenuesService {
       ? this.normalizeAdminUnit(createVenueDto.city)
       : createVenueDto.city;
 
-    // Auto-resolve new address from CSV mapping if not explicitly provided
-    let autoNewAddress = createVenueDto.newAddress;
-    let autoNewDistrict = createVenueDto.newDistrict;
-    let autoNewCity = createVenueDto.newCity;
-    if (!createVenueDto.newAddress) {
+    const { streetAddress, wardOld } = this.addressMapping.extractStreetAndWard(
+      createVenueDto.address || ''
+    );
+
+    // newDistrict/newCity: explicit value wins; otherwise auto-resolve from
+    // the CSV mapping. `newAddress` is never accepted from the client — it is
+    // always derived below from streetAddress + newDistrict + newCity.
+    let newDistrict = createVenueDto.newDistrict;
+    let newCity = createVenueDto.newCity;
+    if (!newDistrict && !newCity) {
       const resolved = this.addressMapping.resolve(
         createVenueDto.address || '',
         district || createVenueDto.district || '',
-        city || createVenueDto.city || ''
+        city || createVenueDto.city || '',
+        streetAddress
       );
-      if (resolved?.newAddress) {
-        autoNewAddress = resolved.newAddress;
-        autoNewDistrict = resolved.newDistrict;
-      }
-      if (resolved?.newCity) autoNewCity = resolved.newCity;
+      if (resolved?.newDistrict) newDistrict = resolved.newDistrict;
+      if (resolved?.newCity) newCity = resolved.newCity;
     }
+    const newAddress =
+      newDistrict || newCity
+        ? [streetAddress, newDistrict, newCity].filter(Boolean).join(', ')
+        : undefined;
 
     const slug = await this.generateUniqueSlug(
       createVenueDto.name,
@@ -990,18 +997,20 @@ export class VenuesService {
         slug,
         district,
         city,
-        newAddress: autoNewAddress,
-        newDistrict: autoNewDistrict,
-        newCity: autoNewCity,
+        streetAddress,
+        wardOld,
+        newAddress,
+        newDistrict,
+        newCity,
         searchTerms: this.buildSearchTerms({
           name: createVenueDto.name,
           sportType: createVenueDto.sportType,
           address: createVenueDto.address,
           district,
           city,
-          newAddress: autoNewAddress,
-          newDistrict: autoNewDistrict,
-          newCity: autoNewCity,
+          newAddress,
+          newDistrict,
+          newCity,
         }),
       },
     });
@@ -1020,22 +1029,27 @@ export class VenuesService {
 
       const slug = await this.generateUniqueSlug(venue.name, venue.sportType);
 
-      // Auto-resolve new address from CSV mapping if not explicitly provided
-      let autoNewAddress = venue.newAddress;
-      let autoNewDistrict = venue.newDistrict;
-      let autoNewCity = venue.newCity;
-      if (!venue.newAddress) {
+      const { streetAddress, wardOld } =
+        this.addressMapping.extractStreetAndWard(venue.address || '');
+
+      // newDistrict/newCity: explicit value wins; otherwise auto-resolve from
+      // the CSV mapping. `newAddress` is always derived below.
+      let newDistrict = venue.newDistrict;
+      let newCity = venue.newCity;
+      if (!newDistrict && !newCity) {
         const resolved = this.addressMapping.resolve(
           venue.address || '',
           district || venue.district || '',
-          city || venue.city || ''
+          city || venue.city || '',
+          streetAddress
         );
-        if (resolved?.newAddress) {
-          autoNewAddress = resolved.newAddress;
-          autoNewDistrict = resolved.newDistrict;
-        }
-        if (resolved?.newCity) autoNewCity = resolved.newCity;
+        if (resolved?.newDistrict) newDistrict = resolved.newDistrict;
+        if (resolved?.newCity) newCity = resolved.newCity;
       }
+      const newAddress =
+        newDistrict || newCity
+          ? [streetAddress, newDistrict, newCity].filter(Boolean).join(', ')
+          : undefined;
 
       try {
         const created = await this.prisma.venue.create({
@@ -1044,18 +1058,20 @@ export class VenuesService {
             slug,
             district,
             city,
-            newAddress: autoNewAddress,
-            newDistrict: autoNewDistrict,
-            newCity: autoNewCity,
+            streetAddress,
+            wardOld,
+            newAddress,
+            newDistrict,
+            newCity,
             searchTerms: this.buildSearchTerms({
               name: venue.name,
               sportType: venue.sportType,
               address: venue.address,
               district,
               city,
-              newAddress: autoNewAddress,
-              newDistrict: autoNewDistrict,
-              newCity: autoNewCity,
+              newAddress,
+              newDistrict,
+              newCity,
             }),
           },
         });
@@ -1079,31 +1095,13 @@ export class VenuesService {
       ? this.normalizeAdminUnit(updateVenueDto.city)
       : updateVenueDto.city;
 
-    // Auto-resolve new address when address-related fields change but newAddress was not explicitly set
-    let resolvedNewAddress: string | undefined;
-    let resolvedNewDistrict: string | undefined;
-    let resolvedNewCity: string | undefined;
-    const addressFieldsChanged =
-      updateVenueDto.address || updateVenueDto.district || updateVenueDto.city;
-    if (updateVenueDto.newAddress === undefined && addressFieldsChanged) {
-      const resolved = this.addressMapping.resolve(
-        updateVenueDto.address || '',
-        district || updateVenueDto.district || '',
-        city || updateVenueDto.city || ''
-      );
-      if (resolved?.newAddress) {
-        resolvedNewAddress = resolved.newAddress;
-        resolvedNewDistrict = resolved.newDistrict;
-      }
-      if (resolved?.newCity) resolvedNewCity = resolved.newCity;
-    }
-
     const existing = await this.prisma.venue.findUnique({
       where: { id },
       select: {
         name: true,
         sportType: true,
         address: true,
+        streetAddress: true,
         district: true,
         city: true,
         newAddress: true,
@@ -1115,21 +1113,61 @@ export class VenuesService {
       throw new NotFoundException('Venue not found');
     }
 
+    const mergedAddress = updateVenueDto.address ?? existing.address;
+    const addressChanged =
+      updateVenueDto.address !== undefined &&
+      updateVenueDto.address !== existing.address;
+
+    // Street is invariant across the admin reform, so only re-extract it (and
+    // wardOld) when the underlying `address` text actually changed; otherwise
+    // reuse the persisted value.
+    const streetInfo = addressChanged
+      ? this.addressMapping.extractStreetAndWard(mergedAddress)
+      : null;
+    const streetAddress =
+      streetInfo?.streetAddress ??
+      existing.streetAddress ??
+      this.addressMapping.extractStreetAndWard(mergedAddress).streetAddress;
+
+    // newDistrict/newCity: explicit DTO value wins; otherwise auto-resolve
+    // from the CSV mapping when the old-address fields changed. `newAddress`
+    // is never accepted from the client — always derived below.
+    let newDistrict = updateVenueDto.newDistrict ?? existing.newDistrict;
+    let newCity = updateVenueDto.newCity ?? existing.newCity;
+    const addressFieldsChanged =
+      updateVenueDto.address !== undefined ||
+      updateVenueDto.district !== undefined ||
+      updateVenueDto.city !== undefined;
+    if (
+      updateVenueDto.newDistrict === undefined &&
+      updateVenueDto.newCity === undefined &&
+      addressFieldsChanged
+    ) {
+      const resolved = this.addressMapping.resolve(
+        mergedAddress,
+        district || existing.district || '',
+        city || existing.city || '',
+        streetAddress
+      );
+      if (resolved?.newDistrict) newDistrict = resolved.newDistrict;
+      if (resolved?.newCity) newCity = resolved.newCity;
+    }
+    const newAddress =
+      newDistrict || newCity
+        ? [streetAddress, newDistrict, newCity].filter(Boolean).join(', ')
+        : undefined;
+
     // Rebuild searchTerms from the merged (DTO over stored) values so
     // partial updates never drop existing fields from the search index.
     const searchTerms = this.buildSearchTerms({
       name: updateVenueDto.name ?? existing.name,
       sportType: updateVenueDto.sportType ?? existing.sportType,
-      address: updateVenueDto.address ?? existing.address,
+      address: mergedAddress,
       district: district ?? existing.district,
       city: city ?? existing.city,
-      newAddress:
-        updateVenueDto.newAddress ?? resolvedNewAddress ?? existing.newAddress,
-      newDistrict:
-        updateVenueDto.newDistrict ??
-        resolvedNewDistrict ??
-        existing.newDistrict,
-      newCity: updateVenueDto.newCity ?? resolvedNewCity ?? existing.newCity,
+      newAddress,
+      newDistrict,
+      newCity,
     });
 
     return this.prisma.venue.update({
@@ -1138,10 +1176,11 @@ export class VenuesService {
         ...updateVenueDto,
         ...(district !== undefined ? { district } : {}),
         ...(city !== undefined ? { city } : {}),
-        ...(resolvedNewAddress
-          ? { newAddress: resolvedNewAddress, newDistrict: resolvedNewDistrict }
-          : {}),
-        ...(resolvedNewCity ? { newCity: resolvedNewCity } : {}),
+        streetAddress,
+        ...(streetInfo ? { wardOld: streetInfo.wardOld } : {}),
+        newAddress,
+        newDistrict,
+        newCity,
         searchTerms,
       },
     });
@@ -1359,10 +1398,13 @@ export class VenuesService {
     let unmatched = 0;
 
     for (const venue of venues) {
+      const { streetAddress, wardOld } =
+        this.addressMapping.extractStreetAndWard(venue.address || '');
       const resolved = this.addressMapping.resolve(
         venue.address || '',
         venue.district || '',
-        venue.city || ''
+        venue.city || '',
+        streetAddress
       );
 
       if (!resolved) {
@@ -1370,7 +1412,10 @@ export class VenuesService {
         continue;
       }
 
-      const updateData: Record<string, string | undefined> = {};
+      const updateData: Record<string, string | undefined | null> = {
+        streetAddress,
+        wardOld,
+      };
 
       if (resolved.newAddress) {
         updateData.newAddress = resolved.newAddress;
@@ -1408,6 +1453,14 @@ export class VenuesService {
       cityOnly,
       unmatched,
     };
+  }
+
+  /**
+   * Canonical list of new-era Tỉnh/Thành phố -> Phường/Xã, for the
+   * newDistrict/newCity dropdowns in venue forms (replacing free text).
+   */
+  getNewAdminUnits() {
+    return this.addressMapping.getNewAdminUnits();
   }
 
   async backfillSlugs() {

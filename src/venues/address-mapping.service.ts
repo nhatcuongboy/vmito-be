@@ -16,6 +16,11 @@ export interface ResolvedAddress {
   newCity?: string;
 }
 
+export interface NewAdminUnit {
+  city: string;
+  wards: string[];
+}
+
 @Injectable()
 export class AddressMappingService implements OnModuleInit {
   private static readonly CSV_FILENAME = 'admin_mapping_old_to_new_10_25.csv';
@@ -25,6 +30,7 @@ export class AddressMappingService implements OnModuleInit {
     string,
     { cityNameNew: string; districtNameOld: string }
   >();
+  private newAdminUnits: NewAdminUnit[] = [];
 
   onModuleInit() {
     const csvPath = this.locateCsv();
@@ -36,9 +42,37 @@ export class AddressMappingService implements OnModuleInit {
     }
     this.wardMapping = this.loadMappingFromCsv(csvPath);
     this.districtMapping = this.buildDistrictMapping(this.wardMapping);
+    this.newAdminUnits = this.buildNewAdminUnits(this.wardMapping);
     this.logger.log(
       `Loaded ${this.wardMapping.size} ward-level address mappings from ${csvPath}`
     );
+  }
+
+  /**
+   * Full canonical list of new-era Tỉnh/Thành phố -> Phường/Xã, for admin
+   * forms to offer as a dropdown instead of free text. Computed once from
+   * the CSV mapping already loaded in onModuleInit — not per-request.
+   */
+  getNewAdminUnits(): NewAdminUnit[] {
+    return this.newAdminUnits;
+  }
+
+  private buildNewAdminUnits(
+    wardMapping: Map<string, AddressMapping>
+  ): NewAdminUnit[] {
+    const byCity = new Map<string, Set<string>>();
+    for (const entry of wardMapping.values()) {
+      if (!byCity.has(entry.cityNameNew)) {
+        byCity.set(entry.cityNameNew, new Set());
+      }
+      byCity.get(entry.cityNameNew)!.add(entry.wardNameNew);
+    }
+    return Array.from(byCity.entries())
+      .map(([city, wards]) => ({
+        city,
+        wards: Array.from(wards).sort((a, b) => a.localeCompare(b, 'vi')),
+      }))
+      .sort((a, b) => a.city.localeCompare(b.city, 'vi'));
   }
 
   /**
@@ -72,11 +106,15 @@ export class AddressMappingService implements OnModuleInit {
    * Returns a partial ResolvedAddress if any mapping is found, null otherwise.
    * - Ward-level match: returns newAddress, newDistrict, and optionally newCity
    * - District-level match: returns only newCity (if the province changed)
+   *
+   * `streetAddress`, if the caller already has it persisted (Venue.streetAddress),
+   * is used as-is for composing `newAddress` instead of re-parsing `address`.
    */
   resolve(
     address: string,
     district: string,
-    city: string
+    city: string,
+    streetAddress?: string | null
   ): ResolvedAddress | null {
     if (!this.wardMapping.size) return null;
 
@@ -114,7 +152,11 @@ export class AddressMappingService implements OnModuleInit {
     }
 
     if (found) {
-      const newAddress = `${found.wardNameNew}, ${found.cityNameNew}`;
+      const street =
+        streetAddress ?? this.extractStreetAndWard(address).streetAddress;
+      const newAddress = [street, found.wardNameNew, found.cityNameNew]
+        .filter(Boolean)
+        .join(', ');
       const newCity =
         this.stripAdminPrefix(found.cityNameNew) !== cityKey
           ? found.cityNameNew
@@ -188,6 +230,30 @@ export class AddressMappingService implements OnModuleInit {
       }
     }
     return districtMap;
+  }
+
+  /**
+   * Split a free-text `address` into the street portion (house number +
+   * street name — invariant across the admin reform) and the old ward, when
+   * one can be confidently identified via the "Phường/Xã/Thị trấn ..."
+   * prefix. Used both to compose `newAddress` and to backfill the persisted
+   * `Venue.streetAddress`/`Venue.wardOld` columns. Deliberately conservative:
+   * unlike `extractWardCandidates` (used for CSV matching, which is
+   * self-validating against known ward names), this only trusts an explicit
+   * ward prefix — falling back to the raw comma-separated last segment here
+   * would risk misclassifying arbitrary address text as a ward.
+   */
+  extractStreetAndWard(address: string): {
+    streetAddress: string;
+    wardOld: string | null;
+  } {
+    const ward = this.extractWardFromAddress(address);
+    if (!ward) {
+      return { streetAddress: address.trim(), wardOld: null };
+    }
+    const idx = address.lastIndexOf(ward);
+    const streetAddress = address.slice(0, idx).replace(/,\s*$/, '').trim();
+    return { streetAddress, wardOld: ward };
   }
 
   private extractWardFromAddress(address: string): string | null {
