@@ -267,6 +267,7 @@ export class ClubsService {
       color: club.color,
       image: club.image,
       images: club.images,
+      logo: club.logo,
       location: club.location,
       joinPolicy: club.joinPolicy,
       maxMembers: club.maxMembers,
