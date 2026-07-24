@@ -474,6 +474,8 @@ export class ClubsService {
       color: club.color,
       image: club.image,
       images: club.images,
+      logo: club.logo,
+      logoPublicId: club.logoPublicId,
       location: club.location,
       requiredLevels: club.requiredLevels,
       isPublic: club.isPublic,
@@ -565,13 +567,21 @@ export class ClubsService {
       };
     }
 
-    // APPROVAL_REQUIRED - create join request
-    const joinRequest = await this.prisma.clubJoinRequest.create({
-      data: {
+    // APPROVAL_REQUIRED - create or update join request
+    const joinRequest = await this.prisma.clubJoinRequest.upsert({
+      where: {
+        clubId_userId: { clubId, userId },
+      },
+      create: {
         clubId,
         userId,
         message,
         status: JoinRequestStatus.PENDING,
+      },
+      update: {
+        message,
+        status: JoinRequestStatus.PENDING,
+        response: null,
       },
       include: {
         club: {
@@ -585,6 +595,29 @@ export class ClubsService {
       message: `Your request to join ${joinRequest.club.name} has been submitted`,
       requestId: joinRequest.id,
     };
+  }
+
+  /**
+   * Cancel / withdraw a pending join request
+   */
+  async cancelJoinRequest(clubId: string, userId: string) {
+    const request = await this.prisma.clubJoinRequest.findFirst({
+      where: {
+        clubId,
+        userId,
+        status: JoinRequestStatus.PENDING,
+      },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Pending join request not found');
+    }
+
+    await this.prisma.clubJoinRequest.delete({
+      where: { id: request.id },
+    });
+
+    return { message: 'Join request cancelled successfully' };
   }
 
   /**
