@@ -15,8 +15,10 @@ function withWardMapping(
   }>
 ) {
   const wardMapping = new Map<string, unknown>();
-  const strip = (service as unknown as { stripAdminPrefix: (v: string) => string })
-    .stripAdminPrefix.bind(service);
+  const strip = (v: string): string =>
+    (
+      service as unknown as { stripAdminPrefix: (v: string) => string }
+    ).stripAdminPrefix(v);
   for (const e of entries) {
     const key = `${strip(e.wardOld)}|${strip(e.districtOld)}|${strip(e.cityOld)}`;
     wardMapping.set(key, {
@@ -29,8 +31,9 @@ function withWardMapping(
   }
   (service as unknown as { wardMapping: Map<string, unknown> }).wardMapping =
     wardMapping;
-  (service as unknown as { districtMapping: Map<string, unknown> }).districtMapping =
-    new Map();
+  (
+    service as unknown as { districtMapping: Map<string, unknown> }
+  ).districtMapping = new Map();
 }
 
 describe('AddressMappingService', () => {
@@ -44,7 +47,10 @@ describe('AddressMappingService', () => {
     it('splits street from an address with an embedded ward', () => {
       expect(
         service.extractStreetAndWard('108/20 Nguyễn Thượng Hiền, Phường 1')
-      ).toEqual({ streetAddress: '108/20 Nguyễn Thượng Hiền', wardOld: 'Phường 1' });
+      ).toEqual({
+        streetAddress: '108/20 Nguyễn Thượng Hiền',
+        wardOld: 'Phường 1',
+      });
     });
 
     it('returns an empty street when the address is only a ward', () => {
@@ -55,8 +61,30 @@ describe('AddressMappingService', () => {
     });
 
     it('treats the whole string as street when no ward prefix is found', () => {
-      expect(service.extractStreetAndWard('108/20 Nguyễn Thượng Hiền')).toEqual({
-        streetAddress: '108/20 Nguyễn Thượng Hiền',
+      expect(service.extractStreetAndWard('108/20 Nguyễn Thượng Hiền')).toEqual(
+        {
+          streetAddress: '108/20 Nguyễn Thượng Hiền',
+          wardOld: null,
+        }
+      );
+    });
+
+    it('recognizes abbreviated numbered wards ("P.9", "P9", "P 9") and still strips trailing district/city text', () => {
+      const cases = ['P.9', 'P9', 'P 9'];
+      for (const ward of cases) {
+        expect(
+          service.extractStreetAndWard(
+            `202b Đ. Hoàng Văn Thụ, ${ward}, Phú Nhuận, Hồ Chí Minh`
+          )
+        ).toEqual({ streetAddress: '202b Đ. Hoàng Văn Thụ', wardOld: ward });
+      }
+    });
+
+    it('leaves trailing district/city text in streetAddress when no ward form is recognized at all (caller must flag this for review)', () => {
+      expect(
+        service.extractStreetAndWard('12 Nguyễn Huệ, Quận 1, Hồ Chí Minh')
+      ).toEqual({
+        streetAddress: '12 Nguyễn Huệ, Quận 1, Hồ Chí Minh',
         wardOld: null,
       });
     });
@@ -143,13 +171,14 @@ describe('AddressMappingService', () => {
           cityNew: 'Thành Phố Hồ Chí Minh',
         },
       ]);
-      (service as unknown as { districtMapping: Map<string, unknown> }).districtMapping =
-        new Map([
-          [
-            'dĩ an|bình dương',
-            { cityNameNew: 'Thành Phố Hồ Chí Minh', districtNameOld: 'Dĩ An' },
-          ],
-        ]);
+      (
+        service as unknown as { districtMapping: Map<string, unknown> }
+      ).districtMapping = new Map([
+        [
+          'dĩ an|bình dương',
+          { cityNameNew: 'Thành Phố Hồ Chí Minh', districtNameOld: 'Dĩ An' },
+        ],
+      ]);
 
       const result = service.resolve(
         '99 Đường Không Tồn Tại, Phường Không Khớp',
