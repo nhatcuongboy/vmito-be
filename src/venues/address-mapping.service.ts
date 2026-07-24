@@ -261,8 +261,13 @@ export class AddressMappingService implements OnModuleInit {
       /(?:,\s*)(Phường\s+[^,]+)/i,
       /(?:,\s*)(Xã\s+[^,]+)/i,
       /(?:,\s*)(Thị\s+[Tt]rấn\s+[^,]+)/i,
+      // Abbreviated numbered ward, e.g. ", P.9" / ", P9" / ", P 9" — common
+      // in real-world Vietnamese address data even though it's not the
+      // canonical "Phường 9" form.
+      /(?:,\s*)(P\.?\s?\d+)(?=\s*(?:,|$))/i,
       /^(Phường\s+[^,]+)/i,
       /^(Xã\s+[^,]+)/i,
+      /^(P\.?\s?\d+)(?=\s*(?:,|$))/i,
     ];
     for (const pattern of wardPatterns) {
       const match = address.match(pattern);

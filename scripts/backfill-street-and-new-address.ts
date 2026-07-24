@@ -17,6 +17,17 @@
  * UI dropdown *before* running with --apply, otherwise this script bakes a
  * correct street onto an already-wrong ward/city.
  *
+ * SAFETY — unrecognized address formats: `address` in the wild isn't always
+ * "street, Phường X" — some rows also have district/city baked in (e.g.
+ * "202b Đ. Hoàng Văn Thụ, P.9, Phú Nhuận, Hồ Chí Minh"), and some use ward
+ * forms the extractor doesn't recognize. When no ward can be confidently
+ * identified AND the leftover text still contains a comma (a sign district/
+ * city text is still embedded), the venue is skipped entirely and listed
+ * under "NEEDS REVIEW" instead of guessing — writing the raw leftover as
+ * streetAddress would bake duplicated district/city text into newAddress.
+ * Fix these by correcting `address` (or setting streetAddress by hand), then
+ * re-run.
+ *
  * Usage
  * -----
  *   # dry run over all venues (default — no writes)
@@ -64,6 +75,8 @@ async function main() {
   let newAddressUpdated = 0;
   let newAddressUnchanged = 0;
   let noNewWardCityYet = 0;
+  const needsReview: { id: string; slug: string | null; address: string }[] =
+    [];
 
   for (const venue of venues) {
     const data: {
@@ -76,6 +89,18 @@ async function main() {
     let streetAddress = venue.streetAddress;
     if (streetAddress == null) {
       const extracted = addressMapping.extractStreetAndWard(venue.address);
+      const suspicious =
+        extracted.wardOld === null && extracted.streetAddress.includes(',');
+
+      if (suspicious) {
+        needsReview.push({
+          id: venue.id,
+          slug: venue.slug,
+          address: venue.address,
+        });
+        continue; // skip both passes entirely for this venue this run
+      }
+
       streetAddress = extracted.streetAddress;
       data.streetAddress = extracted.streetAddress;
       data.wardOld = extracted.wardOld;
@@ -118,8 +143,17 @@ async function main() {
   );
   console.log(`newAddress already correct:  ${newAddressUnchanged}`);
   console.log(`No new ward/city yet:        ${noNewWardCityYet}`);
+  console.log(`NEEDS REVIEW (skipped):      ${needsReview.length}`);
+  if (needsReview.length > 0) {
+    console.log(
+      '\nVenues needing manual review (address format not recognized):'
+    );
+    for (const v of needsReview) {
+      console.log(`  - ${v.slug ?? v.id}: "${v.address}"`);
+    }
+  }
   if (!apply && streetSet + newAddressUpdated > 0) {
-    console.log('Re-run with --apply to write these changes.');
+    console.log('\nRe-run with --apply to write these changes.');
   }
 }
 
