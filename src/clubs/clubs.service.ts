@@ -1195,13 +1195,22 @@ export class ClubsService {
                 })),
               },
             }),
-            ...(clubData.name || clubData.description || clubData.location || clubData.hostName
+            ...(clubData.name ||
+              clubData.description ||
+              clubData.location ||
+              clubData.hostName
               ? {
                   searchTerms: this.generateSearchTerms(
                     clubData.name || currentClub?.name || '',
-                    clubData.hostName !== undefined ? clubData.hostName : currentClub?.hostName,
-                    clubData.description !== undefined ? clubData.description : currentClub?.description,
-                    clubData.location !== undefined ? clubData.location : currentClub?.location,
+                    clubData.hostName !== undefined
+                      ? clubData.hostName
+                      : currentClub?.hostName,
+                    clubData.description !== undefined
+                      ? clubData.description
+                      : currentClub?.description,
+                    clubData.location !== undefined
+                      ? clubData.location
+                      : currentClub?.location,
                     venueInfo
                   ),
                 }
@@ -1255,13 +1264,22 @@ export class ClubsService {
       where: { id: clubId },
       data: {
         ...clubData,
-        ...(clubData.name || clubData.description || clubData.location || clubData.hostName
+        ...(clubData.name ||
+          clubData.description ||
+          clubData.location ||
+          clubData.hostName
           ? {
               searchTerms: this.generateSearchTerms(
                 clubData.name || currentClub?.name || '',
-                clubData.hostName !== undefined ? clubData.hostName : currentClub?.hostName,
-                clubData.description !== undefined ? clubData.description : currentClub?.description,
-                clubData.location !== undefined ? clubData.location : currentClub?.location,
+                clubData.hostName !== undefined
+                  ? clubData.hostName
+                  : currentClub?.hostName,
+                clubData.description !== undefined
+                  ? clubData.description
+                  : currentClub?.description,
+                clubData.location !== undefined
+                  ? clubData.location
+                  : currentClub?.location,
                 venueInfo
               ),
             }

@@ -162,11 +162,7 @@ function parseSets(raw: unknown): ScoringSet[] {
 
 type ScoringStage = 'GROUP' | 'KNOCKOUT' | 'FINAL';
 
-const DOUBLES_CATEGORY_TYPES = [
-  'MENS_DOUBLE',
-  'WOMENS_DOUBLE',
-  'MIXED_DOUBLE',
-];
+const DOUBLES_CATEGORY_TYPES = ['MENS_DOUBLE', 'WOMENS_DOUBLE', 'MIXED_DOUBLE'];
 
 /**
  * A match is doubles when its category type is a doubles type, the category's
@@ -179,11 +175,7 @@ function resolveIsDoubles(match: NormalizableMatch): boolean {
     return true;
   }
   if ((category?.teamSize ?? 0) >= 2) return true;
-  return (
-    match.participants?.some(
-      (p) => p.categoryRegistration?.pair != null
-    ) ?? false
-  );
+  return match.participants?.some((p) => p.categoryRegistration?.pair != null) ?? false;
 }
 
 function stageOfRound(round: string): ScoringStage {
@@ -284,11 +276,11 @@ export function normalizeMatchForBroadcast(
   const servesApply = sportType === 'PICKLEBALL' && isDoubles;
   const servingSide =
     servesApply && (match.servingSide === 1 || match.servingSide === 2)
-      ? (match.servingSide as 1 | 2)
+      ? match.servingSide
       : null;
   const serverNumber =
     servesApply && (match.serverNumber === 1 || match.serverNumber === 2)
-      ? (match.serverNumber as 1 | 2)
+      ? match.serverNumber
       : null;
 
   return {

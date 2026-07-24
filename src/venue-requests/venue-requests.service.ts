@@ -156,11 +156,11 @@ export class VenueRequestsService {
       ]
         .filter(Boolean)
         .join(', ');
-      const fallbackAddress = payload.newAddress || composedAddress;
+      const fallbackAddress = payload.street || composedAddress;
       const createdVenue = await this.venuesService.create({
         ...createPayload,
         name: payload.name!,
-        address: payload.address || fallbackAddress,
+        address: (payload.address as string | undefined) || fallbackAddress,
         city: payload.city,
         district: payload.district,
         status: VenueStatus.ACTIVE,
@@ -309,7 +309,7 @@ export class VenueRequestsService {
   }
 
   async reject(id: string, adminUserId: string, adminNote: string) {
-    const request = await this.getPendingRequest(id);
+    const _request = await this.getPendingRequest(id);
 
     const updatedRequest = await this.prisma.venueRequest.update({
       where: { id },
@@ -351,7 +351,7 @@ export class VenueRequestsService {
     try {
       await this.notificationsService.createForUser(
         request.submittedByUserId,
-        NotificationType.VENUE_REQUEST,
+        'VENUE_REQUEST' as NotificationType,
         'Yêu cầu thông tin sân đã được phê duyệt',
         `Đề xuất về sân "${venueName}" của bạn đã được quản trị viên phê duyệt.`,
         {
@@ -361,10 +361,10 @@ export class VenueRequestsService {
           venueName,
         }
       );
-    } catch (error) {
+    } catch (err: unknown) {
       this.logger.error(
         `Failed to send approval notification for venue request ${request.id}`,
-        error
+        err
       );
     }
   }
@@ -378,14 +378,13 @@ export class VenueRequestsService {
     if (!request.submittedByUserId) return;
 
     const payload = request.payload as VenueRequestPayloadDto;
-    const venueName =
-      request.venue?.name || payload?.name || 'Sân cầu lông';
-    const venueId = request.venueId || undefined;
+    const venueName = request.venue?.name || payload?.name || 'Sân cầu lông';
+    const venueId = request.venueId ?? undefined;
 
     try {
       await this.notificationsService.createForUser(
         request.submittedByUserId,
-        NotificationType.VENUE_REQUEST,
+        'VENUE_REQUEST' as NotificationType,
         'Yêu cầu thông tin sân bị từ chối',
         `Đề xuất về sân "${venueName}" của bạn bị từ chối. Lý do: ${adminNote}`,
         {
@@ -397,10 +396,10 @@ export class VenueRequestsService {
           rejectionReason: adminNote,
         }
       );
-    } catch (error) {
+    } catch (err: unknown) {
       this.logger.error(
         `Failed to send rejection notification for venue request ${request.id}`,
-        error
+        err
       );
     }
   }
@@ -445,8 +444,8 @@ export class VenueRequestsService {
   private validateCreatePayload(payload: VenueRequestPayloadDto) {
     const missing: string[] = [];
     if (!payload.name) missing.push('name');
-    if (!payload.address && !payload.street && !payload.newAddress) {
-      missing.push('address/street/newAddress');
+    if (!payload.address && !payload.street) {
+      missing.push('address/street');
     }
     if (!payload.city && !payload.newCity) missing.push('city/newCity');
     if (!payload.district && !payload.newDistrict) {

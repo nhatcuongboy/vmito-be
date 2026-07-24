@@ -183,8 +183,8 @@ export class CreateSessionDto {
   @IsOptional()
   shuttlecock?: string;
 
-  @Transform(({ value }) =>
-    typeof value === 'string' ? value.trim() || null : value
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() || null : (value as string | null)
   )
   @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
   @IsOptional()

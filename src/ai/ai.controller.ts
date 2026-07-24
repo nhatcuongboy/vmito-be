@@ -59,10 +59,7 @@ export class AiController {
     @Body() dto: ExtractScheduleRequestDto
   ): Promise<ExtractScheduleResponseDto> {
     if (!dto.text || !dto.text.trim()) {
-      throw new HttpException(
-        'text is required',
-        HttpStatus.BAD_REQUEST
-      );
+      throw new HttpException('text is required', HttpStatus.BAD_REQUEST);
     }
     const entries = await this.geminiService.extractScheduleFromText(
       dto.tournamentId,
