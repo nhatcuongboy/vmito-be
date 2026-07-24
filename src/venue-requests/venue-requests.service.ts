@@ -1,10 +1,12 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
   ClosureStatus,
+  NotificationType,
   Prisma,
   VenueRequestStatus,
   VenueRequestType,
@@ -12,6 +14,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { VenuesService } from '../venues/venues.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   ApproveVenueRequestDto,
   CreateVenueRequestDto,
@@ -61,9 +64,12 @@ const NON_VENUE_PAYLOAD_KEYS = [
 
 @Injectable()
 export class VenueRequestsService {
+  private readonly logger = new Logger(VenueRequestsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
-    private readonly venuesService: VenuesService
+    private readonly venuesService: VenuesService,
+    private readonly notificationsService: NotificationsService
   ) {}
 
   async create(dto: CreateVenueRequestDto, userId: string) {
@@ -141,23 +147,6 @@ export class VenueRequestsService {
     if (request.type === VenueRequestType.CREATE) {
       this.validateCreatePayload(payload);
       const createPayload = this.toVenuePatchPayload(payload);
-      // The Venue table still requires the legacy address column. When the
-      // submitter only has new-format info (venue never had an old address —
-      // e.g. it opened after the reform), fall back to street + new ward +
-      // new city as a compatibility placeholder, without treating it as the
-      // source of truth for the new administrative address (VenuesService
-      // re-derives streetAddress/newAddress from whatever `address` ends up
-      // here anyway).
-      //
-      // `city`/`district`, in contrast, are never backfilled from
-      // `newCity`/`newDistrict`: the reverse ward→ward mapping is
-      // many-to-one (several old wards can merge into one new ward), so we
-      // can't reliably reconstruct which old ward/district this venue used
-      // to belong to. Worse, `newDistrict` is a ward (Phường/Xã), a
-      // different administrative tier than `district` (Quận/Huyện) — storing
-      // one into the other would look like real legacy data while actually
-      // being the wrong tier. Leaving them null is honest: "no legacy
-      // address on file" rather than a guessed, possibly-wrong one.
       const fallbackAddress = [
         payload.street,
         payload.newDistrict,
@@ -176,7 +165,7 @@ export class VenueRequestsService {
         isVerified: false,
       });
 
-      return this.prisma.venueRequest.update({
+      const updatedRequest = await this.prisma.venueRequest.update({
         where: { id },
         data: {
           status: VenueRequestStatus.APPROVED,
@@ -186,6 +175,14 @@ export class VenueRequestsService {
         },
         include: VENUE_REQUEST_INCLUDE,
       });
+
+      await this.sendApprovalNotification(
+        updatedRequest,
+        createdVenue.id,
+        createdVenue.name
+      );
+
+      return updatedRequest;
     }
 
     if (!request.venueId) {
@@ -218,7 +215,7 @@ export class VenueRequestsService {
       patchPayload
     );
 
-    return this.prisma.venueRequest.update({
+    const updatedRequest = await this.prisma.venueRequest.update({
       where: { id },
       data: {
         status: VenueRequestStatus.APPROVED,
@@ -228,14 +225,22 @@ export class VenueRequestsService {
       },
       include: VENUE_REQUEST_INCLUDE,
     });
+
+    await this.sendApprovalNotification(
+      updatedRequest,
+      updatedVenue.id,
+      updatedVenue.name
+    );
+
+    return updatedRequest;
   }
 
-  private markApproved(
+  private async markApproved(
     id: string,
     adminUserId: string,
     appliedVenueId: string
   ) {
-    return this.prisma.venueRequest.update({
+    const updatedRequest = await this.prisma.venueRequest.update({
       where: { id },
       data: {
         status: VenueRequestStatus.APPROVED,
@@ -245,6 +250,20 @@ export class VenueRequestsService {
       },
       include: VENUE_REQUEST_INCLUDE,
     });
+
+    const venueName =
+      updatedRequest.venue?.name ||
+      updatedRequest.appliedVenue?.name ||
+      (updatedRequest.payload as VenueRequestPayloadDto)?.name ||
+      'Sân cầu lông';
+
+    await this.sendApprovalNotification(
+      updatedRequest,
+      appliedVenueId,
+      venueName
+    );
+
+    return updatedRequest;
   }
 
   private async applyImageCorrection(
@@ -287,9 +306,9 @@ export class VenueRequestsService {
   }
 
   async reject(id: string, adminUserId: string, adminNote: string) {
-    await this.getPendingRequest(id);
+    const request = await this.getPendingRequest(id);
 
-    return this.prisma.venueRequest.update({
+    const updatedRequest = await this.prisma.venueRequest.update({
       where: { id },
       data: {
         status: VenueRequestStatus.REJECTED,
@@ -299,17 +318,88 @@ export class VenueRequestsService {
       },
       include: VENUE_REQUEST_INCLUDE,
     });
+
+    await this.sendRejectionNotification(updatedRequest, adminNote.trim());
+
+    return updatedRequest;
   }
 
   private async getPendingRequest(id: string) {
     const request = await this.prisma.venueRequest.findUnique({
       where: { id },
+      include: VENUE_REQUEST_INCLUDE,
     });
     if (!request) throw new NotFoundException('Venue request not found');
     if (request.status !== VenueRequestStatus.PENDING) {
       throw new BadRequestException('Venue request has already been processed');
     }
     return request;
+  }
+
+  private async sendApprovalNotification(
+    request: Prisma.VenueRequestGetPayload<{
+      include: typeof VENUE_REQUEST_INCLUDE;
+    }>,
+    venueId: string,
+    venueName: string
+  ) {
+    if (!request.submittedByUserId) return;
+
+    try {
+      await this.notificationsService.createForUser(
+        request.submittedByUserId,
+        NotificationType.VENUE_REQUEST,
+        'Yêu cầu thông tin sân đã được phê duyệt',
+        `Đề xuất về sân "${venueName}" của bạn đã được quản trị viên phê duyệt.`,
+        {
+          action: 'venue_request_approved',
+          requestId: request.id,
+          venueId,
+          venueName,
+        }
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to send approval notification for venue request ${request.id}`,
+        error
+      );
+    }
+  }
+
+  private async sendRejectionNotification(
+    request: Prisma.VenueRequestGetPayload<{
+      include: typeof VENUE_REQUEST_INCLUDE;
+    }>,
+    adminNote: string
+  ) {
+    if (!request.submittedByUserId) return;
+
+    const payload = request.payload as VenueRequestPayloadDto;
+    const venueName =
+      request.venue?.name || payload?.name || 'Sân cầu lông';
+    const venueId = request.venueId || undefined;
+
+    try {
+      await this.notificationsService.createForUser(
+        request.submittedByUserId,
+        NotificationType.VENUE_REQUEST,
+        'Yêu cầu thông tin sân bị từ chối',
+        `Đề xuất về sân "${venueName}" của bạn bị từ chối. Lý do: ${adminNote}`,
+        {
+          action: 'venue_request_rejected',
+          requestId: request.id,
+          venueId,
+          venueName,
+          adminNote,
+          rejectionReason: adminNote,
+        }
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to send rejection notification for venue request ${request.id}`,
+        error
+      );
+    }
   }
 
   private validateRequest(

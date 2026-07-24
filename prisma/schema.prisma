@@ -94,6 +94,7 @@ enum NotificationType {
   CLUB // Club-related notifications
   POST // Post interactions (like, comment)
   VENUE_RENTAL // Venue rental workflow updates
+  VENUE_REQUEST // Venue request status updates (approved/rejected)
 }
 
 model Notification {
