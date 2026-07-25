@@ -41,6 +41,7 @@ import {
   TournamentEventType,
 } from './realtime/tournaments.gateway';
 import { FavoritesService } from '../favorites/favorites.service';
+import { ActivityFeedService } from '../activities/activity-feed.service';
 
 @Injectable()
 export class TournamentsService {
@@ -49,7 +50,8 @@ export class TournamentsService {
     private access: TournamentAccessService,
     private scheduleService: ScheduleService,
     private gateway: TournamentsGateway,
-    private favoritesService: FavoritesService
+    private favoritesService: FavoritesService,
+    private activityFeedService: ActivityFeedService
   ) {}
 
   private generateSlug(name: string): string {
@@ -435,6 +437,16 @@ export class TournamentsService {
       }
 
       return tournament;
+    });
+
+    await this.activityFeedService.postTournamentCreated({
+      id: created.id,
+      slug: created.slug,
+      name: created.name,
+      hostId,
+      coverPhoto: created.coverPhoto,
+      startDate: created.startDate,
+      venueName: location?.name ?? null,
     });
 
     const tournament = await this.prisma.tournament.findUnique({
@@ -1096,6 +1108,11 @@ export class TournamentsService {
           status: updateData.status,
         }
       );
+
+      if (updateData.status === TournamentStatus.FINISHED) {
+        // Announce champions on the newsfeed (fire-and-forget, self-caught).
+        void this.activityFeedService.postTournamentFinished(id);
+      }
     }
 
     return tournament;

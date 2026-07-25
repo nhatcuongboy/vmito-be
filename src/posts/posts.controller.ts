@@ -14,9 +14,11 @@ import {
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { PostsService } from './posts.service';
+import { ActivityFeedService } from '../activities/activity-feed.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
+import { ShareSessionResultsDto } from './dto/share-session-results.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 interface AuthenticatedRequest {
@@ -30,7 +32,10 @@ interface AuthenticatedRequest {
 @Controller('posts')
 @UseGuards(JwtAuthGuard)
 export class PostsController {
-  constructor(private readonly postsService: PostsService) {}
+  constructor(
+    private readonly postsService: PostsService,
+    private readonly activityFeedService: ActivityFeedService
+  ) {}
 
   @Post()
   create(
@@ -38,6 +43,18 @@ export class PostsController {
     @Body() createPostDto: CreatePostDto
   ) {
     return this.postsService.create(req.user.userId, createPostDto);
+  }
+
+  // Declared before the ':id' routes so 'session-results' is not matched as an id.
+  @Post('session-results')
+  shareSessionResults(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: ShareSessionResultsDto
+  ) {
+    return this.activityFeedService.shareSessionResults(
+      req.user.userId,
+      dto.sessionId
+    );
   }
 
   @Get('feed')

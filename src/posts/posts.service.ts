@@ -5,6 +5,7 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -160,26 +161,47 @@ export class PostsService {
     });
   }
 
+  /**
+   * Single extension point for feed scoping. When the friend system lands,
+   * filter here, e.g.:
+   *   { OR: [{ visibility: 'PUBLIC' }, { authorId: { in: friendIds }, visibility: 'FRIENDS' }] }
+   */
+  private buildFeedWhere(_viewerId?: string): Prisma.PostWhereInput {
+    return { visibility: 'PUBLIC' };
+  }
+
   async findAll(page = 1, limit = 10, userId?: string) {
     const skip = (page - 1) * limit;
+    const where = this.buildFeedWhere(userId);
     const [posts, total] = await Promise.all([
       this.prisma.post.findMany({
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        where: { originalPostId: null },
+        where,
         include: {
           author: {
             select: { id: true, name: true, image: true },
           },
           images: { orderBy: { order: 'asc' } },
+          originalPost: {
+            include: {
+              author: {
+                select: { id: true, name: true, image: true },
+              },
+              images: { orderBy: { order: 'asc' } },
+              _count: {
+                select: { likes: true, comments: true, shares: true },
+              },
+            },
+          },
           _count: {
             select: { likes: true, comments: true, shares: true },
           },
           likes: userId ? { where: { userId } } : false,
         },
       }),
-      this.prisma.post.count({ where: { originalPostId: null } }),
+      this.prisma.post.count({ where }),
     ]);
 
     return {
@@ -232,6 +254,9 @@ export class PostsService {
     if (post.authorId !== userId) {
       throw new ForbiddenException('You can only edit your own posts');
     }
+    if (post.type === 'ACTIVITY') {
+      throw new ForbiddenException('Activity posts cannot be edited');
+    }
 
     return this.prisma.post.update({
       where: { id },
@@ -281,6 +306,18 @@ export class PostsService {
           )
       );
     }
+
+    // Deleting a repost frees the PostShare slot so the user can share again.
+    if (post.originalPostId) {
+      await this.prisma.postShare.deleteMany({
+        where: { postId: post.originalPostId, userId: post.authorId },
+      });
+    }
+
+    // Deleting an original also removes its (contentless) reposts — the
+    // relation has no cascade, so they would otherwise linger in the feed
+    // with originalPostId set to NULL.
+    await this.prisma.post.deleteMany({ where: { originalPostId: id } });
 
     await this.prisma.post.delete({ where: { id } });
     return { message: 'Post deleted successfully' };

@@ -34,6 +34,7 @@ import {
 } from '../common/utils/string.utils';
 import { ExtractedSessionDto } from '../ai/dto/extract-session.dto';
 import { FavoritesService } from '../favorites/favorites.service';
+import { ActivityFeedService } from '../activities/activity-feed.service';
 
 @Injectable()
 export class SessionsService {
@@ -45,7 +46,8 @@ export class SessionsService {
     private cloudinaryService: CloudinaryService,
     private clubsService: ClubsService,
     private userImagesService: UserImagesService,
-    private favoritesService: FavoritesService
+    private favoritesService: FavoritesService,
+    private activityFeedService: ActivityFeedService
   ) {}
 
   private readonly STATUS_PRIORITY: Record<string, number> = {
@@ -1182,6 +1184,17 @@ export class SessionsService {
         },
       });
     }
+
+    await this.activityFeedService.postSessionCreated({
+      id: session.id,
+      slug: session.slug,
+      name: session.name,
+      hostId,
+      coverPhoto: session.coverPhoto,
+      scheduledStartTime: session.scheduledStartTime,
+      location: session.location,
+      isCrawled: session.isCrawled,
+    });
 
     // Return session with courts and feeConfig
     return this.prisma.session.findUnique({

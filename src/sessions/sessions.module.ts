@@ -11,6 +11,7 @@ import { SessionSchedulerService } from './session-scheduler.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SessionAccessModule } from '../common/session-access/session-access.module';
 import { FavoritesModule } from '../favorites/favorites.module';
+import { ActivitiesModule } from '../activities/activities.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { FavoritesModule } from '../favorites/favorites.module';
     NotificationsModule,
     SessionAccessModule,
     FavoritesModule,
+    ActivitiesModule,
   ],
   controllers: [SessionsController],
   providers: [SessionsService, SessionSchedulerService],

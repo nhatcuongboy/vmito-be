@@ -1848,6 +1848,29 @@ model UserImage {
 // Newsfeed / Post System Models
 // ===========================================
 
+enum PostType {
+  USER
+  ACTIVITY
+}
+
+enum PostVisibility {
+  PUBLIC
+  FRIENDS // reserved for the future friend system
+  PRIVATE
+}
+
+enum ActivityType {
+  SESSION_CREATED
+  SESSION_RESULTS
+  CLUB_CREATED
+  CLUB_UPDATED
+  CLUB_MEMBER_JOINED
+  TOURNAMENT_CREATED
+  TOURNAMENT_FINISHED
+  AVATAR_UPDATED
+  USER_RATED
+}
+
 model Post {
   id       String  @id @default(cuid())
   content  String  @db.Text
@@ -1855,6 +1878,12 @@ model Post {
   location Json? // {name, lat, lng, address}
   authorId String
   author   User    @relation("UserPosts", fields: [authorId], references: [id], onDelete: Cascade)
+
+  // Activity feed (auto-generated posts)
+  type         PostType       @default(USER)
+  activityType ActivityType?
+  metadata     Json? // shape depends on activityType, see src/activities/activity-metadata.types.ts
+  visibility   PostVisibility @default(PUBLIC)
 
   images   PostImage[]
   likes    PostLike[]
@@ -1871,6 +1900,7 @@ model Post {
 
   @@index([authorId])
   @@index([createdAt])
+  @@index([type, activityType])
   @@map("posts")
 }
 

@@ -6,6 +6,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ActivityFeedService } from '../activities/activity-feed.service';
 import { CreateRatingDto, GetRatingsDto } from './dto';
 import { RatingType, SessionStatus, Prisma } from '@prisma/client';
 
@@ -48,7 +49,10 @@ export class RatingsService {
     },
   };
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private activityFeedService: ActivityFeedService
+  ) {}
 
   // Create a new rating
   async create(dto: CreateRatingDto, raterUserId: string, role?: string) {
@@ -119,7 +123,7 @@ export class RatingsService {
     }
 
     // Create the rating
-    return this.prisma.rating.create({
+    const rating = await this.prisma.rating.create({
       data: {
         sessionId: dto.sessionId,
         raterUserId,
@@ -130,6 +134,19 @@ export class RatingsService {
       },
       select: this.ratingWithUsersSelect,
     });
+
+    // Newsfeed activity — never includes the rating value (kept private).
+    await this.activityFeedService.postUserRated(
+      raterUserId,
+      {
+        id: rating.rated.id,
+        name: rating.rated.name,
+        image: rating.rated.image,
+      },
+      dto.sessionId
+    );
+
+    return rating;
   }
 
   // Get ratings with filters

@@ -10,10 +10,14 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import * as bcrypt from 'bcryptjs';
 import { removeVietnameseTones } from '../common/utils/string.utils';
+import { ActivityFeedService } from '../activities/activity-feed.service';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private activityFeedService: ActivityFeedService
+  ) {}
 
   private readonly userSelect = {
     id: true,
@@ -185,11 +189,22 @@ export class UsersService {
       ).toLowerCase();
     }
 
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id },
       data,
       select: this.userSelect,
     });
+
+    // Newsfeed: announce avatar changes (only when the image actually changed).
+    if (
+      updateUserDto.image !== undefined &&
+      updateUserDto.image &&
+      updateUserDto.image !== user.image
+    ) {
+      await this.activityFeedService.postAvatarUpdated(id, updateUserDto.image);
+    }
+
+    return updated;
   }
 
   async delete(id: string) {

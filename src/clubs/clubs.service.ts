@@ -34,13 +34,15 @@ import {
 import { NotificationsService } from '../notifications/notifications.service';
 import { VALID_LEVELS } from '../common/constants/level.constants';
 import { FavoritesService } from '../favorites/favorites.service';
+import { ActivityFeedService } from '../activities/activity-feed.service';
 
 @Injectable()
 export class ClubsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
-    private readonly favoritesService: FavoritesService
+    private readonly favoritesService: FavoritesService,
+    private readonly activityFeedService: ActivityFeedService
   ) {}
 
   private stripHtmlTags(html: string | null | undefined): string {
@@ -561,6 +563,11 @@ export class ClubsService {
           },
         },
       });
+
+      await this.activityFeedService.postClubMemberJoined(
+        { id: clubId, slug: club.slug, name: club.name, logo: club.logo },
+        userId
+      );
 
       return {
         status: 'joined',
@@ -1120,6 +1127,11 @@ export class ClubsService {
       }
     );
 
+    await this.activityFeedService.postClubCreated(
+      { id: club.id, slug: club.slug, name: club.name, logo: club.logo },
+      hostId
+    );
+
     return club;
   }
 
@@ -1187,7 +1199,7 @@ export class ClubsService {
 
     // If schedules provided, delete old and create new in transaction
     if (schedules !== undefined) {
-      return this.prisma.$transaction(async (tx) => {
+      const updatedClub = await this.prisma.$transaction(async (tx) => {
         await tx.clubSchedule.deleteMany({ where: { clubId } });
 
         // Fetch current club info for searchTerms calculation
@@ -1230,9 +1242,9 @@ export class ClubsService {
               },
             }),
             ...(clubData.name ||
-              clubData.description ||
-              clubData.location ||
-              clubData.hostName
+            clubData.description ||
+            clubData.location ||
+            clubData.hostName
               ? {
                   searchTerms: this.generateSearchTerms(
                     clubData.name || currentClub?.name || '',
@@ -1267,6 +1279,18 @@ export class ClubsService {
           },
         });
       });
+
+      await this.activityFeedService.postClubUpdated(
+        {
+          id: updatedClub.id,
+          slug: updatedClub.slug,
+          name: updatedClub.name,
+          logo: updatedClub.logo,
+        },
+        userId
+      );
+
+      return updatedClub;
     }
 
     // Fetch current club info for searchTerms calculation
@@ -1294,14 +1318,14 @@ export class ClubsService {
       }
     }
 
-    return this.prisma.club.update({
+    const updatedClub = await this.prisma.club.update({
       where: { id: clubId },
       data: {
         ...clubData,
         ...(clubData.name ||
-          clubData.description ||
-          clubData.location ||
-          clubData.hostName
+        clubData.description ||
+        clubData.location ||
+        clubData.hostName
           ? {
               searchTerms: this.generateSearchTerms(
                 clubData.name || currentClub?.name || '',
@@ -1335,6 +1359,18 @@ export class ClubsService {
         },
       },
     });
+
+    await this.activityFeedService.postClubUpdated(
+      {
+        id: updatedClub.id,
+        slug: updatedClub.slug,
+        name: updatedClub.name,
+        logo: updatedClub.logo,
+      },
+      userId
+    );
+
+    return updatedClub;
   }
 
   /**
@@ -1693,7 +1729,7 @@ export class ClubsService {
     }
 
     // Start transaction to approve request and add member
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // 1. Update request status
       await tx.clubJoinRequest.update({
         where: { id: requestId },
@@ -1720,6 +1756,15 @@ export class ClubsService {
         },
       });
     });
+
+    if (!('status' in result)) {
+      await this.activityFeedService.postClubMemberJoined(
+        { id: club.id, slug: club.slug, name: club.name, logo: club.logo },
+        request.userId
+      );
+    }
+
+    return result;
   }
 
   /**
