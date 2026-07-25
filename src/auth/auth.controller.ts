@@ -27,11 +27,20 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AdminResetPasswordDto } from './dto/admin-reset-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
+import { FacebookAuthGuard } from './guards/facebook-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AdminGuard } from './guards/admin.guard';
 import { ZaloOAuthService } from './zalo-oauth.service';
 
 interface GoogleUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  image?: string;
+}
+
+interface FacebookUser {
   id: string;
   email: string;
   name: string;
@@ -147,6 +156,55 @@ export class AuthController {
   @UseGuards(GoogleAuthGuard)
   async googleCallback(
     @Req() req: { user: GoogleUser & { locale?: string; returnUrl?: string } },
+    @Res() res: Response
+  ) {
+    const user = req.user;
+
+    // Generate JWT token for the user
+    const tokenData = await this.authService.generateTokenForUser({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    });
+
+    // Redirect to frontend with token in query params
+    // Use locale from OAuth state, default to 'en'
+    const frontendUrl = this.configService.get<string>('frontendUrl');
+    const locale = user.locale || 'en';
+    const returnUrl = user.returnUrl;
+
+    let callbackUrl = `${frontendUrl}/${locale}/auth/callback?token=${tokenData.accessToken}&refreshToken=${tokenData.refreshToken}&userId=${user.id}&email=${encodeURIComponent(user.email)}&name=${encodeURIComponent(user.name || '')}&role=${user.role}${user.image ? `&image=${encodeURIComponent(user.image)}` : ''}`;
+
+    // Add returnUrl if present
+    if (returnUrl) {
+      callbackUrl += `&returnUrl=${encodeURIComponent(returnUrl)}`;
+    }
+
+    res.redirect(callbackUrl);
+  }
+
+  /**
+   * Initiate Facebook OAuth flow
+   * Redirects user to Facebook consent screen
+   */
+  @Public()
+  @Get('facebook')
+  @UseGuards(FacebookAuthGuard)
+  async facebookLogin() {
+    // The locale is passed via state parameter by FacebookAuthGuard
+    // This is handled automatically by passport-facebook
+  }
+
+  /**
+   * Handle Facebook OAuth callback
+   * Creates/finds user and redirects to frontend with token
+   */
+  @Public()
+  @Get('facebook/callback')
+  @UseGuards(FacebookAuthGuard)
+  async facebookCallback(
+    @Req()
+    req: { user: FacebookUser & { locale?: string; returnUrl?: string } },
     @Res() res: Response
   ) {
     const user = req.user;

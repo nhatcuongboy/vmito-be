@@ -59,6 +59,13 @@ export interface IZaloProfile {
   phone?: string;
 }
 
+export interface IFacebookProfile {
+  facebookId: string;
+  name: string;
+  image?: string;
+  email?: string;
+}
+
 interface UserWithoutPassword {
   id: string;
   email: string;
@@ -546,6 +553,79 @@ export class AuthService {
         type: 'oauth',
         provider: 'zalo',
         providerAccountId: profile.zaloId,
+      },
+      update: {
+        userId: user.id,
+      },
+    });
+
+    return user;
+  }
+
+  /**
+   * Find or create a user from Facebook OAuth profile
+   *
+   * Facebook (like Zalo) may not always return an email — users can deny the
+   * email permission or have a phone-only account. So we link accounts via the
+   * Account table (provider = 'facebook') and fall back to a generated email
+   * when Facebook doesn't provide one.
+   */
+  async findOrCreateFacebookUser(profile: IFacebookProfile) {
+    const existingAccount = await this.prisma.account.findUnique({
+      where: {
+        provider_providerAccountId: {
+          provider: 'facebook',
+          providerAccountId: profile.facebookId,
+        },
+      },
+      include: {
+        user: true,
+      },
+    });
+
+    if (existingAccount?.user) {
+      // Update user image if new data is available and user doesn't have one
+      if (!existingAccount.user.image && profile.image) {
+        return this.prisma.user.update({
+          where: { id: existingAccount.user.id },
+          data: { image: profile.image },
+        });
+      }
+      return existingAccount.user;
+    }
+
+    // Use Facebook email if provided, otherwise generate a fallback email
+    const email =
+      profile.email || `facebook_${profile.facebookId}@facebook.vmito.local`;
+
+    let user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      user = await this.prisma.user.create({
+        data: {
+          email,
+          name: profile.name,
+          image: profile.image,
+          role: 'PLAYER',
+          emailVerified: new Date(),
+        },
+      });
+    }
+
+    await this.prisma.account.upsert({
+      where: {
+        provider_providerAccountId: {
+          provider: 'facebook',
+          providerAccountId: profile.facebookId,
+        },
+      },
+      create: {
+        userId: user.id,
+        type: 'oauth',
+        provider: 'facebook',
+        providerAccountId: profile.facebookId,
       },
       update: {
         userId: user.id,
