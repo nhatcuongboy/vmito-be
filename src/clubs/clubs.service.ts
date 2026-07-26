@@ -479,6 +479,7 @@ export class ClubsService {
       images: club.images,
       logo: club.logo,
       logoPublicId: club.logoPublicId,
+      socialLinks: club.socialLinks,
       location: club.location,
       requiredLevels: club.requiredLevels,
       isPublic: club.isPublic,
