@@ -44,6 +44,17 @@ const PASSWORD_RESET_IDENTIFIER_PREFIX = 'password-reset:';
 const PASSWORD_RESET_SUCCESS_MESSAGE =
   'If this email is valid, password reset instructions will be sent.';
 
+export function maskEmail(email: string): string {
+  if (!email || !email.includes('@')) return email;
+  const [localPart, domain] = email.split('@');
+  if (localPart.length <= 2) {
+    return `${localPart[0]}*@${domain}`;
+  }
+  const firstChar = localPart[0];
+  const lastChar = localPart[localPart.length - 1];
+  return `${firstChar}***${lastChar}@${domain}`;
+}
+
 export interface GoogleProfile {
   googleId: string;
   email: string;
@@ -383,6 +394,42 @@ export class AuthService {
     ]);
 
     return { message: 'Password reset successfully' };
+  }
+
+  async verifyResetToken(token: string): Promise<{ valid: boolean; maskedEmail: string }> {
+    if (!token) {
+      throw new BadRequestException('Invalid or expired password reset token');
+    }
+
+    const tokenHash = this.hashPasswordResetToken(token);
+    const resetToken = await this.prisma.verificationToken.findUnique({
+      where: { token: tokenHash },
+    });
+
+    if (
+      !resetToken ||
+      !resetToken.identifier.startsWith(PASSWORD_RESET_IDENTIFIER_PREFIX) ||
+      resetToken.expires < new Date()
+    ) {
+      if (resetToken) {
+        await this.prisma.verificationToken.deleteMany({
+          where: {
+            identifier: resetToken.identifier,
+            token: resetToken.token,
+          },
+        });
+      }
+      throw new BadRequestException('Invalid or expired password reset token');
+    }
+
+    const email = resetToken.identifier.slice(
+      PASSWORD_RESET_IDENTIFIER_PREFIX.length
+    );
+
+    return {
+      valid: true,
+      maskedEmail: maskEmail(email),
+    };
   }
 
   private getPasswordResetIdentifier(email: string): string {

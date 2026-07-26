@@ -135,6 +135,14 @@ export class AuthController {
     return this.authService.resetPassword(resetPasswordDto);
   }
 
+  @Public()
+  @Get('verify-reset-token')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  async verifyResetToken(@Query('token') token: string) {
+    return this.authService.verifyResetToken(token);
+  }
+
   /**
    * Initiate Google OAuth flow
    * Redirects user to Google consent screen
