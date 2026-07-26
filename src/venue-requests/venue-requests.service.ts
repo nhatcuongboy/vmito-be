@@ -160,7 +160,7 @@ export class VenueRequestsService {
       const createdVenue = await this.venuesService.create({
         ...createPayload,
         name: payload.name!,
-        address: (payload.address as string | undefined) || fallbackAddress,
+        address: payload.address || fallbackAddress,
         city: payload.city,
         district: payload.district,
         status: VenueStatus.ACTIVE,

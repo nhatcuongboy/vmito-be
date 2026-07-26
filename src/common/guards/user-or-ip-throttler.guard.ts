@@ -22,7 +22,8 @@ export class UserOrIpThrottlerGuard extends ThrottlerGuard {
     const userId = user?.userId;
     if (userId) return Promise.resolve(`user-${userId}`);
     const ips = req.ips as string[] | undefined;
-    const ip = Array.isArray(ips) && ips.length > 0 ? ips[0] : (req.ip as string);
+    const ip =
+      Array.isArray(ips) && ips.length > 0 ? ips[0] : (req.ip as string);
     return Promise.resolve(`ip-${ip}`);
   }
 }

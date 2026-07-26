@@ -175,7 +175,10 @@ function resolveIsDoubles(match: NormalizableMatch): boolean {
     return true;
   }
   if ((category?.teamSize ?? 0) >= 2) return true;
-  return match.participants?.some((p) => p.categoryRegistration?.pair != null) ?? false;
+  return (
+    match.participants?.some((p) => p.categoryRegistration?.pair != null) ??
+    false
+  );
 }
 
 function stageOfRound(round: string): ScoringStage {

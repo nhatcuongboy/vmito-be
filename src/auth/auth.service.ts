@@ -396,7 +396,9 @@ export class AuthService {
     return { message: 'Password reset successfully' };
   }
 
-  async verifyResetToken(token: string): Promise<{ valid: boolean; maskedEmail: string }> {
+  async verifyResetToken(
+    token: string
+  ): Promise<{ valid: boolean; maskedEmail: string }> {
     if (!token) {
       throw new BadRequestException('Invalid or expired password reset token');
     }
