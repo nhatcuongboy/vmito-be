@@ -83,7 +83,11 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
+            set -e
             cd /opt/badminton
             docker compose --env-file .env.staging -f docker-compose.staging.yml pull backend-staging
+            # Apply DB migrations as a one-shot step BEFORE starting the new app.
+            # If it fails, `set -e` aborts the deploy and the current backend keeps serving.
+            docker compose --env-file .env.staging -f docker-compose.staging.yml run --rm backend-staging npx prisma migrate deploy
             docker compose --env-file .env.staging -f docker-compose.staging.yml up -d backend-staging
             docker image prune -a -f
