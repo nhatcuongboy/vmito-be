@@ -10,6 +10,8 @@ import {
   IsArray,
   ValidateNested,
   Matches,
+  IsObject,
+  IsUrl,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ClubJoinPolicy } from '@prisma/client';
@@ -32,6 +34,36 @@ export class ClubScheduleDto {
   @IsString()
   @MaxLength(200)
   notes?: string;
+}
+
+export class SocialLinksDto {
+  @IsOptional()
+  @IsUrl({}, { message: 'facebook must be a valid URL' })
+  facebook?: string;
+
+  @IsOptional()
+  @IsUrl({}, { message: 'zalo must be a valid URL' })
+  zalo?: string;
+
+  @IsOptional()
+  @IsUrl({}, { message: 'tiktok must be a valid URL' })
+  tiktok?: string;
+
+  @IsOptional()
+  @IsUrl({}, { message: 'instagram must be a valid URL' })
+  instagram?: string;
+
+  @IsOptional()
+  @IsUrl({}, { message: 'youtube must be a valid URL' })
+  youtube?: string;
+
+  @IsOptional()
+  @IsUrl({}, { message: 'website must be a valid URL' })
+  website?: string;
+
+  @IsOptional()
+  @IsUrl({}, { message: 'other must be a valid URL' })
+  other?: string;
 }
 
 export class CreateClubDto {
@@ -117,4 +149,10 @@ export class CreateClubDto {
   @ValidateNested({ each: true })
   @Type(() => ClubScheduleDto)
   schedules?: ClubScheduleDto[];
+
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => SocialLinksDto)
+  socialLinks?: SocialLinksDto;
 }
