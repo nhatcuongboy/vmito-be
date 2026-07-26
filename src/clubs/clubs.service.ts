@@ -1027,7 +1027,7 @@ export class ClubsService {
 
     this.validateRequiredLevels(dto.requiredLevels);
 
-    const { schedules, ...clubData } = dto;
+    const { schedules, socialLinks, ...clubData } = dto;
 
     // All clubs are approved immediately upon creation
     const clubStatus = ClubStatus.APPROVED;
@@ -1062,6 +1062,9 @@ export class ClubsService {
                 notes: s.notes,
               })),
             },
+          }),
+          ...(socialLinks !== undefined && {
+            socialLinks: socialLinks as unknown as Prisma.InputJsonValue,
           }),
           searchTerms: this.generateSearchTerms(
             dto.name,
@@ -1195,7 +1198,7 @@ export class ClubsService {
 
     this.validateRequiredLevels(dto.requiredLevels);
 
-    const { schedules, ...clubData } = dto;
+    const { schedules, socialLinks, ...clubData } = dto;
 
     // If schedules provided, delete old and create new in transaction
     if (schedules !== undefined) {
@@ -1240,6 +1243,9 @@ export class ClubsService {
                   notes: s.notes,
                 })),
               },
+            }),
+            ...(socialLinks !== undefined && {
+              socialLinks: socialLinks as unknown as Prisma.InputJsonValue,
             }),
             ...(clubData.name ||
             clubData.description ||
@@ -1322,6 +1328,9 @@ export class ClubsService {
       where: { id: clubId },
       data: {
         ...clubData,
+        ...(socialLinks !== undefined && {
+          socialLinks: socialLinks as unknown as Prisma.InputJsonValue,
+        }),
         ...(clubData.name ||
         clubData.description ||
         clubData.location ||
