@@ -104,7 +104,8 @@ export class CloudinaryService {
   ): Promise<CloudinaryUploadResult> {
     return this.uploadImage(file, 'avatars', {
       transformation: [
-        { width: 400, height: 400, crop: 'fill', gravity: 'face' },
+        // 800px keeps fullscreen previews sharp; circles downscale fine.
+        { width: 800, height: 800, crop: 'fill', gravity: 'face' },
         { quality: 'auto:good' },
         { fetch_format: 'auto' },
       ],
@@ -129,6 +130,18 @@ export class CloudinaryService {
     return this.uploadImage(file, 'session-covers', {
       transformation: [
         { width: 2000, crop: 'limit' },
+        { quality: 'auto:good' },
+        { fetch_format: 'auto' },
+      ],
+    });
+  }
+
+  async uploadProfileCover(
+    file: Express.Multer.File
+  ): Promise<CloudinaryUploadResult> {
+    return this.uploadImage(file, 'profile-covers', {
+      transformation: [
+        { width: 1600, crop: 'limit' },
         { quality: 'auto:good' },
         { fetch_format: 'auto' },
       ],

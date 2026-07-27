@@ -61,6 +61,22 @@ export class UploadsService {
     return result;
   }
 
+  async saveProfileCover(
+    file: Express.Multer.File,
+    userId?: string
+  ): Promise<CloudinaryUploadResult> {
+    const result = await this.cloudinaryService.uploadProfileCover(file);
+    if (userId) {
+      await this.userImagesService.createFromUploadResult(
+        userId,
+        result,
+        ImageCategory.PROFILE_COVER,
+        file.originalname
+      );
+    }
+    return result;
+  }
+
   async saveClubImage(
     file: Express.Multer.File,
     userId?: string

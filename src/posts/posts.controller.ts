@@ -20,6 +20,8 @@ import { UpdatePostDto } from './dto/update-post.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { ShareSessionResultsDto } from './dto/share-session-results.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { Public } from '../auth/decorators/public.decorator';
 
 interface AuthenticatedRequest {
   user: {
@@ -77,6 +79,24 @@ export class PostsController {
     @Request() req?: AuthenticatedRequest
   ) {
     return this.postsService.findAll(
+      page ? parseInt(page) : 1,
+      limit ? parseInt(limit) : 10,
+      req?.user?.userId
+    );
+  }
+
+  // Declared before ':id' so 'user' is not matched as a post id.
+  @Public()
+  @UseGuards(OptionalJwtAuthGuard)
+  @Get('user/:userId')
+  findByAuthor(
+    @Param('userId') userId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Request() req?: AuthenticatedRequest
+  ) {
+    return this.postsService.findByAuthor(
+      userId,
       page ? parseInt(page) : 1,
       limit ? parseInt(limit) : 10,
       req?.user?.userId

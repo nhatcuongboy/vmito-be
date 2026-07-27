@@ -134,6 +134,41 @@ export class UploadsController {
     return await this.uploadsService.saveAvatar(file, user.userId);
   }
 
+  @Post('cover')
+  @ApiOperation({ summary: 'Upload profile cover photo' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        cover: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Cover photo uploaded successfully',
+    type: UploadResponseDto,
+  })
+  @UseInterceptors(FileInterceptor('cover'))
+  async uploadCover(
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }),
+          new FileTypeValidator({ fileType: /^image\/(jpeg|png|gif|webp)$/ }),
+        ],
+      })
+    )
+    file: Express.Multer.File,
+    @CurrentUser() user: { userId: string }
+  ) {
+    return await this.uploadsService.saveProfileCover(file, user.userId);
+  }
+
   @Post('club-image')
   @ApiOperation({ summary: 'Upload club image' })
   @ApiConsumes('multipart/form-data')
