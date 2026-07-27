@@ -39,6 +39,7 @@ import { TournamentManagersModule } from './tournament-managers/tournament-manag
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { VenueRentalsModule } from './venue-rentals/venue-rentals.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { UserOrIpThrottlerGuard } from './common/guards/user-or-ip-throttler.guard';
 import configuration from './config';
@@ -89,6 +90,7 @@ import configuration from './config';
     WebhooksModule,
     FavoritesModule,
     VenueRentalsModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [
