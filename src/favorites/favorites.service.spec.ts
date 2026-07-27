@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { FavoriteType, Prisma } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { SessionsGateway } from '../sessions/sessions.gateway';
 import { FavoritesService } from './favorites.service';
 
 describe('FavoritesService', () => {
@@ -26,6 +27,7 @@ describe('FavoritesService', () => {
     user: { findUnique: jest.Mock };
   };
   let notificationsService: { createForUser: jest.Mock };
+  let sessionsGateway: { notifyFavoriteUpdate: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -47,12 +49,15 @@ describe('FavoritesService', () => {
       user: { findUnique: jest.fn() },
     };
     notificationsService = { createForUser: jest.fn() };
+    sessionsGateway = { notifyFavoriteUpdate: jest.fn() };
+    prisma.favorite.count.mockResolvedValue(0);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FavoritesService,
         { provide: PrismaService, useValue: prisma },
         { provide: NotificationsService, useValue: notificationsService },
+        { provide: SessionsGateway, useValue: sessionsGateway },
       ],
     }).compile();
 
@@ -106,6 +111,15 @@ describe('FavoritesService', () => {
         sessionId: 's1',
       })
     );
+    expect(sessionsGateway.notifyFavoriteUpdate).toHaveBeenCalledWith(
+      FavoriteType.SESSION,
+      's1',
+      {
+        favoriteCount: 0,
+        actorId: 'user-1',
+        isFavorite: true,
+      }
+    );
   });
 
   it('is idempotent and does not notify for a duplicate create request', async () => {
@@ -130,6 +144,7 @@ describe('FavoritesService', () => {
       })
     ).resolves.toEqual({ id: 'f1' });
     expect(notificationsService.createForUser).not.toHaveBeenCalled();
+    expect(sessionsGateway.notifyFavoriteUpdate).not.toHaveBeenCalled();
   });
 
   it('does not notify when the owner favorites their own target', async () => {
@@ -273,5 +288,23 @@ describe('FavoritesService', () => {
     await expect(
       service.remove('user-1', FavoriteType.SESSION, 's1')
     ).resolves.toEqual({ success: true });
+    expect(sessionsGateway.notifyFavoriteUpdate).not.toHaveBeenCalled();
+  });
+
+  it('broadcasts the latest count after removing an existing favorite', async () => {
+    prisma.favorite.deleteMany.mockResolvedValue({ count: 1 });
+    prisma.favorite.count.mockResolvedValue(3);
+
+    await service.remove('user-1', FavoriteType.CLUB, 'c1');
+
+    expect(sessionsGateway.notifyFavoriteUpdate).toHaveBeenCalledWith(
+      FavoriteType.CLUB,
+      'c1',
+      {
+        favoriteCount: 3,
+        actorId: 'user-1',
+        isFavorite: false,
+      }
+    );
   });
 });

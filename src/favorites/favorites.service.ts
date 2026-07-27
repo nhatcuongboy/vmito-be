@@ -15,6 +15,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SessionsGateway } from '../sessions/sessions.gateway';
 import { VENUE_PUBLIC_OMIT } from '../venues/venue-public-omit.constant';
 import { CreateFavoriteDto } from './dto/create-favorite.dto';
 
@@ -37,7 +38,8 @@ export class FavoritesService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly notificationsService: NotificationsService
+    private readonly notificationsService: NotificationsService,
+    private readonly sessionsGateway: SessionsGateway
   ) {}
 
   async create(userId: string, dto: CreateFavoriteDto) {
@@ -66,17 +68,26 @@ export class FavoritesService {
       throw error;
     }
 
-    if (ENGAGEMENT_TYPES.has(dto.type) && target.ownerId !== userId) {
-      await this.notifyOwner(userId, dto.type, target);
+    if (ENGAGEMENT_TYPES.has(dto.type)) {
+      await this.emitFavoriteUpdate(userId, dto.type, target.id, true);
+
+      if (target.ownerId !== userId) {
+        await this.notifyOwner(userId, dto.type, target);
+      }
     }
 
     return favorite;
   }
 
   async remove(userId: string, type: FavoriteType, targetId: string) {
-    await this.prisma.favorite.deleteMany({
+    const result = await this.prisma.favorite.deleteMany({
       where: { userId, type, targetId },
     });
+
+    if (result.count > 0 && ENGAGEMENT_TYPES.has(type)) {
+      await this.emitFavoriteUpdate(userId, type, targetId, false);
+    }
+
     return { success: true };
   }
 
@@ -307,6 +318,28 @@ export class FavoritesService {
     } catch (error) {
       this.logger.warn(
         `Failed to notify owner about ${type} favorite ${target.id}: ${String(error)}`
+      );
+    }
+  }
+
+  private async emitFavoriteUpdate(
+    actorId: string,
+    type: FavoriteType,
+    targetId: string,
+    isFavorite: boolean
+  ) {
+    try {
+      const favoriteCount = await this.prisma.favorite.count({
+        where: { type, targetId },
+      });
+      this.sessionsGateway.notifyFavoriteUpdate(type, targetId, {
+        favoriteCount,
+        actorId,
+        isFavorite,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to emit ${type} favorite update ${targetId}: ${String(error)}`
       );
     }
   }

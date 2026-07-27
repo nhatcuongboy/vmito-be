@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SessionsGateway } from '../sessions/sessions.gateway';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
@@ -48,7 +49,8 @@ export class PostsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cloudinary: CloudinaryService,
-    private readonly notificationsService: NotificationsService
+    private readonly notificationsService: NotificationsService,
+    private readonly sessionsGateway: SessionsGateway
   ) {}
 
   private async notifyPostInteraction(
@@ -102,6 +104,25 @@ export class PostsService {
       select: { id: true },
     });
     return Boolean(existing);
+  }
+
+  private notifyPostLikeUpdate(
+    postId: string,
+    actorId: string,
+    isLiked: boolean,
+    likeCount: number
+  ) {
+    try {
+      this.sessionsGateway.notifyPostLikeUpdate(postId, {
+        actorId,
+        isLiked,
+        likeCount,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to emit post like update ${postId}: ${String(error)}`
+      );
+    }
   }
 
   private normalizePost<T extends NormalizablePost>(
@@ -386,6 +407,7 @@ export class PostsService {
       const likeCount = await this.prisma.postLike.count({
         where: { postId },
       });
+      this.notifyPostLikeUpdate(postId, userId, false, likeCount);
       return { liked: false, likeCount };
     } else {
       // Like
@@ -395,6 +417,7 @@ export class PostsService {
       const likeCount = await this.prisma.postLike.count({
         where: { postId },
       });
+      this.notifyPostLikeUpdate(postId, userId, true, likeCount);
 
       if (post.authorId !== userId) {
         // Repeated like/unlike keeps at most one unread notification per actor

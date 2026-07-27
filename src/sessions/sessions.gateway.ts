@@ -10,6 +10,18 @@ import {
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { FavoriteType } from '@prisma/client';
+
+const FAVORITE_REALTIME_TYPES = new Set<FavoriteType>([
+  FavoriteType.SESSION,
+  FavoriteType.CLUB,
+  FavoriteType.TOURNAMENT,
+]);
+
+type FavoriteTargetRoomPayload = {
+  type?: FavoriteType;
+  targetId?: string;
+};
 
 // Event types for realtime updates
 export enum SessionEventType {
@@ -25,6 +37,8 @@ export enum SessionEventType {
   REGISTRATION_REQUEST = 'registration_request',
   REGISTRATION_STATUS_UPDATED = 'registration_status_updated',
   NOTIFICATION_RECEIVED = 'notification_received',
+  FAVORITE_UPDATED = 'favorite_updated',
+  POST_LIKE_UPDATED = 'post_like_updated',
   // Session lifecycle events
   SESSION_START_REMINDER = 'session_start_reminder',
   SESSION_END_WARNING = 'session_end_warning',
@@ -91,6 +105,60 @@ export class SessionsGateway
     await client.leave(roomName);
     this.logger.log(`Client ${client.id} left room ${roomName}`);
     return { event: 'leftSession', data: { sessionId } };
+  }
+
+  @SubscribeMessage('joinFavoriteTarget')
+  async handleJoinFavoriteTarget(
+    @MessageBody() data: FavoriteTargetRoomPayload,
+    @ConnectedSocket() client: Socket
+  ) {
+    const roomName = this.getFavoriteTargetRoom(data);
+    if (!roomName) return { error: 'Invalid favorite target' };
+
+    await client.join(roomName);
+    return {
+      event: 'joinedFavoriteTarget',
+      data: { type: data.type, targetId: data.targetId },
+    };
+  }
+
+  @SubscribeMessage('leaveFavoriteTarget')
+  async handleLeaveFavoriteTarget(
+    @MessageBody() data: FavoriteTargetRoomPayload,
+    @ConnectedSocket() client: Socket
+  ) {
+    const roomName = this.getFavoriteTargetRoom(data);
+    if (!roomName) return { error: 'Invalid favorite target' };
+
+    await client.leave(roomName);
+    return {
+      event: 'leftFavoriteTarget',
+      data: { type: data.type, targetId: data.targetId },
+    };
+  }
+
+  @SubscribeMessage('joinPost')
+  async handleJoinPost(
+    @MessageBody() postId: string,
+    @ConnectedSocket() client: Socket
+  ) {
+    const roomName = this.getPostRoom(postId);
+    if (!roomName) return { error: 'Invalid post' };
+
+    await client.join(roomName);
+    return { event: 'joinedPost', data: { postId } };
+  }
+
+  @SubscribeMessage('leavePost')
+  async handleLeavePost(
+    @MessageBody() postId: string,
+    @ConnectedSocket() client: Socket
+  ) {
+    const roomName = this.getPostRoom(postId);
+    if (!roomName) return { error: 'Invalid post' };
+
+    await client.leave(roomName);
+    return { event: 'leftPost', data: { postId } };
   }
 
   @SubscribeMessage('join_user_room')
@@ -178,6 +246,42 @@ export class SessionsGateway
     );
   }
 
+  notifyFavoriteUpdate(
+    type: FavoriteType,
+    targetId: string,
+    payload: {
+      favoriteCount: number;
+      actorId: string;
+      isFavorite: boolean;
+    }
+  ) {
+    const roomName = this.getFavoriteTargetRoom({ type, targetId });
+    if (!roomName) return;
+
+    this.server.to(roomName).emit(SessionEventType.FAVORITE_UPDATED, {
+      type,
+      targetId,
+      ...payload,
+    });
+  }
+
+  notifyPostLikeUpdate(
+    postId: string,
+    payload: {
+      likeCount: number;
+      actorId: string;
+      isLiked: boolean;
+    }
+  ) {
+    const roomName = this.getPostRoom(postId);
+    if (!roomName) return;
+
+    this.server.to(roomName).emit(SessionEventType.POST_LIKE_UPDATED, {
+      postId,
+      ...payload,
+    });
+  }
+
   /**
    * Notify a specific user about an event
    * @param userId - The user ID
@@ -230,5 +334,31 @@ export class SessionsGateway
           error
         );
       });
+  }
+
+  private getFavoriteTargetRoom(data: FavoriteTargetRoomPayload) {
+    if (
+      !data?.type ||
+      !FAVORITE_REALTIME_TYPES.has(data.type) ||
+      typeof data.targetId !== 'string' ||
+      data.targetId.length === 0 ||
+      data.targetId.length > 128
+    ) {
+      return null;
+    }
+
+    return `favorite_${data.type}_${data.targetId}`;
+  }
+
+  private getPostRoom(postId: unknown) {
+    if (
+      typeof postId !== 'string' ||
+      postId.length === 0 ||
+      postId.length > 128
+    ) {
+      return null;
+    }
+
+    return `post_${postId}`;
   }
 }

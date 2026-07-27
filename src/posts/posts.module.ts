@@ -5,6 +5,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { CloudinaryModule } from '../cloudinary/cloudinary.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ActivitiesModule } from '../activities/activities.module';
+import { SessionsGatewayModule } from '../sessions/sessions-gateway.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { ActivitiesModule } from '../activities/activities.module';
     CloudinaryModule,
     NotificationsModule,
     ActivitiesModule,
+    SessionsGatewayModule,
   ],
   controllers: [PostsController],
   providers: [PostsService],
