@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { ClubStatus, VenueRequestStatus, VenueStatus } from '@prisma/client';
+import {
+  ClubStatus,
+  VenueCourtStatus,
+  VenueRequestStatus,
+  VenueStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DashboardQueryDto } from '../dto';
 import {
@@ -21,6 +26,10 @@ export interface ClubVenueStatsResponse {
     pendingRequests: number;
     requestsByStatus: { status: VenueRequestStatus; count: number }[];
   };
+  courts: {
+    total: number;
+    byStatus: { status: VenueCourtStatus; count: number }[];
+  };
 }
 
 @Injectable()
@@ -39,6 +48,8 @@ export class ClubVenueStatsService {
       venuesTrendRaw,
       pendingRequests,
       requestsByStatusRaw,
+      courtsTotal,
+      courtsByStatusRaw,
     ] = await Promise.all([
       this.prisma.club.count(),
       this.prisma.club.groupBy({ by: ['status'], _count: { _all: true } }),
@@ -65,6 +76,11 @@ export class ClubVenueStatsService {
         by: ['status'],
         _count: { _all: true },
       }),
+      this.prisma.venueCourt.count(),
+      this.prisma.venueCourt.groupBy({
+        by: ['status'],
+        _count: { _all: true },
+      }),
     ]);
 
     return {
@@ -85,6 +101,13 @@ export class ClubVenueStatsService {
         trend: toTrendBuckets(venuesTrendRaw),
         pendingRequests,
         requestsByStatus: requestsByStatusRaw.map((row) => ({
+          status: row.status,
+          count: row._count._all,
+        })),
+      },
+      courts: {
+        total: courtsTotal,
+        byStatus: courtsByStatusRaw.map((row) => ({
           status: row.status,
           count: row._count._all,
         })),
