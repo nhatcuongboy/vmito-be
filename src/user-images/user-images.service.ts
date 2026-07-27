@@ -129,12 +129,14 @@ export class UserImagesService {
         return this.cloudinaryService.uploadAvatar(file);
       case ImageCategory.CLUB:
         return this.cloudinaryService.uploadClubImage(file);
+      case ImageCategory.CLUB_COVER:
+        return this.cloudinaryService.uploadClubCoverPhoto(file);
       case ImageCategory.QR_CODE:
         return this.cloudinaryService.uploadQrCode(file);
       case ImageCategory.PAYMENT_PROOF:
         return this.cloudinaryService.uploadPaymentProof(file);
       default:
-        return this.cloudinaryService.uploadImage(file, 'user-uploads');
+        return this.cloudinaryService.uploadGenericImage(file);
     }
   }
 }

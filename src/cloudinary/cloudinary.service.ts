@@ -104,9 +104,11 @@ export class CloudinaryService {
   ): Promise<CloudinaryUploadResult> {
     return this.uploadImage(file, 'avatars', {
       transformation: [
-        // 800px keeps fullscreen previews sharp; circles downscale fine.
-        { width: 800, height: 800, crop: 'fill', gravity: 'face' },
-        { quality: 'auto:good' },
+        // 1000px keeps fullscreen/retina previews sharp; circles downscale fine.
+        // auto:best over auto:good — avatars are small enough in bytes that
+        // the extra quality is worth it, and auto:good visibly softened faces.
+        { width: 1000, height: 1000, crop: 'fill', gravity: 'face' },
+        { quality: 'auto:best' },
         { fetch_format: 'auto' },
       ],
     });
@@ -115,9 +117,23 @@ export class CloudinaryService {
   async uploadClubImage(
     file: Express.Multer.File
   ): Promise<CloudinaryUploadResult> {
+    // Square fill crop is correct here — this is specifically the club logo,
+    // a small icon-like image. Gallery/cover photos use uploadClubCoverPhoto.
     return this.uploadImage(file, 'club-images', {
       transformation: [
         { width: 800, height: 800, crop: 'fill' },
+        { quality: 'auto:good' },
+        { fetch_format: 'auto' },
+      ],
+    });
+  }
+
+  async uploadClubCoverPhoto(
+    file: Express.Multer.File
+  ): Promise<CloudinaryUploadResult> {
+    return this.uploadImage(file, 'club-covers', {
+      transformation: [
+        { width: 2000, crop: 'limit' },
         { quality: 'auto:good' },
         { fetch_format: 'auto' },
       ],
@@ -154,6 +170,22 @@ export class CloudinaryService {
     return this.uploadImage(file, 'feedback', {
       transformation: [
         { width: 1600, crop: 'limit' },
+        { quality: 'auto:good' },
+        { fetch_format: 'auto' },
+      ],
+    });
+  }
+
+  async uploadGenericImage(
+    file: Express.Multer.File
+  ): Promise<CloudinaryUploadResult> {
+    // Fallback for uncategorized uploads (venue covers, tournament banners,
+    // sponsor logos, etc.). crop:'limit' with only a width bound never crops
+    // or distorts — it only downscales oversized images, so every aspect
+    // ratio is preserved as-is.
+    return this.uploadImage(file, 'user-uploads', {
+      transformation: [
+        { width: 1920, crop: 'limit' },
         { quality: 'auto:good' },
         { fetch_format: 'auto' },
       ],
