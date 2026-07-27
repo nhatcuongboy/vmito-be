@@ -104,9 +104,11 @@ export class CloudinaryService {
   ): Promise<CloudinaryUploadResult> {
     return this.uploadImage(file, 'avatars', {
       transformation: [
-        // 800px keeps fullscreen previews sharp; circles downscale fine.
-        { width: 800, height: 800, crop: 'fill', gravity: 'face' },
-        { quality: 'auto:good' },
+        // 1000px keeps fullscreen/retina previews sharp; circles downscale fine.
+        // auto:best over auto:good — avatars are small enough in bytes that
+        // the extra quality is worth it, and auto:good visibly softened faces.
+        { width: 1000, height: 1000, crop: 'fill', gravity: 'face' },
+        { quality: 'auto:best' },
         { fetch_format: 'auto' },
       ],
     });
