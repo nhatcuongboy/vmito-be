@@ -125,7 +125,21 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    return user;
+    // Count distinct sessions the user has joined as a player,
+    // excluding sessions they hosted themselves.
+    const joinedSessions = await this.prisma.player.findMany({
+      where: {
+        userId: id,
+        session: { hostId: { not: id } },
+      },
+      distinct: ['sessionId'],
+      select: { sessionId: true },
+    });
+
+    return {
+      ...user,
+      joinedSessionsCount: joinedSessions.length,
+    };
   }
 
   async create(createUserDto: CreateUserDto) {
