@@ -152,6 +152,7 @@ export class SessionsController {
     @Query('sortOrder') sortOrder?: 'asc' | 'desc',
     @Query('sessionType') sessionType?: 'all' | 'regular' | 'facebook',
     @Query('favoriteOnly') favoriteOnly?: string,
+    @Query('includeEnded') includeEnded?: string,
     @CurrentUser() user?: AuthenticatedUser
   ) {
     return this.sessionsService.findAvailable(
@@ -179,6 +180,7 @@ export class SessionsController {
         sortOrder,
         sessionType,
         favoriteOnly: favoriteOnly === 'true',
+        includeEnded: includeEnded === 'true',
       },
       user?.userId
     );

@@ -85,7 +85,12 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
+            set -e
             cd /opt/badminton
             docker compose pull backend
+            # Apply DB migrations as a one-shot step BEFORE starting the new app.
+            # If it fails, `set -e` aborts the deploy and the current backend keeps
+            # serving (no outage) — instead of the app container crash-looping.
+            docker compose run --rm backend npx prisma migrate deploy
             docker compose up -d backend
             docker image prune -a -f

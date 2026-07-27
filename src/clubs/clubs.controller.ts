@@ -95,6 +95,18 @@ export class ClubsController {
   }
 
   /**
+   * Cancel / withdraw a pending join request
+   */
+  @Delete(':id/join-request')
+  @UseGuards(JwtAuthGuard)
+  async cancelJoinRequest(
+    @Param('id') clubId: string,
+    @CurrentUser() user: JwtUser
+  ) {
+    return this.clubsService.cancelJoinRequest(clubId, user.userId);
+  }
+
+  /**
    * Get clubs for current user
    */
   @Get('my/list')

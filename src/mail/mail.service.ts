@@ -1,29 +1,25 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private transporter: nodemailer.Transporter | null = null;
+  private resend: Resend | null = null;
+  private readonly fromAddress: string;
 
   constructor(private configService: ConfigService) {
-    const host = this.configService.get<string>('SMTP_HOST');
-    const port = this.configService.get<number>('SMTP_PORT');
-    const user = this.configService.get<string>('SMTP_USER');
-    const pass = this.configService.get<string>('SMTP_PASS');
+    const apiKey = this.configService.get<string>('RESEND_API_KEY');
+    this.fromAddress =
+      this.configService.get<string>('MAIL_FROM') ||
+      'Vmito <onboarding@resend.dev>';
 
-    if (host && user && pass) {
-      this.transporter = nodemailer.createTransport({
-        host,
-        port: port || 587,
-        secure: port === 465,
-        auth: { user, pass },
-      });
-      this.logger.log('Mail transporter configured');
+    if (apiKey) {
+      this.resend = new Resend(apiKey);
+      this.logger.log('Resend mail client configured');
     } else {
       this.logger.warn(
-        'SMTP not configured. Email notifications will be skipped.'
+        'RESEND_API_KEY not configured. Email notifications will be skipped.'
       );
     }
   }
@@ -37,9 +33,9 @@ export class MailService {
   }): Promise<void> {
     const adminEmail = this.configService.get<string>('ADMIN_EMAIL');
 
-    if (!this.transporter || !adminEmail) {
+    if (!this.resend || !adminEmail) {
       this.logger.warn(
-        'Skipping feedback email: SMTP or ADMIN_EMAIL not configured'
+        'Skipping feedback email: Resend or ADMIN_EMAIL not configured'
       );
       return;
     }
@@ -47,8 +43,8 @@ export class MailService {
     const typeLabel = feedback.type === 'BUG_REPORT' ? 'Bug Report' : 'Contact';
 
     try {
-      await this.transporter.sendMail({
-        from: this.configService.get<string>('SMTP_USER'),
+      await this.resend.emails.send({
+        from: this.fromAddress,
         to: adminEmail,
         subject: `[Vmito ${typeLabel}] ${feedback.title}`,
         html: `
@@ -71,8 +67,8 @@ export class MailService {
     locale?: string;
     expiresInMinutes: number;
   }): Promise<void> {
-    if (!this.transporter) {
-      this.logger.warn('Skipping password reset email: SMTP not configured');
+    if (!this.resend) {
+      this.logger.warn('Skipping password reset email: Resend not configured');
       return;
     }
 
@@ -107,8 +103,8 @@ export class MailService {
     const copy = messages[locale as keyof typeof messages];
 
     try {
-      await this.transporter.sendMail({
-        from: this.configService.get<string>('SMTP_USER'),
+      await this.resend.emails.send({
+        from: this.fromAddress,
         to: params.to,
         subject: copy.subject,
         html: `

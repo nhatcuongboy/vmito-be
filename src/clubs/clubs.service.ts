@@ -34,13 +34,15 @@ import {
 import { NotificationsService } from '../notifications/notifications.service';
 import { VALID_LEVELS } from '../common/constants/level.constants';
 import { FavoritesService } from '../favorites/favorites.service';
+import { ActivityFeedService } from '../activities/activity-feed.service';
 
 @Injectable()
 export class ClubsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
-    private readonly favoritesService: FavoritesService
+    private readonly favoritesService: FavoritesService,
+    private readonly activityFeedService: ActivityFeedService
   ) {}
 
   private stripHtmlTags(html: string | null | undefined): string {
@@ -267,6 +269,7 @@ export class ClubsService {
       color: club.color,
       image: club.image,
       images: club.images,
+      logo: club.logo,
       location: club.location,
       joinPolicy: club.joinPolicy,
       maxMembers: club.maxMembers,
@@ -474,6 +477,9 @@ export class ClubsService {
       color: club.color,
       image: club.image,
       images: club.images,
+      logo: club.logo,
+      logoPublicId: club.logoPublicId,
+      socialLinks: club.socialLinks,
       location: club.location,
       requiredLevels: club.requiredLevels,
       isPublic: club.isPublic,
@@ -559,19 +565,32 @@ export class ClubsService {
         },
       });
 
+      await this.activityFeedService.postClubMemberJoined(
+        { id: clubId, slug: club.slug, name: club.name, logo: club.logo },
+        userId
+      );
+
       return {
         status: 'joined',
         message: `You have successfully joined ${member.club.name}`,
       };
     }
 
-    // APPROVAL_REQUIRED - create join request
-    const joinRequest = await this.prisma.clubJoinRequest.create({
-      data: {
+    // APPROVAL_REQUIRED - create or update join request
+    const joinRequest = await this.prisma.clubJoinRequest.upsert({
+      where: {
+        clubId_userId: { clubId, userId },
+      },
+      create: {
         clubId,
         userId,
         message,
         status: JoinRequestStatus.PENDING,
+      },
+      update: {
+        message,
+        status: JoinRequestStatus.PENDING,
+        response: null,
       },
       include: {
         club: {
@@ -585,6 +604,29 @@ export class ClubsService {
       message: `Your request to join ${joinRequest.club.name} has been submitted`,
       requestId: joinRequest.id,
     };
+  }
+
+  /**
+   * Cancel / withdraw a pending join request
+   */
+  async cancelJoinRequest(clubId: string, userId: string) {
+    const request = await this.prisma.clubJoinRequest.findFirst({
+      where: {
+        clubId,
+        userId,
+        status: JoinRequestStatus.PENDING,
+      },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Pending join request not found');
+    }
+
+    await this.prisma.clubJoinRequest.delete({
+      where: { id: request.id },
+    });
+
+    return { message: 'Join request cancelled successfully' };
   }
 
   /**
@@ -986,7 +1028,7 @@ export class ClubsService {
 
     this.validateRequiredLevels(dto.requiredLevels);
 
-    const { schedules, ...clubData } = dto;
+    const { schedules, socialLinks, ...clubData } = dto;
 
     // All clubs are approved immediately upon creation
     const clubStatus = ClubStatus.APPROVED;
@@ -1021,6 +1063,9 @@ export class ClubsService {
                 notes: s.notes,
               })),
             },
+          }),
+          ...(socialLinks !== undefined && {
+            socialLinks: socialLinks as unknown as Prisma.InputJsonValue,
           }),
           searchTerms: this.generateSearchTerms(
             dto.name,
@@ -1086,6 +1131,11 @@ export class ClubsService {
       }
     );
 
+    await this.activityFeedService.postClubCreated(
+      { id: club.id, slug: club.slug, name: club.name, logo: club.logo },
+      hostId
+    );
+
     return club;
   }
 
@@ -1149,11 +1199,11 @@ export class ClubsService {
 
     this.validateRequiredLevels(dto.requiredLevels);
 
-    const { schedules, ...clubData } = dto;
+    const { schedules, socialLinks, ...clubData } = dto;
 
     // If schedules provided, delete old and create new in transaction
     if (schedules !== undefined) {
-      return this.prisma.$transaction(async (tx) => {
+      const updatedClub = await this.prisma.$transaction(async (tx) => {
         await tx.clubSchedule.deleteMany({ where: { clubId } });
 
         // Fetch current club info for searchTerms calculation
@@ -1195,13 +1245,25 @@ export class ClubsService {
                 })),
               },
             }),
-            ...(clubData.name || clubData.description || clubData.location || clubData.hostName
+            ...(socialLinks !== undefined && {
+              socialLinks: socialLinks as unknown as Prisma.InputJsonValue,
+            }),
+            ...(clubData.name ||
+            clubData.description ||
+            clubData.location ||
+            clubData.hostName
               ? {
                   searchTerms: this.generateSearchTerms(
                     clubData.name || currentClub?.name || '',
-                    clubData.hostName !== undefined ? clubData.hostName : currentClub?.hostName,
-                    clubData.description !== undefined ? clubData.description : currentClub?.description,
-                    clubData.location !== undefined ? clubData.location : currentClub?.location,
+                    clubData.hostName !== undefined
+                      ? clubData.hostName
+                      : currentClub?.hostName,
+                    clubData.description !== undefined
+                      ? clubData.description
+                      : currentClub?.description,
+                    clubData.location !== undefined
+                      ? clubData.location
+                      : currentClub?.location,
                     venueInfo
                   ),
                 }
@@ -1224,6 +1286,18 @@ export class ClubsService {
           },
         });
       });
+
+      await this.activityFeedService.postClubUpdated(
+        {
+          id: updatedClub.id,
+          slug: updatedClub.slug,
+          name: updatedClub.name,
+          logo: updatedClub.logo,
+        },
+        userId
+      );
+
+      return updatedClub;
     }
 
     // Fetch current club info for searchTerms calculation
@@ -1251,17 +1325,29 @@ export class ClubsService {
       }
     }
 
-    return this.prisma.club.update({
+    const updatedClub = await this.prisma.club.update({
       where: { id: clubId },
       data: {
         ...clubData,
-        ...(clubData.name || clubData.description || clubData.location || clubData.hostName
+        ...(socialLinks !== undefined && {
+          socialLinks: socialLinks as unknown as Prisma.InputJsonValue,
+        }),
+        ...(clubData.name ||
+        clubData.description ||
+        clubData.location ||
+        clubData.hostName
           ? {
               searchTerms: this.generateSearchTerms(
                 clubData.name || currentClub?.name || '',
-                clubData.hostName !== undefined ? clubData.hostName : currentClub?.hostName,
-                clubData.description !== undefined ? clubData.description : currentClub?.description,
-                clubData.location !== undefined ? clubData.location : currentClub?.location,
+                clubData.hostName !== undefined
+                  ? clubData.hostName
+                  : currentClub?.hostName,
+                clubData.description !== undefined
+                  ? clubData.description
+                  : currentClub?.description,
+                clubData.location !== undefined
+                  ? clubData.location
+                  : currentClub?.location,
                 venueInfo
               ),
             }
@@ -1283,6 +1369,18 @@ export class ClubsService {
         },
       },
     });
+
+    await this.activityFeedService.postClubUpdated(
+      {
+        id: updatedClub.id,
+        slug: updatedClub.slug,
+        name: updatedClub.name,
+        logo: updatedClub.logo,
+      },
+      userId
+    );
+
+    return updatedClub;
   }
 
   /**
@@ -1641,7 +1739,7 @@ export class ClubsService {
     }
 
     // Start transaction to approve request and add member
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // 1. Update request status
       await tx.clubJoinRequest.update({
         where: { id: requestId },
@@ -1668,6 +1766,15 @@ export class ClubsService {
         },
       });
     });
+
+    if (!('status' in result)) {
+      await this.activityFeedService.postClubMemberJoined(
+        { id: club.id, slug: club.slug, name: club.name, logo: club.logo },
+        request.userId
+      );
+    }
+
+    return result;
   }
 
   /**

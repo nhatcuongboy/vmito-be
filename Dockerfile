@@ -39,5 +39,7 @@ USER nestjs
 
 EXPOSE 3001
 
-# Run migrations and start
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main"]
+# Start the app only. DB migrations are applied as a separate, one-shot step
+# during deploy (see .github/workflows/deploy*.yml) so a failed/interrupted
+# migration can never crash-loop the running service (avoids Prisma P3009 lock-out).
+CMD ["node", "dist/src/main"]

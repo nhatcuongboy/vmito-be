@@ -10,6 +10,9 @@ import {
   IsArray,
   ValidateNested,
   Matches,
+  IsObject,
+  IsUrl,
+  ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ClubJoinPolicy } from '@prisma/client';
@@ -32,6 +35,43 @@ export class ClubScheduleDto {
   @IsString()
   @MaxLength(200)
   notes?: string;
+}
+
+export class SocialLinksDto {
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== '')
+  @IsUrl({}, { message: 'facebook must be a valid URL' })
+  facebook?: string;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== '')
+  @IsUrl({}, { message: 'zalo must be a valid URL' })
+  zalo?: string;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== '')
+  @IsUrl({}, { message: 'tiktok must be a valid URL' })
+  tiktok?: string;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== '')
+  @IsUrl({}, { message: 'instagram must be a valid URL' })
+  instagram?: string;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== '')
+  @IsUrl({}, { message: 'youtube must be a valid URL' })
+  youtube?: string;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== '')
+  @IsUrl({}, { message: 'website must be a valid URL' })
+  website?: string;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== '')
+  @IsUrl({}, { message: 'other must be a valid URL' })
+  other?: string;
 }
 
 export class CreateClubDto {
@@ -117,4 +157,10 @@ export class CreateClubDto {
   @ValidateNested({ each: true })
   @Type(() => ClubScheduleDto)
   schedules?: ClubScheduleDto[];
+
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => SocialLinksDto)
+  socialLinks?: SocialLinksDto;
 }

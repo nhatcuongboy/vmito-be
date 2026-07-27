@@ -43,7 +43,7 @@ export class AddTournamentVenueDto {
   venueId?: string;
 
   // ── Inline mode (required when venueId is absent) ────────────────────────────
-  @ValidateIf((o) => !o.venueId)
+  @ValidateIf((o: AddTournamentVenueDto) => !o.venueId)
   @IsString()
   name?: string;
 

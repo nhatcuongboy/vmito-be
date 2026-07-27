@@ -14,6 +14,7 @@ import { TournamentMatchGenerationService } from './services/tournament-match-ge
 import { ScheduleModule } from './schedule.module';
 import { TournamentsGatewayModule } from './realtime/tournaments-gateway.module';
 import { FavoritesModule } from '../favorites/favorites.module';
+import { ActivitiesModule } from '../activities/activities.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { FavoritesModule } from '../favorites/favorites.module';
     ScheduleModule,
     TournamentsGatewayModule,
     FavoritesModule,
+    ActivitiesModule,
   ],
   controllers: [
     TournamentsController,

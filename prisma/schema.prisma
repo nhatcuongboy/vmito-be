@@ -94,6 +94,7 @@ enum NotificationType {
   CLUB // Club-related notifications
   POST // Post interactions (like, comment)
   VENUE_RENTAL // Venue rental workflow updates
+  VENUE_REQUEST // Venue request status updates (approved/rejected)
 }
 
 model Notification {
@@ -1592,6 +1593,7 @@ model Club {
   location       String? // Primary location/venue
   defaultVenueId String? // Link to default venue
   requiredLevels Int[]          @default([]) // Array of level IDs (empty = all)
+  socialLinks    Json? // Social media links (facebook, zalo, tiktok, instagram, youtube, website, other)
 
   // Statistics (cached for performance)
   sessionCount       Int @default(0)
@@ -1847,6 +1849,29 @@ model UserImage {
 // Newsfeed / Post System Models
 // ===========================================
 
+enum PostType {
+  USER
+  ACTIVITY
+}
+
+enum PostVisibility {
+  PUBLIC
+  FRIENDS // reserved for the future friend system
+  PRIVATE
+}
+
+enum ActivityType {
+  SESSION_CREATED
+  SESSION_RESULTS
+  CLUB_CREATED
+  CLUB_UPDATED
+  CLUB_MEMBER_JOINED
+  TOURNAMENT_CREATED
+  TOURNAMENT_FINISHED
+  AVATAR_UPDATED
+  USER_RATED
+}
+
 model Post {
   id       String  @id @default(cuid())
   content  String  @db.Text
@@ -1854,6 +1879,12 @@ model Post {
   location Json? // {name, lat, lng, address}
   authorId String
   author   User    @relation("UserPosts", fields: [authorId], references: [id], onDelete: Cascade)
+
+  // Activity feed (auto-generated posts)
+  type         PostType       @default(USER)
+  activityType ActivityType?
+  metadata     Json? // shape depends on activityType, see src/activities/activity-metadata.types.ts
+  visibility   PostVisibility @default(PUBLIC)
 
   images   PostImage[]
   likes    PostLike[]
@@ -1870,6 +1901,7 @@ model Post {
 
   @@index([authorId])
   @@index([createdAt])
+  @@index([type, activityType])
   @@map("posts")
 }
 

@@ -274,7 +274,6 @@ export function deriveServeState(log: PointLogEntry[]): ServeState {
   return { servingSide, serverNumber };
 }
 
-
 /** Display string e.g. "21-19, 18-21, 21-15" across completed/in-progress sets. */
 export function buildScoreString(sets: ScoringSet[]): string {
   return sets

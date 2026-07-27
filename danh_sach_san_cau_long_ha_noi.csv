@@ -1,0 +1,154 @@
+no,name,address,openingHours,numberOfCourts,district,city,phone,newDistrict,placeId
+1,TA - Cấp 2 Văn Bình,"Trường THCS Văn Bình, Thường Tín",07:00 - 21:30,,Huyện Thường Tín,Hà Nội,,,ChIJ_aLhdACzNTER8khoLWL78nw
+2,Tam Hưng,"21 Đ. Số 1, Thôn Hưng Giáo, Hà Nội",05:00 - 22:30,,,Hà Nội,,,ChIJB0Ua4MuOhyIRzLvJpSwY91c
+3,HANSPORTS,"Bằng Sở, Thường Tín, Hà Nội",05:00 - 24:00,,Huyện Thường Tín,Hà Nội,,,ChIJfdRzWwCxNTERFXvvx6zNvic
+4,TA - Cấp 2 Nhị Khê,"Trường THCS Nhị Khê, Thường Tín, Hà Nội",07:00 - 21:30,,Huyện Thường Tín,Hà Nội,,,ChIJfWxnVACzNTERQ3Mnca46aQg
+5,MQB (Minh Quang Badminton),"Số 9 đường Văn Chỉ, thôn Đại Lộ, xã Hồng Vân, Hà Nội",05:00 - 23:00,,Huyện Thường Tín,Hà Nội,,,ChIJGx0TEqOxNTERjWW8b1zHXrs
+6,LOL Badminton,"Số 32, Đường Miền Đông, Thôn Thượng, Thanh Oai, Hà Nội",05:00 - 24:00,,Huyện Thanh Oai,Hà Nội,,,ChIJy8Z9fwBTNDER-zGM8y35Jus
+7,Câu lạc bộ Thể Thao Thanh Hà,"Cự Khuê, Thanh Oai, Hà Nội",05:00 - 24:00,,Huyện Thanh Oai,Hà Nội,,,ChIJp_pwx9mtNTERN5aR_thXRb8
+8,Us Badminton Nhà Thi Đấu Thanh Hà,"WQJR+84R, Cự Khê, Thanh Oai, Hà Nội",05:00 - 24:00,,Huyện Thanh Oai,Hà Nội,,,
+9,TA 512 Ngọc Hồi,"Ngõ 512 Ngọc Hồi (đi vào khoảng 200m), Khu tập thể 810",05:00 - 24:00,,,Hà Nội,0915533994,,ChIJyZMeETCtNTERyXPmpNxjvcY
+10,298 Ngọc Hồi,"Số 50 ngõ 298/33 đường Ngọc Hồi, Yên Ngưu, Tam Hiệp",05:00 - 24:00,,,Hà Nội,,,ChIJqSidMM2tNTERt5c9gEz0KkU
+11,Đại Thanh,"61-63 Phan Trọng Tuệ, đối diện KĐT Đại Thanh",00:00 - 24:00,,,Hà Nội,,,ChIJ2REMPwCtNTEROYmEfVFPnaY
+12,44 Bala Thảm Xanh,"44 Ba La, Phú Lương, Hà Đông, Hà Nội",00:00 - 24:00,,Quận Hà Đông,Hà Nội,,,ChIJN7FI08NTNDERVbeHjUUxm3U
+13,44 Bala,"44 P. Ba La, Ba La, Kiến Hưng, Hà Nội, Việt Nam",00:00 - 24:00,,Quận Hà Đông,Hà Nội,,,
+14,19/5,"Sân cầu lông 19/5 thôn Văn, Thanh Liệt, Thanh Trì, Hà Nội",05:30 - 24:00,,Huyện Thanh Trì,Hà Nội,,,ChIJeZd2ZymtNTER_QuoeroAH_g
+15,Ngọc Vân Badminton (Sân cầu lông Ngọc Vân),"948 Quang Trung, Phường Yên Nghĩa, Hà Nội",00:00 - 24:00,,Quận Hà Đông,Hà Nội,,,ChIJv3UIWgBTNDERaz2-z4otGDk
+16,Thắng Lĩnh Sport,"948 Quang Trung, Hà Đông, Hà Nội",00:00 - 24:00,,Quận Hà Đông,Hà Nội,,,ChIJM2ZhCgBTNDERDCMt8N_jpkM
+17,Kim Giang,"918 Kim Giang, Thanh Liệt, Thanh Trì, Hà Nội",00:00 - 24:00,,Huyện Thanh Trì,Hà Nội,,,ChIJZ4PQTx2tNTERQ0CGxTFLrDo
+18,Fbshop Kim Giang,"918 Kim Giang, Thanh Liệt, Thanh Trì, Hà Nội",05:30 - 23:30,,Huyện Thanh Trì,Hà Nội,,,ChIJC7P0cwCtNTERCcNuK_FSqn8
+19,Sao Vàng,"Đường Phạm Tu, Thanh Liệt, Thanh Trì, Hà Nội",00:00 - 24:00,,Huyện Thanh Trì,Hà Nội,,,ChIJ6SggJACtNTERteqJEFGEpKE
+20,V - Badminton,"Đường Phạm Tu, Tân Triều, Thanh Trì, Hà Nội",00:00 - 24:00,,Huyện Thanh Trì,Hà Nội,,,
+21,Phạm Tu Badminton,"Đường Phạm Tu, Thanh Liệt, Thanh Trì, Hà Nội",00:00 - 24:00,,Huyện Thanh Trì,Hà Nội,,,ChIJ57RkSACtNTEReZNd2ZTfhjU
+22,Vina Badminton - TC5,"Đường số 1 Tổng Cục 5, Tân Triều, Thanh Trì, Hà Nội",00:00 - 24:00,,Huyện Thanh Trì,Hà Nội,,,ChIJy2dTE1OtNTERHfVuWIcNcVs
+23,Xoài Arena 1 - Pickleball & Cầu Lông - 38 Đại Từ,"Ngõ 38 Đại Từ, Hoàng Mai, Hà Nội",00:00 - 24:00,,Quận Hoàng Mai,Hà Nội,,,ChIJ_9w_bQCtNTERJOj9F3IaBPE
+24,NTD Hà Đông - 182 Quang Trung,"182 Quang Trung, P. Quang Trung, Hà Đông, Hà Nội",05:00 - 22:00,,Quận Hà Đông,Hà Nội,,,ChIJVZ267tdSNDERHimFXPNbcM8
+25,88 Thịnh Liệt,"Hẻm 88/61/75 Giáp Nhị, phường Thịnh Liệt, quận Hoàng Mai",05:00 - 24:00,,Quận Hoàng Mai,Hà Nội,,,ChIJ-e0yu0etNTER7Uu93kzB7iA
+26,A&C 32 Đại Từ,"32 Đại Từ, Đại Kim, Hoàng Mai, Hà Nội",05:00 - 24:00,,Quận Hoàng Mai,Hà Nội,,,ChIJa-s1PgCtNTERaPEUJCsQnD0
+27,Cụm 8 sân cầu lông Ao Sào,"Khu đô thị Ao Sào, Thịnh Liệt, Hoàng Mai, Hà Nội",05:00 - 23:00,8,Quận Hoàng Mai,Hà Nội,,,ChIJp1d48lqtNTERiXPE23eDrBg
+28,JQK 300 Nguyễn Xiển,"Ngõ 1 đường Tân Triều Mới, xã Tân Triều, huyện Thanh Trì",06:00 - 24:00,,Huyện Thanh Trì,Hà Nội,,,ChIJcyvqdwCtNTERTU-nwbauVBE
+29,TP Badminton CN1,"Ngõ 90 đường Mương Nổi, Tân Triều",00:00 - 24:00,,Huyện Thanh Trì,Hà Nội,,,ChIJZ3ZhdACtNTERlJyc_Rv9wvA
+30,Link Badminton,"Cuối ngõ 1, đường Tân Triều mới, Triều Khúc, Hà Nội",00:00 - 24:00,,,Hà Nội,,,ChIJe3P0PgCtNTER8hpUfpRjZBk
+31,Còi Badminton,"300 Nguyễn Xiển, Chiến Thắng, Triều Khúc",05:00 - 24:00,,,Hà Nội,,,
+32,TP Badminton CN2,"Ngõ 90 Đường Mương Nổi, Tân Triều, Hà Nội",00:00 - 24:00,,Huyện Thanh Trì,Hà Nội,,,
+33,MC Badminton,"Chiến Thắng, Triều Khúc, Nguyễn Xiển, Thanh Trì, Hà Nội",05:00 - 24:00,,Huyện Thanh Trì,Hà Nội,,,
+34,Đĩnh Lê - Đa Tốn,"Ngõ 15 Đa Tốn, Đa Tốn, Gia Lâm, Hà Nội",05:00 - 23:00,,Huyện Gia Lâm,Hà Nội,,,ChIJe3eFGwCvNTERNGxpKRIL9u0
+35,Quân Lưu Cs1 - Tân Triều,"Đường số 1, Tổng cục V, Tân Triều, Thanh Trì, Hà Nội",00:00 - 24:00,,Huyện Thanh Trì,Hà Nội,,,ChIJBab-AdWtNTERh-8Imr-6gDw
+36,686 Chiến Thắng,"Ngõ 686 Đ. Chiến Thắng, P. Văn Quán, Hà Đông, Hà Nội",05:00 - 23:00,,Quận Hà Đông,Hà Nội,,,ChIJeQDATACtNTER89Qxkf7ViGI
+37,Kabuto 261 Chiến Thắng,"261 Chiến Thắng, Văn Quán, Thanh Liệt, Hà Nội",00:00 - 24:00,,Huyện Thanh Trì,Hà Nội,,,ChIJFxhUeQCtNTERxchN1wtoCxI
+38,ACE Triều Khúc,"Ngõ 1 Vũ Đức Uý, Thanh Liệt, Hà Nội",00:00 - 24:00,,Huyện Thanh Trì,Hà Nội,,,ChIJ89LsFwCtNTER9Ut8ZblpO-o
+39,Số 1 Nguyễn Cảnh Dị,"1 P. Nguyễn Cảnh Dị, Định Công, Hoàng Mai, Hà Nội",05:00 - 23:00,,Quận Hoàng Mai,Hà Nội,,,ChIJ-6zaDemtNTERkfRdWHB0TmU
+40,Victory Badminton Tân Triều,"Đường 25m Tân Triều mới, Thanh Liệt, Thanh Trì, Hà Nội",05:00 - 24:00,,Huyện Thanh Trì,Hà Nội,,,ChIJS00rCwCtNTERySVc7EYws9o
+41,MD Badminton,111 ngõ 83 đường 25m Tân Triều Mới,05:00 - 24:00,,,Hà Nội,,,ChIJi3mUNgCtNTERoUj3IdQW5_Y
+42,LC300 Badminton,"Đường Tân Triều Mới, Tân Triều, Thanh Trì, Hà Nội",00:00 - 24:00,,Huyện Thanh Trì,Hà Nội,,,ChIJKdLsMIatNTERVGmzKeY49jg
+43,QVbadminton Usilk 101,"Hầm B2 toà Usilk 101, Khu đô thị Văn Khê, Hà Đông, Hà Nội",00:00 - 24:00,,Quận Hà Đông,Hà Nội,,,ChIJbcoSZgBTNDERF_xkjd32uHo
+44,Swin (Học Viện Chính Trị),"Khu Dịch Vụ Dọc Bún 1, La Khê, Hà Đông, Hà Nội",05:00 - 21:30,,Quận Hà Đông,Hà Nội,,,ChIJx7kpZgBTNDERgMTJVw393Xk
+45,Lĩnh Nam,"255, Đ. Lĩnh Nam / Ngách 47/7 Tổ 29, Vĩnh Hưng, Hà Nội, Việt Nam",00:00 - 24:00,4,Quận Hoàng Mai,Hà Nội,,,ChIJ32vYdgCtNTERHjQSt2RRB8U
+46,Vui Sport - Ecopark Bát Tràng,"61 ngõ 8 Đường Bát Khối, Hồng Hà, Bát Tràng, Gia Lâm, Hà Nội",05:00 - 23:30,,Huyện Gia Lâm,Hà Nội,,,ChIJR03YUwCvNTER9ZFpTpAy8MU
+47,Maxping - Sân cầu lông - 120 Định Công,"120 P. Định Công, Phương Liệt, Thanh Xuân, Hà Nội",05:00 - 23:30,,Quận Thanh Xuân,Hà Nội,,,ChIJvVqOBRStNTERrsLWH-pyC4s
+48,66B Triều Khúc,"66B Triều Khúc, Thanh Xuân, Hà Nội",00:00 - 24:00,,Quận Thanh Xuân,Hà Nội,,,ChIJszDveQCtNTER7pGfOg3XfUQ
+49,An Bình,"Ngách 88, Ngõ 286 Đ. Nguyễn Xiển, Tân Triều, Thanh Trì",05:00 - 24:00,,Huyện Thanh Trì,Hà Nội,,,
+50,A&C 286 Nguyễn Xiển,"Ng. 286 Đ. Nguyễn Xiển, Triều Khúc, Thanh Trì, Hà Nội",05:30 - 24:00,,Huyện Thanh Trì,Hà Nội,,,ChIJk6XORwCtNTERWj_1VVs8BGk
+51,Minh Dương Badminton,"Ngách 86 ngõ 286 Nguyễn Xiển, Thanh Xuân, Hà Nội",00:00 - 24:00,,Quận Thanh Xuân,Hà Nội,,,ChIJoYXxCgCtNTER7oVvuSOCuXY
+52,TDT,"314 P. Bùi Xương Trạch, Khương Đình, Thanh Xuân, Hà Nội",00:00 - 24:00,,Quận Thanh Xuân,Hà Nội,,,ChIJm6d0CgCtNTERfT1ANmHsQqU
+53,BMC,"Ngách 86 Ngõ 286 Đ. Nguyễn Xiển, Tân Triều, Thanh Trì",00:00 - 24:00,,Huyện Thanh Trì,Hà Nội,,,ChIJzVbVGQCtNTERgKDZc2s7fWk
+54,SWIN 214 Nguyễn Xiển,"Ngõ 214 Nguyễn Xiển, Thanh Xuân Trung, Thanh Xuân, Hà Nội",05:00 - 21:30,,Quận Thanh Xuân,Hà Nội,,,ChIJs8cTQMCtNTERBipAaZNlodo
+55,Đức Thảo 18 Tam Trinh,"18 Đ. Tam Trinh, Mai Động, Hoàng Mai, Hà Nội",05:30 - 23:30,,Quận Hoàng Mai,Hà Nội,,,ChIJsy_l65GtNTERzi-5PzkFKBk
+56,Đĩnh Lê - Vinhomes Ocean Park 1,"Đối diện Hải Đăng 9, Trâu Quỳ, Gia Lâm, Hà Nội",05:00 - 24:00,,Huyện Gia Lâm,Hà Nội,,,
+57,Tuấn Anh Sport Cụm 1-7,"161 Dương Văn Bé (gần Times City), Hoàng Mai, Hà Nội",00:00 - 24:00,7,Quận Hoàng Mai,Hà Nội,,,ChIJmXbWXgCtNTERWTeiqP1TvYs
+58,Tuấn Anh Cụm 8-14,"161 Dương Văn Bé (gần Times City), Hoàng Mai, Hà Nội",00:00 - 24:00,7,Quận Hoàng Mai,Hà Nội,,,
+59,16 Khương Hạ,"16 Khương Hạ, Ngã Tư Sở, Hà Nội",05:00 - 24:00,,,Hà Nội,,,
+60,Nguyễn Quý Đức,"Số 5 Nguyễn Quý Đức, Thanh Xuân, Hà Nội",05:00 - 24:00,,Quận Thanh Xuân,Hà Nội,,,
+61,41 Phương Liệt,"41 Phương Liệt, Thanh Xuân, Hà Nội",05:00 - 24:00,,Quận Thanh Xuân,Hà Nội,,,ChIJ2Uj_D3StNTERCv8g6Ze_EfM
+62,Trung Văn - Mễ Trì HF Badminton,"Ngách 56 Ng. 1 P. Đại Linh, Trung Văn, Nam Từ Liêm, Hà Nội",06:00 - 22:30,,Quận Nam Từ Liêm,Hà Nội,,,ChIJ7WiBfwBTNDERnTae_wDHQNE
+63,12 Khuất Duy Tiến,"Ngõ 12 Khuất Duy Tiến, Thanh Xuân, Hà Nội",05:00 - 24:00,,Quận Thanh Xuân,Hà Nội,,,ChIJO4GTawCtNTERfj53ecX8020
+64,Dinkzone Pickleball & Badminton (cạnh trường ĐH Kinh doanh và Công nghệ),"65 Ngõ 124 Phố Vĩnh Tuy, Hai Bà Trưng, Hà Nội",05:00 - 24:00,,Quận Hai Bà Trưng,Hà Nội,,,ChIJM-KiIUqvNTERZMh1HeuDSFQ
+65,Đĩnh Lê - Học Viện Nông Nghiệp Việt Nam,"Đường Ngô Xuân Quảng, Gia Lâm, Hà Nội",17:15 - 23:15,,Huyện Gia Lâm,Hà Nội,,,ChIJKQ4F482oNTER-6K9NJSGE20
+66,TT TDTT Sân Cầu Lông 521 Minh Khai,"521 P. Minh Khai, Vĩnh Phú, Hai Bà Trưng, Hà Nội",00:00 - 24:00,,Quận Hai Bà Trưng,Hà Nội,,,ChIJw8ZGTgGsNTER1wUM_UMF2oo
+67,VT Sport,"972 Bạch Đằng, phường Thanh Lương, quận Hai Bà Trưng",00:00 - 24:00,,Quận Hai Bà Trưng,Hà Nội,,,ChIJ2w7pabytNTERkXfgMI_guSU
+68,181 Nguyễn Huy Tưởng,"181 Nguyễn Huy Tưởng, Thanh Xuân, Hà Nội",05:00 - 24:00,,Quận Thanh Xuân,Hà Nội,,,ChIJZzwqGACtNTER6bg0ViTLBjk
+69,Cảnh Hồ (173B Trường Chinh) - Cụm 11 sân cầu lông & pickleball,"173B Đ. Trường Chinh, Khương Mai, Thanh Xuân, Hà Nội",05:00 - 24:00,11,Quận Thanh Xuân,Hà Nội,,,ChIJkX8OVhmtNTERdvH_ZY3qsFM
+70,Pick & Badminton HUCE,"72 Trần Đại Nghĩa, Phường Bạch Mai, TP Hà Nội",06:00 - 23:00,,Quận Hai Bà Trưng,Hà Nội,,,ChIJAQD0FXGsNTERzEP7AW4YeIQ
+71,La Dương Sports,"Đối diện 321 đường 72 La Dương, Dương Nội, Hà Đông",05:00 - 24:00,,Quận Hà Đông,Hà Nội,,,ChIJpS1qenZTNDERtZL8AXdE9P8
+72,Phúc Long - 6 Lê Văn Thiêm,"Số 6 Lê Văn Thiêm, Thanh Xuân, Hà Nội",00:00 - 24:00,,Quận Thanh Xuân,Hà Nội,,,ChIJmRPOKaWtNTERViZDp3leb_8
+73,ATUS,"55 Đường 72, La Dương, Dương Nội, Hà Đông, HN",00:00 - 24:00,,Quận Hà Đông,Hà Nội,,,ChIJJSEeeQBTNDERJvo6kmDRtmo
+74,WIN Badminton,"Số 2, ngõ Tự Do 1, Long Biên, Hà Nội",06:00 - 24:00,,Quận Long Biên,Hà Nội,,,ChIJq2_cJwCpNTERBFAL_lkVgyo
+75,Châu Sa,"Số 10 Tôn Thất Tùng, Đống Đa, Hà Nội",05:00 - 23:30,,Quận Đống Đa,Hà Nội,,,
+76,US C2 Tây Mỗ 3,"Trường THCS Tây Mỗ 3, Khu ĐT Vsmart, Phường Tây Mỗ",06:30 - 22:45,,Quận Nam Từ Liêm,Hà Nội,,,
+77,Khương Thượng - 10 Tôn Thất Tùng,"10 Tôn Thất Tùng, Kim Liên, Hà Nội, Việt Nam",05:30 - 23:30,,Quận Đống Đa,Hà Nội,,,
+78,Phúc Long - 27 Lê Văn Lương,"Số 6 Ngõ 27 Lê Văn Lương, Thanh Xuân, Hà Nội",05:00 - 24:00,,Quận Thanh Xuân,Hà Nội,,,ChIJewPOWA2tNTERsLZf58hZ0RQ
+79,Khánh Trang,"2D Lãng Yên, Hai Bà Trưng, Hà Nội",00:00 - 24:00,,Quận Hai Bà Trưng,Hà Nội,,,ChIJ514KfACrNTERftvwB3zMxlQ
+80,Us C2 Nguyễn Quý Đức,"35 Ngõ 8 Quang Tiến, Đại Mỗ, phường Tây Mỗ, Hà Nội",05:00 - 22:00,,Quận Nam Từ Liêm,Hà Nội,,,
+81,Us Trường Tiểu học Đại Mỗ 3,"Trường Tiểu học Đại Mỗ 3, Đường Quang Tiến, Phường Tây Mỗ",05:00 - 22:30,,Quận Nam Từ Liêm,Hà Nội,,,ChIJy2-5EwBTNDERN26WZ2Ek_AU
+82,Gia Lâm,"Nhà thi đấu Gia Lâm, 437 đường Nguyễn Đức Thuận",05:30 - 22:00,,,Hà Nội,,,ChIJ021GV22pNTER1WpzuuNY8IQ
+83,Army Pickleball Club,"Ngõ 141 Hồ Đắc Di, Nam Đồng, Đống Đa, Hà Nội",05:00 - 22:00,,Quận Đống Đa,Hà Nội,,,ChIJvWWrdgCrNTERScHg20kBd2M
+84,Lê Quang Đạo - Phú Đô,"42 ngách 26 ngõ 56 Lê Quang Đạo, Phú Đô",05:00 - 24:00,,Quận Nam Từ Liêm,Hà Nội,,,
+85,Us C1 Tây Mỗ 3,"Đối diện Tòa S106, Vinhomes Smart City, Nam Từ Liêm, Hà Nội",06:00 - 22:45,,Quận Nam Từ Liêm,Hà Nội,,,
+86,Us C2 Phú Đô,"Ngõ 54 Đ. Lê Quang Đạo, Mễ Trì, Phường Từ Liêm, Hà Nội",05:00 - 22:00,,Quận Nam Từ Liêm,Hà Nội,,,
+87,VỢT Badminton,"Số 9X, ngõ 331 đường Bát Khối, phường Long Biên, TP Hà Nội",05:00 - 24:00,,Quận Long Biên,Hà Nội,,,ChIJ9_KZQ1KpNTEREtn-uFkPmbw
+88,CTA Phú Đô - Cụm 6 sân,"96 Đường K2 Tổ 2 P. Phú Đô, làng Phú Đô, Từ Liêm, Hà Nội",05:30 - 24:00,6,,Hà Nội,,Phường Từ Liêm,ChIJuc_uOwBTNDERK4npZvNrXOY
+89,CTA Phú Đô - Cụm 4 sân,"209 Tổ 2 P. Phú Đô, làng Phú Đô, Từ Liêm, Hà Nội, Việt Nam",05:30 - 24:00,4,,Hà Nội,,Phường Từ Liêm,ChIJH-cQbgBTNDERM_IgbIahTYk
+90,Phúc Long Badminton & Pickleball 460 Trần Quý Cáp,"P. Trần Quý Cáp, Văn Miếu - Quốc Tử Giám, Hà Nội",05:00 - 24:00,,Quận Đống Đa,Hà Nội,,,ChIJG5lrsBqrNTERnYMIW2mfROc
+91,Phú Đô Badminton,"Nguyễn Văn Giáp, Từ Liêm, Hà Nội",00:00 - 24:00,,,Hà Nội,,Phường Từ Liêm,ChIJkeau5WpVNDER0cq8IOAw_vs
+92,TN COMA5 Tây Mỗ,"Coma 5-70 Đ. Tây Mỗ, Tây Mỗ, Nam Từ Liêm, Hà Nội",00:00 - 24:00,,Quận Nam Từ Liêm,Hà Nội,,,ChIJJ7_TcwBVNDEROtqLT2l39eE
+93,HP Sport Tây Mỗ,"113 P. Miêu Nha, Tây Mỗ, Nam Từ Liêm, HN",00:00 - 24:00,,Quận Nam Từ Liêm,Hà Nội,,,ChIJ1-pOQQBVNDER3V2OE97UUnM
+94,Chùa Láng,"159 Chùa Láng, Phường Láng, Hà Nội",06:00 - 23:30,,,Hà Nội,,Phường Láng,ChIJtyMLBdirNTER8DP3F4XMPW4
+95,1009 Phúc Diễn,"1009 Phúc Diễn, Tây Mỗ, Nam Từ Liêm, Hà Nội",00:00 - 24:00,,Quận Nam Từ Liêm,Hà Nội,,,ChIJZ1wRfABVNDER7eV5D9iq5B0
+96,Mỹ Đình,"Mỹ Đình 1, Nam Từ Liêm, Hà Nội",05:00 - 22:00,,Quận Nam Từ Liêm,Hà Nội,,,ChIJE4mOOABVNDER4dAB4yKzbIg
+97,Sân Trường PTTH Mỹ Đình,"89 Đ. Mỹ Đình, Từ Liêm, Hà Nội, Việt Nam",05:00 - 22:00,,,Hà Nội,,Phường Từ Liêm,
+98,Trường THCS Giảng Võ 2,"105, Ngõ 12 Núi Trúc, Giảng Võ, Hà Nội",05:30 - 23:00,,Quận Ba Đình,Hà Nội,,,ChIJ85NtKACrNTERyYqkovUC75o
+99,An Khánh Badminton,"Ô A3.1 khu nhà kho, xưởng lô An Khánh, Thôn 1 xã Lại Yên",05:00 - 24:00,,,Hà Nội,,,ChIJmYT1yfFTNDERbRkrDrNqtZ0
+100,Hùng Hải Sport - Trường THCS Nguyễn Bỉnh Khiêm,"Trường THCS Nguyễn Bỉnh Khiêm, Tổ 37 phường Phúc Lợi",05:00 - 24:00,,,Hà Nội,,,
+101,Us C1 Mỹ Đình 2,"Trường Tiểu Học Mỹ Đình 2, Phú Mỹ, Từ Liêm, Hà Nội",08:00 - 21:30,,,Hà Nội,,Phường Từ Liêm,ChIJr5DaLrBUNDERxQ2-iSF-y2A
+102,460 Phúc Diễn,"Số 460 Phúc Diễn, Xuân Phương, Hà Nội",05:00 - 24:00,,Quận Nam Từ Liêm,Hà Nội,,,ChIJA3n2pVBVNDERCDsi3oB8aHM
+103,1998 Badminton,"304 P. Nguyễn Văn Giáp, Cầu Diễn, Nam Từ Liêm",05:30 - 23:30,,Quận Nam Từ Liêm,Hà Nội,,,ChIJB8hdyCBVNDERai8eVGaf1Is
+104,402 Phúc Diễn,"402 Phúc Diễn, Nam Từ Liêm, Hà Nội",05:00 - 24:00,,Quận Nam Từ Liêm,Hà Nội,,,ChIJTYznmzBVNDER9JQ33wxIxrc
+105,C/Lông Nguyễn Văn Huyên,"Trung tâm VHTT phường Nghĩa Đô, Số 85 Nguyễn Văn Huyên",05:30 - 22:00,,,Hà Nội,,,
+106,C/Lông Trần Bình,"Số 1 Phố Trần Bình, P. Từ Liêm, Hà Nội (gần cầu vượt Mai Dịch)",05:30 - 23:00,,,Hà Nội,,Phường Từ Liêm,ChIJCQhOp7VUNDERjcK9HTPCbt4
+107,Swin - THPT Cầu Giấy,"Số 8 ngõ 118 Nguyễn Khánh Toàn, Cầu Giấy, HN (trong trường)",05:00 - 23:30,,Quận Cầu Giấy,Hà Nội,,,
+108,Đại Học Sư Phạm,"Nhà thi đấu ĐHSP HN, 136 Xuân Thủy, Cầu Giấy, Hà Nội",05:30 - 23:30,,Quận Cầu Giấy,Hà Nội,,,ChIJLy0gV0yrNTER6EvB0CfE9nQ
+109,Us THCS Phương Canh,"392 đường Phương Canh, Phường Xuân Phương, Hà Nội",05:00 - 22:00,,Quận Nam Từ Liêm,Hà Nội,,,
+110,Câu lạc bộ Tây Hồ,"Số 10 Thụy Khuê, Tây Hồ, Hà Nội",05:00 - 22:00,,Quận Tây Hồ,Hà Nội,,,
+111,Goat Badminton Trịnh Văn Bô (đối diện FPT),"Trịnh Văn Bô (đối diện Cao đẳng FPT), Xuân Phương, Hà Nội",05:00 - 23:30,,Quận Nam Từ Liêm,Hà Nội,,,ChIJiTHrRgBVNDERm0KiI5t-dhs
+112,Kim Cương - Hoàng Quốc Việt - CN2,"Ngõ 15 Đường 800A, Nghĩa Đô, Hà Nội",05:00 - 24:00,,Quận Cầu Giấy,Hà Nội,,,ChIJ38WFrPSrNTERI5UQWVegIw4
+113,Level Pickleball & Badminton,"Level Fitness Center tầng 6 - Số 9 Phạm Văn Đồng, Mai Dịch",06:00 - 22:00,,Quận Cầu Giấy,Hà Nội,,,ChIJo_fnol5VNDERsACwa60Xldk
+114,Đức Thảo 52 Tân Ấp,"52 Tân Ấp, Phúc Xá, Ba Đình, Hà Nội",05:00 - 23:00,,Quận Ba Đình,Hà Nội,,,ChIJQ8fmmSWrNTERxDS0QoLTyXM
+115,Đĩnh Lê - Long Biên,"Đường Hồng Tiến, Ngọc Thụy, Long Biên",00:00 - 24:00,,Quận Long Biên,Hà Nội,,,
+116,Ngọc Lâm,"481 Ngọc Lâm, Long Biên, Hà Nội - Cty Ga xe lửa Gia Lâm",05:00 - 24:00,,Quận Long Biên,Hà Nội,,,ChIJTz5sXgCpNTERVr6SMNiKVG8
+117,Hùng Hải Sport,"(Đường Hồng Tiến mới) Phố Nguyễn Thế Rục, Ngọc Thụy",05:00 - 24:00,,Quận Long Biên,Hà Nội,,,ChIJNVWtIwCrNTER_gNiX-XsRFM
+118,Mít Badminton,"481 Ngọc Lâm, Long Biên, Hà Nội",05:00 - 24:00,,Quận Long Biên,Hà Nội,,,ChIJN61XuLSpNTERdnUO1LEKREk
+119,Xoài Arena 2 - Cầu Lông - 481 Ngọc Lâm,"Ngõ 481 Ngọc Lâm, Long Biên, HN",05:00 - 24:00,,Quận Long Biên,Hà Nội,,,ChIJIUXqYoKpNTERMbN1gTiVsWo
+120,Lotus - Badminton Center,NTĐ Bóng Chuyền Bộ Đội Biên Phòng (đường Cầu Diễn),08:00 - 21:30,,,Hà Nội,,,
+121,CTA Phan Bá Vành,"Số 99, ngõ 2 Phan Bá Vành, Bắc Từ Liêm, Hà Nội",05:30 - 24:00,,Quận Bắc Từ Liêm,Hà Nội,,,ChIJK-ExKuZVNDERB2FeFZTaz6Q
+122,"Us Badminton Trịnh Văn Bô (gần ĐH Công Nghiệp, đối diện sơn COVA)","Cụm Công nghiệp vừa và nhỏ Từ Liêm, Đ. CN 3, Minh Khai",00:00 - 24:00,,,Hà Nội,,,ChIJ-YYgufJVNDERGv4kokAAEW0
+123,HH,"451 Ngõ 68 Phú Diễn, Quận Bắc Từ Liêm, Hà Nội",00:00 - 24:00,,Quận Bắc Từ Liêm,Hà Nội,,,ChIJ8WsdLgBVNDERHEGXN9lsjLc
+124,Quân Lưu Cs2 - Phú Diễn,"Số 455, ngõ 68 Phú Diễn, Hà Nội",00:00 - 24:00,,,Hà Nội,,,ChIJfZWZRQBVNDERyy7_KSMBPTg
+125,Phúc Long - 76 An Dương,"Cơ sở 1: (Sân 1-2) Số 9a Ngõ 76 Ngách 35 An Dương, Tây Hồ",05:00 - 24:00,,Quận Tây Hồ,Hà Nội,,,ChIJEWSRCMurNTERptOG5g30ToI
+126,An Dương,"8 ngách 35 Ng. 76 An Dương, Yên Phụ, Tây Hồ, Hà Nội",00:00 - 24:00,,Quận Tây Hồ,Hà Nội,,,ChIJeV21uuGrNTER7cz_hq96mA0
+127,THCS Phenikaa,"Tổ Dân Phố, 8 P. Tu Hoàng, Xuân Phương, Hà Nội, Việt Nam",06:00 - 22:30,,Quận Nam Từ Liêm,Hà Nội,,,
+128,SHĐ Badminton Yên Bệ,"Ngõ 66 Đ. Yên Bệ, Kim Chung, Hoài Đức, Hà Nội",05:00 - 24:00,,Huyện Hoài Đức,Hà Nội,,,ChIJndyypYVVNDERhMgN-XxOsAA
+129,Tiểu Vương Quốc,"Cuối ngách 94/89, phố Thượng Thanh, phường Việt Hưng",05:00 - 24:00,,Quận Long Biên,Hà Nội,,,ChIJPxty-7GpNTEReaFJjtYcFZw
+130,Quốc Học - Long Biên,"134 Đức Giang, Long Biên, Hà Nội",05:00 - 24:00,,Quận Long Biên,Hà Nội,,,ChIJb6bBQwCpNTERwA6_Gl0oTSk
+131,Pickleball Quảng An,"Số 6 Ngõ 6 Đặng Thai Mai, Phường Tây Hồ, Hà Nội",06:00 - 22:30,,Quận Tây Hồ,Hà Nội,,,ChIJ3UGCIgCrNTERthpwph7cEmk
+132,C/Lông Tô Ngọc Vân,"Số 19 Ngõ 11 Tô Ngọc Vân, Phường Tây Hồ, Hà Nội",06:30 - 21:30,,Quận Tây Hồ,Hà Nội,,,
+133,Vui Sport Long Biên,"Số 95 Gia Thượng, Thượng Thanh, Long Biên, Hà Nội",05:00 - 24:00,,Quận Long Biên,Hà Nội,,,ChIJgYLAYwCpNTERfH5kphRsVXA
+134,LD Badminton Academy,"Đường Trại Gà, P. Cổ Nhuế 2, Q. Bắc Từ Liêm, Hà Nội",06:00 - 24:00,,Quận Bắc Từ Liêm,Hà Nội,,,ChIJQbS89KJVNDER9pIFp9xNbMU
+135,Câu Lạc Bộ Cầu Lông - Pickleball - HD 12286,"Số nhà 190 đường 420 thôn Yên Mỹ, Bình Yên, Thạch Thất",05:00 - 22:00,,Huyện Thạch Thất,Hà Nội,,,
+136,Minh Anh,"Số 392 đường Bờ Tây Sông Nhuệ, Cổ Nhuế 2, Bắc Từ Liêm",00:00 - 24:00,,Quận Bắc Từ Liêm,Hà Nội,,,ChIJh4ueSp1VNDER-yZiftV-qZc
+137,Sân Pickleball - Cầu Lông 188 Xuân Đỉnh,"188 Đ. Xuân Đỉnh, Xuân Đỉnh, Hà Nội, Việt Nam",05:00 - 22:00,,Quận Bắc Từ Liêm,Hà Nội,,,
+138,HD Badminton,"Đường Vạn Xuân, Lai Xá, Hoài Đức, Hà Nội",05:00 - 23:30,,Huyện Hoài Đức,Hà Nội,,,ChIJ5YRCtJtXNDERTmwSiZwVIyY
+139,Thế Phương Sport,"Khu Phố Văn Hội, Phường Đông Ngạc, Hà Nội (nhà đa năng)",05:00 - 21:30,,Quận Bắc Từ Liêm,Hà Nội,,,
+140,CTA Văn Hội - Cụm 10 sân,"Ngõ 35/1 Văn Hội, Đức Thắng, Bắc Từ Liêm, Hà Nội",05:30 - 24:00,10,Quận Bắc Từ Liêm,Hà Nội,,,ChIJJX4p-UBVNDERjfYmFpPlZ2Y
+141,CTA Văn Hội - Cụm 6 sân,"Ngõ 35/1 Văn Hội, Bắc Từ Liêm, Hà Nội",05:30 - 24:00,6,Quận Bắc Từ Liêm,Hà Nội,,,
+142,Việt Sport,"Trường THCS Nguyễn Thị Minh Khai, Thượng Cát, Hà Nội",07:00 - 23:00,,Quận Bắc Từ Liêm,Hà Nội,,,ChIJ4yEAWwBVNDERjK5kZT-8dEo
+143,US C2 Đức Thắng,"Ng. 160 Văn Hội, Đông Ngạc, Bắc Từ Liêm, Hà Nội",17:30 - 21:30,,Quận Bắc Từ Liêm,Hà Nội,,,
+144,NVK Sport 52 Đông Thắng,"Ngõ 52 Đông Thắng, Đông Ngạc, Bắc Từ Liêm, Hà Nội",05:00 - 22:00,,Quận Bắc Từ Liêm,Hà Nội,,,ChIJjfPesslVNDER8mLWXwjAaKc
+145,Bắc Từ Liêm,"58 Tân Phong, Thụy Phương, Bắc Từ Liêm, Hà Nội",05:00 - 23:30,,Quận Bắc Từ Liêm,Hà Nội,,,ChIJ_VY0UgBVNDERfpN0LObQ0ic
+146,Thụy Phương,"Số 1 Ngõ 125, Đường Thụy Phương, Phường Đông Ngạc",08:00 - 22:00,,Quận Bắc Từ Liêm,Hà Nội,,,ChIJa-TxagBVNDERRdw1wwAU8Bw
+147,Sân CL Hải Hà Sport CN1,"Số 247 đường Hải Bối 2, thôn Hải Bối, xã Vĩnh Thanh, Hà Nội",00:00 - 24:00,,,Hà Nội,,Xã Vĩnh Thanh,
+148,Sân CL Hải Hà Sport CN2,"Đội 3, thôn Võng La, Xã Thiên Lộc, Hà Nội",00:00 - 24:00,,,Hà Nội,,Xã Thiên Lộc,ChIJn0YMJAABNTER-yF0B8-83ao
+149,Sân CL Hải Hà Sport CN4,"Trường THCS Võng La, Cổng C, KCN Bắc Thăng Long",07:00 - 22:00,,,Hà Nội,,,
+150,Sân CL Hải Hà Sport CN3,"Nhà thể chất Trường Tiểu học Thăng Long, Thôn Bầu",07:00 - 22:00,,,Hà Nội,,,
+151,Maxping Sân Cầu Lông 124 Vĩnh Tuy,"64 Ngõ 124 Vĩnh Tuy, Vĩnh Phú, Hai Bà Trưng",00:00 - 24:00,,Quận Hai Bà Trưng,Hà Nội,,,ChIJoZkl-_-tNTEREMDoRwS8h1o
+152,Viện K,"Viện K Tân Triều, Tổng Cục V, Yên Xá",00:00 - 24:00,,,Hà Nội,,,
+153,TTBC Cầu Diễn,"201 Đường Cầu Diễn, Phường Xuân Phương, Hà Nội",00:00 - 24:00,,Quận Nam Từ Liêm,Hà Nội,,,ChIJy1S5cgBVNDERJEqZMJrgRQs

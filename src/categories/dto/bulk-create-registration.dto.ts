@@ -1,9 +1,4 @@
-import {
-  ArrayMaxSize,
-  IsArray,
-  IsOptional,
-  IsString,
-} from 'class-validator';
+import { ArrayMaxSize, IsArray, IsOptional, IsString } from 'class-validator';
 
 export class BulkCreateRegistrationDto {
   // Create brand-new entries. For TEAM categories each name becomes a new pair

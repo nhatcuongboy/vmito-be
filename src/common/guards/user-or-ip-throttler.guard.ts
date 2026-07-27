@@ -17,11 +17,13 @@ import { ThrottlerGuard } from '@nestjs/throttler';
  */
 @Injectable()
 export class UserOrIpThrottlerGuard extends ThrottlerGuard {
-  protected async getTracker(req: Record<string, any>): Promise<string> {
-    const userId = req.user?.userId;
-    if (userId) return `user-${userId}`;
+  protected getTracker(req: Record<string, unknown>): Promise<string> {
+    const user = req.user as { userId?: string } | undefined;
+    const userId = user?.userId;
+    if (userId) return Promise.resolve(`user-${userId}`);
+    const ips = req.ips as string[] | undefined;
     const ip =
-      Array.isArray(req.ips) && req.ips.length > 0 ? req.ips[0] : req.ip;
-    return `ip-${ip}`;
+      Array.isArray(ips) && ips.length > 0 ? ips[0] : (req.ip as string);
+    return Promise.resolve(`ip-${ip}`);
   }
 }
