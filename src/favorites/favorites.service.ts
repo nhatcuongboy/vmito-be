@@ -1,27 +1,76 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { FavoriteType } from '@prisma/client';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  Favorite,
+  FavoriteType,
+  MemberRole,
+  MemberStatus,
+  NotificationType,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { VENUE_PUBLIC_OMIT } from '../venues/venue-public-omit.constant';
 import { CreateFavoriteDto } from './dto/create-favorite.dto';
 
+type FavoriteTarget = {
+  id: string;
+  name: string;
+  slug: string | null;
+  ownerId: string | null;
+};
+
+const ENGAGEMENT_TYPES = new Set<FavoriteType>([
+  FavoriteType.SESSION,
+  FavoriteType.CLUB,
+  FavoriteType.TOURNAMENT,
+]);
+
 @Injectable()
 export class FavoritesService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(FavoritesService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService
+  ) {}
 
   async create(userId: string, dto: CreateFavoriteDto) {
-    await this.ensureTargetExists(dto.type, dto.targetId);
+    const target = await this.getTarget(dto.type, dto.targetId);
 
-    return this.prisma.favorite.upsert({
-      where: {
-        userId_type_targetId: {
-          userId,
-          type: dto.type,
-          targetId: dto.targetId,
-        },
-      },
-      create: { userId, type: dto.type, targetId: dto.targetId },
-      update: {},
-    });
+    let favorite: Favorite;
+    try {
+      favorite = await this.prisma.favorite.create({
+        data: { userId, type: dto.type, targetId: target.id },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        return this.prisma.favorite.findUniqueOrThrow({
+          where: {
+            userId_type_targetId: {
+              userId,
+              type: dto.type,
+              targetId: target.id,
+            },
+          },
+        });
+      }
+      throw error;
+    }
+
+    if (ENGAGEMENT_TYPES.has(dto.type) && target.ownerId !== userId) {
+      await this.notifyOwner(userId, dto.type, target);
+    }
+
+    return favorite;
   }
 
   async remove(userId: string, type: FavoriteType, targetId: string) {
@@ -38,7 +87,6 @@ export class FavoritesService {
     limit: number
   ) {
     const skip = (page - 1) * limit;
-
     const [favorites, total] = await Promise.all([
       this.prisma.favorite.findMany({
         where: { userId, type },
@@ -49,16 +97,15 @@ export class FavoritesService {
       this.prisma.favorite.count({ where: { userId, type } }),
     ]);
 
-    const targetIds = favorites.map((f) => f.targetId);
+    const targetIds = favorites.map((favorite) => favorite.targetId);
     const targets = await this.findTargetsByIds(type, targetIds);
-    const targetById = new Map(targets.map((t) => [t.id, t]));
-
+    const targetById = new Map(targets.map((target) => [target.id, target]));
     const data = favorites
-      .filter((f) => targetById.has(f.targetId))
-      .map((f) => ({
-        ...targetById.get(f.targetId)!,
+      .filter((favorite) => targetById.has(favorite.targetId))
+      .map((favorite) => ({
+        ...targetById.get(favorite.targetId)!,
         isFavorite: true,
-        favoritedAt: f.createdAt,
+        favoritedAt: favorite.createdAt,
       }));
 
     return {
@@ -67,24 +114,84 @@ export class FavoritesService {
     };
   }
 
-  /**
-   * Batch lookup: which of `targetIds` (already fetched by the caller for the
-   * current page) the user has favorited. Favorite has no FK relation to
-   * Session/Venue/Club/Tournament (polymorphic via targetId), so this can't
-   * be folded into the callers' own `findMany` via a relation include.
-   */
+  async getSummary(
+    userId: string,
+    role: string,
+    type: FavoriteType,
+    targetId: string
+  ) {
+    this.assertEngagementType(type);
+    const target = await this.getTarget(type, targetId);
+    const [favoriteCount, favorite, canViewUsers] = await Promise.all([
+      this.prisma.favorite.count({ where: { type, targetId: target.id } }),
+      this.prisma.favorite.findUnique({
+        where: {
+          userId_type_targetId: { userId, type, targetId: target.id },
+        },
+        select: { id: true },
+      }),
+      this.canViewFavoriteUsers(userId, role, type, target),
+    ]);
+
+    return {
+      isFavorite: Boolean(favorite),
+      favoriteCount,
+      canViewUsers,
+    };
+  }
+
+  async getFavoriteUsers(
+    userId: string,
+    role: string,
+    type: FavoriteType,
+    targetId: string,
+    page: number,
+    limit: number
+  ) {
+    this.assertEngagementType(type);
+    const target = await this.getTarget(type, targetId);
+    if (!(await this.canViewFavoriteUsers(userId, role, type, target))) {
+      throw new ForbiddenException(
+        'You do not have permission to view favorite users'
+      );
+    }
+
+    const where = { type, targetId: target.id };
+    const skip = (page - 1) * limit;
+    const [favorites, total] = await Promise.all([
+      this.prisma.favorite.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          createdAt: true,
+          user: { select: { id: true, name: true, image: true } },
+        },
+      }),
+      this.prisma.favorite.count({ where }),
+    ]);
+
+    return {
+      data: favorites.map(({ user, createdAt }) => ({
+        ...user,
+        favoritedAt: createdAt,
+      })),
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
   async isFavoritedMap(
     userId: string,
     type: FavoriteType,
     targetIds: string[]
   ): Promise<Set<string>> {
     if (targetIds.length === 0) return new Set();
-
     const favorites = await this.prisma.favorite.findMany({
       where: { userId, type, targetId: { in: targetIds } },
       select: { targetId: true },
     });
-    return new Set(favorites.map((f) => f.targetId));
+    return new Set(favorites.map((favorite) => favorite.targetId));
   }
 
   async getFavoritedTargetIds(
@@ -95,44 +202,155 @@ export class FavoritesService {
       where: { userId, type },
       select: { targetId: true },
     });
-    return favorites.map((f) => f.targetId);
+    return favorites.map((favorite) => favorite.targetId);
   }
 
-  private async ensureTargetExists(type: FavoriteType, targetId: string) {
-    const exists = await this.targetExists(type, targetId);
-    if (!exists) {
-      throw new NotFoundException(
-        `${type.toLowerCase()} ${targetId} not found`
+  private assertEngagementType(type: FavoriteType) {
+    if (!ENGAGEMENT_TYPES.has(type)) {
+      throw new BadRequestException(
+        'Favorite engagement is only available for sessions, clubs, and tournaments'
       );
     }
   }
 
-  private async targetExists(
+  private async canViewFavoriteUsers(
+    userId: string,
+    role: string,
+    type: FavoriteType,
+    target: FavoriteTarget
+  ): Promise<boolean> {
+    if (role === 'ADMIN' || target.ownerId === userId) return true;
+
+    if (type === FavoriteType.CLUB) {
+      const membership = await this.prisma.clubMember.findFirst({
+        where: {
+          clubId: target.id,
+          userId,
+          role: MemberRole.ADMIN,
+          status: MemberStatus.ACTIVE,
+        },
+        select: { id: true },
+      });
+      return Boolean(membership);
+    }
+
+    if (type === FavoriteType.TOURNAMENT) {
+      const manager = await this.prisma.tournamentManager.findUnique({
+        where: {
+          tournamentId_userId: { tournamentId: target.id, userId },
+        },
+        select: { permissions: true },
+      });
+      return Boolean(manager?.permissions.length);
+    }
+
+    return false;
+  }
+
+  private async notifyOwner(
+    actorId: string,
+    type: FavoriteType,
+    target: FavoriteTarget
+  ) {
+    if (!target.ownerId) return;
+    const action = `${type.toLowerCase()}_favorited`;
+
+    try {
+      const existing = await this.prisma.notification.findFirst({
+        where: {
+          userId: target.ownerId,
+          isRead: false,
+          AND: [
+            { data: { path: ['actorId'], equals: actorId } },
+            { data: { path: ['targetId'], equals: target.id } },
+            { data: { path: ['action'], equals: action } },
+          ],
+        },
+        select: { id: true },
+      });
+      if (existing) return;
+
+      const actor = await this.prisma.user.findUnique({
+        where: { id: actorId },
+        select: { name: true, image: true },
+      });
+      const actorName = actor?.name || 'A user';
+      const typeLabel =
+        type === FavoriteType.SESSION
+          ? 'session'
+          : type === FavoriteType.CLUB
+            ? 'club'
+            : 'tournament';
+      const typeKey = typeLabel;
+
+      await this.notificationsService.createForUser(
+        target.ownerId,
+        type === FavoriteType.SESSION
+          ? NotificationType.SESSION
+          : type === FavoriteType.CLUB
+            ? NotificationType.CLUB
+            : NotificationType.TOURNAMENT,
+        `New like on your ${typeLabel}`,
+        `${actorName} liked your ${typeLabel}.`,
+        {
+          action,
+          actorId,
+          actorName,
+          actorAvatar: actor?.image ?? null,
+          favoriteType: type,
+          targetId: target.id,
+          [`${typeKey}Id`]: target.id,
+          [`${typeKey}Slug`]: target.slug,
+          [`${typeKey}Name`]: target.name,
+        }
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to notify owner about ${type} favorite ${target.id}: ${String(error)}`
+      );
+    }
+  }
+
+  private async getTarget(
     type: FavoriteType,
     targetId: string
-  ): Promise<boolean> {
-    switch (type) {
-      case FavoriteType.SESSION:
-        return !!(await this.prisma.session.findUnique({
-          where: { id: targetId },
-          select: { id: true },
-        }));
-      case FavoriteType.VENUE:
-        return !!(await this.prisma.venue.findUnique({
-          where: { id: targetId },
-          select: { id: true },
-        }));
-      case FavoriteType.CLUB:
-        return !!(await this.prisma.club.findUnique({
-          where: { id: targetId },
-          select: { id: true },
-        }));
-      case FavoriteType.TOURNAMENT:
-        return !!(await this.prisma.tournament.findUnique({
-          where: { id: targetId },
-          select: { id: true },
-        }));
+  ): Promise<FavoriteTarget> {
+    let target: FavoriteTarget | null = null;
+
+    if (type === FavoriteType.SESSION) {
+      const session = await this.prisma.session.findFirst({
+        where: { OR: [{ id: targetId }, { slug: targetId }] },
+        select: { id: true, name: true, slug: true, hostId: true },
+      });
+      target = session ? { ...session, ownerId: session.hostId } : null;
+    } else if (type === FavoriteType.CLUB) {
+      const club = await this.prisma.club.findFirst({
+        where: { OR: [{ id: targetId }, { slug: targetId }] },
+        select: { id: true, name: true, slug: true, hostId: true },
+      });
+      target = club ? { ...club, ownerId: club.hostId } : null;
+    } else if (type === FavoriteType.TOURNAMENT) {
+      const tournament = await this.prisma.tournament.findFirst({
+        where: { OR: [{ id: targetId }, { slug: targetId }] },
+        select: { id: true, name: true, slug: true, hostId: true },
+      });
+      target = tournament
+        ? { ...tournament, ownerId: tournament.hostId }
+        : null;
+    } else {
+      const venue = await this.prisma.venue.findFirst({
+        where: { OR: [{ id: targetId }, { slug: targetId }] },
+        select: { id: true, name: true, slug: true },
+      });
+      target = venue ? { ...venue, ownerId: null } : null;
     }
+
+    if (!target) {
+      throw new NotFoundException(
+        `${type.toLowerCase()} ${targetId} not found`
+      );
+    }
+    return target;
   }
 
   private async findTargetsByIds(type: FavoriteType, ids: string[]) {

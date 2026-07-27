@@ -1,144 +1,277 @@
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
-import { FavoriteType } from '@prisma/client';
-import { FavoritesService } from './favorites.service';
+import { FavoriteType, Prisma } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { FavoritesService } from './favorites.service';
 
 describe('FavoritesService', () => {
   let service: FavoritesService;
   let prisma: {
     favorite: {
-      upsert: jest.Mock;
+      create: jest.Mock;
       deleteMany: jest.Mock;
       findMany: jest.Mock;
+      findUnique: jest.Mock;
+      findUniqueOrThrow: jest.Mock;
       count: jest.Mock;
     };
-    session: { findUnique: jest.Mock };
-    venue: { findUnique: jest.Mock; findMany: jest.Mock };
-    club: { findUnique: jest.Mock };
-    tournament: { findUnique: jest.Mock };
+    session: { findFirst: jest.Mock; findMany: jest.Mock };
+    venue: { findFirst: jest.Mock; findMany: jest.Mock };
+    club: { findFirst: jest.Mock; findMany: jest.Mock };
+    tournament: { findFirst: jest.Mock; findMany: jest.Mock };
+    clubMember: { findFirst: jest.Mock };
+    tournamentManager: { findUnique: jest.Mock };
+    notification: { findFirst: jest.Mock };
+    user: { findUnique: jest.Mock };
   };
+  let notificationsService: { createForUser: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
       favorite: {
-        upsert: jest.fn(),
+        create: jest.fn(),
         deleteMany: jest.fn(),
         findMany: jest.fn(),
+        findUnique: jest.fn(),
+        findUniqueOrThrow: jest.fn(),
         count: jest.fn(),
       },
-      session: { findUnique: jest.fn() },
-      venue: { findUnique: jest.fn(), findMany: jest.fn() },
-      club: { findUnique: jest.fn() },
-      tournament: { findUnique: jest.fn() },
+      session: { findFirst: jest.fn(), findMany: jest.fn() },
+      venue: { findFirst: jest.fn(), findMany: jest.fn() },
+      club: { findFirst: jest.fn(), findMany: jest.fn() },
+      tournament: { findFirst: jest.fn(), findMany: jest.fn() },
+      clubMember: { findFirst: jest.fn() },
+      tournamentManager: { findUnique: jest.fn() },
+      notification: { findFirst: jest.fn() },
+      user: { findUnique: jest.fn() },
     };
+    notificationsService = { createForUser: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FavoritesService,
         { provide: PrismaService, useValue: prisma },
+        { provide: NotificationsService, useValue: notificationsService },
       ],
     }).compile();
 
     service = module.get(FavoritesService);
   });
 
-  describe('create', () => {
-    it('404s when the target does not exist', async () => {
-      prisma.venue.findUnique.mockResolvedValue(null);
+  it('404s when the target does not exist', async () => {
+    prisma.session.findFirst.mockResolvedValue(null);
 
-      await expect(
-        service.create('user-1', { type: FavoriteType.VENUE, targetId: 'v1' })
-      ).rejects.toThrow(NotFoundException);
-      expect(prisma.favorite.upsert).not.toHaveBeenCalled();
+    await expect(
+      service.create('user-1', {
+        type: FavoriteType.SESSION,
+        targetId: 'missing',
+      })
+    ).rejects.toThrow(NotFoundException);
+    expect(prisma.favorite.create).not.toHaveBeenCalled();
+  });
+
+  it('creates a favorite and notifies a different owner', async () => {
+    prisma.session.findFirst.mockResolvedValue({
+      id: 's1',
+      name: 'Morning session',
+      slug: 'morning-session',
+      hostId: 'host-1',
+    });
+    prisma.favorite.create.mockResolvedValue({
+      id: 'f1',
+      userId: 'user-1',
+      type: FavoriteType.SESSION,
+      targetId: 's1',
+    });
+    prisma.notification.findFirst.mockResolvedValue(null);
+    prisma.user.findUnique.mockResolvedValue({
+      name: 'Player One',
+      image: 'avatar.jpg',
     });
 
-    it('is duplicate-safe: upserts on the compound key instead of erroring on repeat calls', async () => {
-      prisma.venue.findUnique.mockResolvedValue({ id: 'v1' });
-      prisma.favorite.upsert.mockResolvedValue({
-        id: 'f1',
-        userId: 'user-1',
-        type: FavoriteType.VENUE,
-        targetId: 'v1',
-      });
+    await service.create('user-1', {
+      type: FavoriteType.SESSION,
+      targetId: 's1',
+    });
 
-      await service.create('user-1', {
-        type: FavoriteType.VENUE,
-        targetId: 'v1',
-      });
-      await service.create('user-1', {
-        type: FavoriteType.VENUE,
-        targetId: 'v1',
-      });
+    expect(notificationsService.createForUser).toHaveBeenCalledWith(
+      'host-1',
+      'SESSION',
+      expect.any(String),
+      expect.any(String),
+      expect.objectContaining({
+        action: 'session_favorited',
+        actorId: 'user-1',
+        sessionId: 's1',
+      })
+    );
+  });
 
-      expect(prisma.favorite.upsert).toHaveBeenCalledTimes(2);
-      expect(prisma.favorite.upsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: {
-            userId_type_targetId: {
-              userId: 'user-1',
-              type: FavoriteType.VENUE,
-              targetId: 'v1',
-            },
-          },
-          update: {},
-        })
-      );
+  it('is idempotent and does not notify for a duplicate create request', async () => {
+    prisma.session.findFirst.mockResolvedValue({
+      id: 's1',
+      name: 'Morning session',
+      slug: 'morning-session',
+      hostId: 'host-1',
+    });
+    prisma.favorite.create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('duplicate', {
+        code: 'P2002',
+        clientVersion: '6.16.2',
+      })
+    );
+    prisma.favorite.findUniqueOrThrow.mockResolvedValue({ id: 'f1' });
+
+    await expect(
+      service.create('user-1', {
+        type: FavoriteType.SESSION,
+        targetId: 's1',
+      })
+    ).resolves.toEqual({ id: 'f1' });
+    expect(notificationsService.createForUser).not.toHaveBeenCalled();
+  });
+
+  it('does not notify when the owner favorites their own target', async () => {
+    prisma.club.findFirst.mockResolvedValue({
+      id: 'c1',
+      name: 'Club',
+      slug: 'club',
+      hostId: 'host-1',
+    });
+    prisma.favorite.create.mockResolvedValue({ id: 'f1' });
+
+    await service.create('host-1', {
+      type: FavoriteType.CLUB,
+      targetId: 'c1',
+    });
+
+    expect(notificationsService.createForUser).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates an unread notification after unlike and relike', async () => {
+    prisma.tournament.findFirst.mockResolvedValue({
+      id: 't1',
+      name: 'Tournament',
+      slug: 'tournament',
+      hostId: 'host-1',
+    });
+    prisma.favorite.create.mockResolvedValue({ id: 'f1' });
+    prisma.notification.findFirst.mockResolvedValue({ id: 'n1' });
+
+    await service.create('user-1', {
+      type: FavoriteType.TOURNAMENT,
+      targetId: 't1',
+    });
+
+    expect(notificationsService.createForUser).not.toHaveBeenCalled();
+  });
+
+  it('returns favorite summary and allows an active club admin to view users', async () => {
+    prisma.club.findFirst.mockResolvedValue({
+      id: 'c1',
+      name: 'Club',
+      slug: 'club',
+      hostId: 'host-1',
+    });
+    prisma.favorite.count.mockResolvedValue(4);
+    prisma.favorite.findUnique.mockResolvedValue({ id: 'f1' });
+    prisma.clubMember.findFirst.mockResolvedValue({ id: 'member-1' });
+
+    await expect(
+      service.getSummary('club-admin', 'PLAYER', FavoriteType.CLUB, 'c1')
+    ).resolves.toEqual({
+      isFavorite: true,
+      favoriteCount: 4,
+      canViewUsers: true,
     });
   });
 
-  describe('remove', () => {
-    it('is idempotent: unfavoriting an already-unfavorited target does not error', async () => {
-      prisma.favorite.deleteMany.mockResolvedValue({ count: 0 });
+  it('allows an assigned tournament manager with permissions to view users', async () => {
+    prisma.tournament.findFirst.mockResolvedValue({
+      id: 't1',
+      name: 'Tournament',
+      slug: 'tournament',
+      hostId: 'host-1',
+    });
+    prisma.favorite.count.mockResolvedValue(1);
+    prisma.favorite.findUnique.mockResolvedValue(null);
+    prisma.tournamentManager.findUnique.mockResolvedValue({
+      permissions: ['RESULTS'],
+    });
 
-      await expect(
-        service.remove('user-1', FavoriteType.VENUE, 'v1')
-      ).resolves.toEqual({ success: true });
+    await expect(
+      service.getSummary('manager-1', 'PLAYER', FavoriteType.TOURNAMENT, 't1')
+    ).resolves.toEqual({
+      isFavorite: false,
+      favoriteCount: 1,
+      canViewUsers: true,
     });
   });
 
-  describe('getFavoritedTargetIds', () => {
-    it('returns the target ids favorited by the user for the given type', async () => {
-      prisma.favorite.findMany.mockResolvedValue([
-        { targetId: 'v1' },
-        { targetId: 'v2' },
-      ]);
+  it('rejects the favorite-user list for a regular user', async () => {
+    prisma.session.findFirst.mockResolvedValue({
+      id: 's1',
+      name: 'Session',
+      slug: 'session',
+      hostId: 'host-1',
+    });
 
-      const ids = await service.getFavoritedTargetIds(
+    await expect(
+      service.getFavoriteUsers(
         'user-1',
-        FavoriteType.VENUE
-      );
+        'PLAYER',
+        FavoriteType.SESSION,
+        's1',
+        1,
+        20
+      )
+    ).rejects.toThrow(ForbiddenException);
+  });
 
-      expect(ids).toEqual(['v1', 'v2']);
-      expect(prisma.favorite.findMany).toHaveBeenCalledWith({
-        where: { userId: 'user-1', type: FavoriteType.VENUE },
-        select: { targetId: true },
-      });
+  it('returns a private paginated user projection for authorized owners', async () => {
+    prisma.session.findFirst.mockResolvedValue({
+      id: 's1',
+      name: 'Session',
+      slug: 'session',
+      hostId: 'host-1',
+    });
+    prisma.favorite.findMany.mockResolvedValue([
+      {
+        createdAt: new Date('2026-07-27T00:00:00Z'),
+        user: { id: 'u1', name: 'Player', image: null },
+      },
+    ]);
+    prisma.favorite.count.mockResolvedValue(1);
+
+    const result = await service.getFavoriteUsers(
+      'host-1',
+      'HOST',
+      FavoriteType.SESSION,
+      's1',
+      1,
+      20
+    );
+
+    expect(result.data[0]).toEqual({
+      id: 'u1',
+      name: 'Player',
+      image: null,
+      favoritedAt: new Date('2026-07-27T00:00:00Z'),
+    });
+    expect(result.pagination).toEqual({
+      page: 1,
+      limit: 20,
+      total: 1,
+      totalPages: 1,
     });
   });
 
-  describe('isFavoritedMap', () => {
-    it('returns an empty set without querying when targetIds is empty', async () => {
-      const result = await service.isFavoritedMap(
-        'user-1',
-        FavoriteType.VENUE,
-        []
-      );
+  it('keeps remove idempotent', async () => {
+    prisma.favorite.deleteMany.mockResolvedValue({ count: 0 });
 
-      expect(result.size).toBe(0);
-      expect(prisma.favorite.findMany).not.toHaveBeenCalled();
-    });
-
-    it('builds a set of favorited target ids among the given page of ids', async () => {
-      prisma.favorite.findMany.mockResolvedValue([{ targetId: 'v2' }]);
-
-      const result = await service.isFavoritedMap(
-        'user-1',
-        FavoriteType.VENUE,
-        ['v1', 'v2', 'v3']
-      );
-
-      expect(result).toEqual(new Set(['v2']));
-    });
+    await expect(
+      service.remove('user-1', FavoriteType.SESSION, 's1')
+    ).resolves.toEqual({ success: true });
   });
 });

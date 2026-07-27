@@ -13,6 +13,7 @@ import { FavoriteType } from '@prisma/client';
 import { FavoritesService } from './favorites.service';
 import { CreateFavoriteDto } from './dto/create-favorite.dto';
 import { ListFavoritesDto } from './dto/list-favorites.dto';
+import { FavoriteUsersQueryDto } from './dto/favorite-users-query.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
@@ -49,6 +50,37 @@ export class FavoritesController {
       query.type,
       query.page ?? 1,
       query.limit ?? 10
+    );
+  }
+
+  @Get(':type/:targetId/summary')
+  getSummary(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('type', new ParseEnumPipe(FavoriteType)) type: FavoriteType,
+    @Param('targetId') targetId: string
+  ) {
+    return this.favoritesService.getSummary(
+      user.userId,
+      user.role,
+      type,
+      targetId
+    );
+  }
+
+  @Get(':type/:targetId/users')
+  getFavoriteUsers(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('type', new ParseEnumPipe(FavoriteType)) type: FavoriteType,
+    @Param('targetId') targetId: string,
+    @Query() query: FavoriteUsersQueryDto
+  ) {
+    return this.favoritesService.getFavoriteUsers(
+      user.userId,
+      user.role,
+      type,
+      targetId,
+      query.page ?? 1,
+      query.limit ?? 20
     );
   }
 }

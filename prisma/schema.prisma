@@ -92,6 +92,7 @@ enum NotificationType {
   REGISTRATION // Registration status updates
   PAYMENT // Payment-related notifications
   CLUB // Club-related notifications
+  TOURNAMENT // Tournament-related notifications
   POST // Post interactions (like, comment)
   VENUE_RENTAL // Venue rental workflow updates
   VENUE_REQUEST // Venue request status updates (approved/rejected)
