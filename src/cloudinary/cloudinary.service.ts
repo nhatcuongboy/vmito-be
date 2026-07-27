@@ -117,9 +117,23 @@ export class CloudinaryService {
   async uploadClubImage(
     file: Express.Multer.File
   ): Promise<CloudinaryUploadResult> {
+    // Square fill crop is correct here — this is specifically the club logo,
+    // a small icon-like image. Gallery/cover photos use uploadClubCoverPhoto.
     return this.uploadImage(file, 'club-images', {
       transformation: [
         { width: 800, height: 800, crop: 'fill' },
+        { quality: 'auto:good' },
+        { fetch_format: 'auto' },
+      ],
+    });
+  }
+
+  async uploadClubCoverPhoto(
+    file: Express.Multer.File
+  ): Promise<CloudinaryUploadResult> {
+    return this.uploadImage(file, 'club-covers', {
+      transformation: [
+        { width: 2000, crop: 'limit' },
         { quality: 'auto:good' },
         { fetch_format: 'auto' },
       ],
@@ -156,6 +170,22 @@ export class CloudinaryService {
     return this.uploadImage(file, 'feedback', {
       transformation: [
         { width: 1600, crop: 'limit' },
+        { quality: 'auto:good' },
+        { fetch_format: 'auto' },
+      ],
+    });
+  }
+
+  async uploadGenericImage(
+    file: Express.Multer.File
+  ): Promise<CloudinaryUploadResult> {
+    // Fallback for uncategorized uploads (venue covers, tournament banners,
+    // sponsor logos, etc.). crop:'limit' with only a width bound never crops
+    // or distorts — it only downscales oversized images, so every aspect
+    // ratio is preserved as-is.
+    return this.uploadImage(file, 'user-uploads', {
+      transformation: [
+        { width: 1920, crop: 'limit' },
         { quality: 'auto:good' },
         { fetch_format: 'auto' },
       ],
