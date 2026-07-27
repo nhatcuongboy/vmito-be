@@ -30,6 +30,7 @@ const ENGAGEMENT_TYPES = new Set<FavoriteType>([
   FavoriteType.SESSION,
   FavoriteType.CLUB,
   FavoriteType.TOURNAMENT,
+  FavoriteType.VENUE,
 ]);
 
 @Injectable()
@@ -219,7 +220,7 @@ export class FavoritesService {
   private assertEngagementType(type: FavoriteType) {
     if (!ENGAGEMENT_TYPES.has(type)) {
       throw new BadRequestException(
-        'Favorite engagement is only available for sessions, clubs, and tournaments'
+        'Favorite engagement is only available for sessions, clubs, tournaments, and venues'
       );
     }
   }
@@ -230,7 +231,7 @@ export class FavoritesService {
     type: FavoriteType,
     target: FavoriteTarget
   ): Promise<boolean> {
-    if (role === 'ADMIN' || target.ownerId === userId) return true;
+    if (role === 'ADMIN' || (target.ownerId && target.ownerId === userId)) return true;
 
     if (type === FavoriteType.CLUB) {
       const membership = await this.prisma.clubMember.findFirst({
@@ -253,6 +254,16 @@ export class FavoritesService {
         select: { permissions: true },
       });
       return Boolean(manager?.permissions.length);
+    }
+
+    if (type === FavoriteType.VENUE) {
+      const manager = await this.prisma.venueManager.findUnique({
+        where: {
+          venueId_userId: { venueId: target.id, userId },
+        },
+        select: { id: true },
+      });
+      return Boolean(manager);
     }
 
     return false;

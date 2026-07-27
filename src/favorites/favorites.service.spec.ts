@@ -224,6 +224,25 @@ describe('FavoritesService', () => {
     });
   });
 
+  it('allows an assigned venue manager to view venue favorite users', async () => {
+    prisma.venue.findFirst.mockResolvedValue({
+      id: 'v1',
+      name: 'Venue',
+      slug: 'venue',
+    });
+    prisma.favorite.count.mockResolvedValue(2);
+    prisma.favorite.findUnique.mockResolvedValue(null);
+    prisma.venueManager.findUnique.mockResolvedValue({ id: 'vm1' });
+
+    await expect(
+      service.getSummary('manager-1', 'PLAYER', FavoriteType.VENUE, 'v1')
+    ).resolves.toEqual({
+      isFavorite: false,
+      favoriteCount: 2,
+      canViewUsers: true,
+    });
+  });
+
   it('rejects the favorite-user list for a regular user', async () => {
     prisma.session.findFirst.mockResolvedValue({
       id: 's1',

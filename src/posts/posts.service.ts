@@ -234,6 +234,62 @@ export class PostsService {
     };
   }
 
+  /**
+   * Posts authored by a specific user, for their profile page. The owner sees
+   * all their posts; other viewers see only PUBLIC ones.
+   */
+  async findByAuthor(
+    authorId: string,
+    page = 1,
+    limit = 10,
+    viewerId?: string
+  ) {
+    const skip = (page - 1) * limit;
+    const where: Prisma.PostWhereInput = {
+      authorId,
+      ...(viewerId === authorId ? {} : { visibility: 'PUBLIC' }),
+    };
+
+    const [posts, total] = await Promise.all([
+      this.prisma.post.findMany({
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        where,
+        include: {
+          author: {
+            select: { id: true, name: true, image: true },
+          },
+          images: { orderBy: { order: 'asc' } },
+          originalPost: {
+            include: {
+              author: {
+                select: { id: true, name: true, image: true },
+              },
+              images: { orderBy: { order: 'asc' } },
+              _count: {
+                select: { likes: true, comments: true, shares: true },
+              },
+            },
+          },
+          _count: {
+            select: { likes: true, comments: true, shares: true },
+          },
+          likes: viewerId ? { where: { userId: viewerId } } : false,
+        },
+      }),
+      this.prisma.post.count({ where }),
+    ]);
+
+    return {
+      posts: posts.map((post) => this.normalizePost(post, viewerId)),
+      total,
+      page,
+      limit,
+      hasMore: skip + posts.length < total,
+    };
+  }
+
   async findOne(id: string, userId?: string) {
     const post = await this.prisma.post.findUnique({
       where: { id },

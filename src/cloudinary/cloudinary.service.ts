@@ -135,6 +135,18 @@ export class CloudinaryService {
     });
   }
 
+  async uploadProfileCover(
+    file: Express.Multer.File
+  ): Promise<CloudinaryUploadResult> {
+    return this.uploadImage(file, 'profile-covers', {
+      transformation: [
+        { width: 1600, crop: 'limit' },
+        { quality: 'auto:good' },
+        { fetch_format: 'auto' },
+      ],
+    });
+  }
+
   async uploadFeedbackImage(
     file: Express.Multer.File
   ): Promise<CloudinaryUploadResult> {

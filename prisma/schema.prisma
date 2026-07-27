@@ -16,6 +16,8 @@ model User {
   emailVerified DateTime?
   image         String?
   imagePublicId String? // Cloudinary public ID for avatar
+  coverPhoto         String? // Profile cover/banner image URL
+  coverPhotoPublicId String? // Cloudinary public ID for cover photo
   role          Role      @default(PLAYER)
 
   // Player related information
@@ -1818,6 +1820,7 @@ model ClubSchedule {
 enum ImageCategory {
   SESSION_COVER
   AVATAR
+  PROFILE_COVER
   CLUB
   QR_CODE
   PAYMENT_PROOF
