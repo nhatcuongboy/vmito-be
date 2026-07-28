@@ -105,12 +105,6 @@ ALTER TABLE "venue_rental_transactions" ADD CONSTRAINT "venue_rental_transaction
 ALTER TABLE "venue_rental_transactions" ADD CONSTRAINT "venue_rental_transactions_processedByUserId_fkey"
   FOREIGN KEY ("processedByUserId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
--- RESERVED must block the same Court just like active holds and confirmed bookings.
-ALTER TABLE "venue_rental_court_allocations" DROP CONSTRAINT "venue_rental_court_allocations_no_overlap";
-ALTER TABLE "venue_rental_court_allocations"
-ADD CONSTRAINT "venue_rental_court_allocations_no_overlap"
-EXCLUDE USING gist (
-  "courtId" WITH =,
-  tsrange("startTime", "endTime", '[)') WITH &&
-)
-WHERE ("status" IN ('HELD', 'RESERVED', 'CONFIRMED'));
+-- The exclusion constraint that also blocks RESERVED lives in the next migration:
+-- Postgres refuses to read an enum value added by ALTER TYPE ... ADD VALUE inside
+-- the same transaction, and Prisma runs each migration file in one transaction.
