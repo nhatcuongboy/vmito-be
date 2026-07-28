@@ -1,12 +1,13 @@
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { ValidationPipe } from '@nestjs/common';
-import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { SwaggerModule } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import { join } from 'path';
 import { AppModule } from './app.module';
+import { buildSwaggerConfig } from './swagger.config';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
@@ -68,40 +69,10 @@ async function bootstrap() {
     exclude: ['/', 'health', 'health/live', 'health/ready'],
   });
 
-  // Swagger API Documentation
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Badminton Session Manager API')
-    .setDescription(
-      'API documentation for the Badminton Session Manager backend. ' +
-        'This API provides endpoints for managing badminton sessions, players, courts, matches, and tournaments.'
-    )
-    .setVersion('1.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        name: 'JWT',
-        description: 'Enter JWT token',
-        in: 'header',
-      },
-      'JWT-auth'
-    )
-    .addTag('auth', 'Authentication endpoints')
-    .addTag('users', 'User management endpoints')
-    .addTag('sessions', 'Session management endpoints')
-    .addTag('players', 'Player management endpoints')
-    .addTag('courts', 'Court management endpoints')
-    .addTag('matches', 'Match management endpoints')
-    .addTag('tournaments', 'Tournament management endpoints')
-    .addTag('categories', 'Category management endpoints')
-    .addTag('pwa', 'PWA support endpoints')
-    .addTag('health', 'Health check endpoints')
-    .build();
-
+  // Swagger API Documentation. Config is shared with scripts/export-openapi.ts.
   // Only enable Swagger in non-production environments
   if (process.env.NODE_ENV !== 'production') {
-    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    const document = SwaggerModule.createDocument(app, buildSwaggerConfig());
     SwaggerModule.setup('api/docs', app, document, {
       swaggerOptions: {
         persistAuthorization: true,

@@ -6,7 +6,10 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateSessionDto } from './dto/create-session.dto';
+import {
+  CreateSessionDto,
+  SessionLocationType,
+} from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -76,6 +79,180 @@ export class SessionsService {
         'referenceVideoUrl must be a valid http or https URL'
       );
     }
+  }
+
+  private normalizeCustomLocation(value: string | undefined): string {
+    const normalized = value?.trim();
+    if (!normalized || normalized.length < 2) {
+      throw new BadRequestException(
+        'location must contain at least 2 characters when locationType is CUSTOM'
+      );
+    }
+    return normalized;
+  }
+
+  private normalizeOptionalLocationPart(
+    value: string | undefined
+  ): string | null {
+    return value?.trim() || null;
+  }
+
+  private async resolveSessionLocation(
+    input: Pick<
+      CreateSessionDto,
+      'locationType' | 'venueId' | 'venue' | 'location' | 'customLocation'
+    >,
+    prismaClient: PrismaService | Prisma.TransactionClient = this.prisma
+  ): Promise<{
+    venueId?: string;
+    location?: string;
+    venueSearchText: string;
+    customLocationName: string | null;
+    customLocationAddress: string | null;
+    customLocationPlaceId: string | null;
+    customLocationLat: number | null;
+    customLocationLng: number | null;
+    customLocationDistrict: string | null;
+    customLocationCity: string | null;
+  }> {
+    if (
+      input.locationType === SessionLocationType.CUSTOM ||
+      input.customLocation
+    ) {
+      if (input.locationType === SessionLocationType.VENUE) {
+        throw new BadRequestException(
+          'customLocation must be omitted when locationType is VENUE'
+        );
+      }
+      if (input.venueId || input.venue) {
+        throw new BadRequestException(
+          'venueId and venue must be omitted when locationType is CUSTOM'
+        );
+      }
+      const customLocation = input.customLocation;
+      const name = this.normalizeCustomLocation(
+        customLocation?.name ?? input.location
+      );
+      const address = this.normalizeOptionalLocationPart(
+        customLocation?.address
+      );
+      const placeId = this.normalizeOptionalLocationPart(
+        customLocation?.placeId
+      );
+      const district = this.normalizeOptionalLocationPart(
+        customLocation?.district
+      );
+      const city = this.normalizeOptionalLocationPart(customLocation?.city);
+      const hasLat = customLocation?.lat !== undefined;
+      const hasLng = customLocation?.lng !== undefined;
+
+      if (hasLat !== hasLng) {
+        throw new BadRequestException(
+          'customLocation.lat and customLocation.lng must be provided together'
+        );
+      }
+      if (
+        (hasLat && (customLocation!.lat! < -90 || customLocation!.lat! > 90)) ||
+        (hasLng && (customLocation!.lng! < -180 || customLocation!.lng! > 180))
+      ) {
+        throw new BadRequestException('customLocation coordinates are invalid');
+      }
+
+      return {
+        location: name,
+        venueSearchText: [address, district, city].filter(Boolean).join(' '),
+        customLocationName: name,
+        customLocationAddress: address,
+        customLocationPlaceId: placeId,
+        customLocationLat: customLocation?.lat ?? null,
+        customLocationLng: customLocation?.lng ?? null,
+        customLocationDistrict: district,
+        customLocationCity: city,
+      };
+    }
+
+    if (
+      input.locationType === SessionLocationType.VENUE ||
+      (!input.locationType && input.venueId)
+    ) {
+      if (!input.venueId) {
+        throw new BadRequestException(
+          'venueId is required when locationType is VENUE'
+        );
+      }
+      if (input.venue) {
+        throw new BadRequestException(
+          'venue must be omitted when venueId is provided'
+        );
+      }
+
+      const existingVenue = await prismaClient.venue.findUnique({
+        where: { id: input.venueId },
+        select: { id: true, name: true, address: true },
+      });
+      if (!existingVenue) {
+        throw new NotFoundException('Venue not found');
+      }
+
+      return {
+        venueId: existingVenue.id,
+        location: existingVenue.address || existingVenue.name,
+        venueSearchText: `${existingVenue.name} ${existingVenue.address}`,
+        customLocationName: null,
+        customLocationAddress: null,
+        customLocationPlaceId: null,
+        customLocationLat: null,
+        customLocationLng: null,
+        customLocationDistrict: null,
+        customLocationCity: null,
+      };
+    }
+
+    // Backward compatibility for existing clients that still submit a venue
+    // snapshot. New clients should submit locationType + venueId instead.
+    if (input.venue) {
+      let existingVenue = await prismaClient.venue.findUnique({
+        where: { placeId: input.venue.placeId },
+      });
+      if (!existingVenue) {
+        existingVenue = await prismaClient.venue.create({
+          data: {
+            placeId: input.venue.placeId,
+            name: input.venue.name,
+            address: input.venue.address,
+            lat: input.venue.lat,
+            lng: input.venue.lng,
+            district: input.venue.district,
+            city: input.venue.city,
+          },
+        });
+      }
+      return {
+        venueId: existingVenue.id,
+        location: input.location?.trim() || input.venue.address,
+        venueSearchText: `${existingVenue.name} ${existingVenue.address}`,
+        customLocationName: null,
+        customLocationAddress: null,
+        customLocationPlaceId: null,
+        customLocationLat: null,
+        customLocationLng: null,
+        customLocationDistrict: null,
+        customLocationCity: null,
+      };
+    }
+
+    const legacyLocation = input.location?.trim();
+    return {
+      location: legacyLocation || undefined,
+      venueSearchText: '',
+      customLocationName: legacyLocation || null,
+      customLocationAddress: null,
+      customLocationPlaceId: null,
+      customLocationLat: null,
+      customLocationLng: null,
+      customLocationDistrict: null,
+      customLocationCity: null,
+    };
   }
 
   private buildOrderBy(
@@ -447,6 +624,18 @@ export class SessionsService {
                 newCity: { contains: cityList[0], mode: 'insensitive' },
               },
             },
+            {
+              customLocationCity: {
+                contains: cityList[0],
+                mode: 'insensitive',
+              },
+            },
+            {
+              customLocationAddress: {
+                contains: cityList[0],
+                mode: 'insensitive',
+              },
+            },
             { location: { contains: cityList[0], mode: 'insensitive' } },
           ],
         });
@@ -456,6 +645,12 @@ export class SessionsService {
             OR: [
               { venue: { city: { contains: c, mode: 'insensitive' } } },
               { venue: { newCity: { contains: c, mode: 'insensitive' } } },
+              {
+                customLocationCity: { contains: c, mode: 'insensitive' },
+              },
+              {
+                customLocationAddress: { contains: c, mode: 'insensitive' },
+              },
               { location: { contains: c, mode: 'insensitive' } },
             ],
           })),
@@ -480,6 +675,18 @@ export class SessionsService {
               },
             },
             {
+              customLocationDistrict: {
+                contains: districtList[0],
+                mode: 'insensitive',
+              },
+            },
+            {
+              customLocationAddress: {
+                contains: districtList[0],
+                mode: 'insensitive',
+              },
+            },
+            {
               venue: {
                 newDistrict: {
                   contains: districtList[0],
@@ -501,6 +708,12 @@ export class SessionsService {
             OR: [
               { venue: { district: { contains: d, mode: 'insensitive' } } },
               { venue: { newDistrict: { contains: d, mode: 'insensitive' } } },
+              {
+                customLocationDistrict: { contains: d, mode: 'insensitive' },
+              },
+              {
+                customLocationAddress: { contains: d, mode: 'insensitive' },
+              },
               { location: { contains: d, mode: 'insensitive' } },
             ],
           })),
@@ -981,11 +1194,9 @@ export class SessionsService {
       startTime,
       endTime,
       description,
-      location,
       hostName,
       hostPhone,
       clubId,
-      venue,
       courtColor,
       courts: courtsConfig,
       shuttlecock,
@@ -1030,34 +1241,10 @@ export class SessionsService {
       throw new NotFoundException('Host not found');
     }
 
-    // Handle Venue Logic
-    let venueId: string | undefined;
-    let finalLocation = location;
-
-    if (venue) {
-      let existingVenue = await this.prisma.venue.findUnique({
-        where: { placeId: venue.placeId },
-      });
-
-      if (!existingVenue) {
-        existingVenue = await this.prisma.venue.create({
-          data: {
-            placeId: venue.placeId,
-            name: venue.name,
-            address: venue.address,
-            lat: venue.lat,
-            lng: venue.lng,
-            district: venue.district,
-            city: venue.city,
-          },
-        });
-      }
-      venueId = existingVenue.id;
-      // If location string is not provided, use venue address as fallback
-      if (!finalLocation) {
-        finalLocation = venue.address;
-      }
-    }
+    const resolvedLocation =
+      await this.resolveSessionLocation(createSessionDto);
+    const venueId = resolvedLocation.venueId;
+    const finalLocation = resolvedLocation.location;
 
     // Calculate scheduled times
     const scheduledStart = startTime ? new Date(startTime) : new Date();
@@ -1070,9 +1257,7 @@ export class SessionsService {
     // Create session
     const sessionSlug = `${generateSlug(name)}-${Math.random().toString(36).substring(2, 7)}`;
     const sessionSearchTerms = removeVietnameseTones(
-      `${name} ${finalLocation || ''} ${hostName || ''} ${
-        venue ? `${venue.name} ${venue.address}` : ''
-      }`
+      `${name} ${finalLocation || ''} ${hostName || ''} ${resolvedLocation.venueSearchText}`
     ).toLowerCase();
     const session = await this.prisma.session.create({
       data: {
@@ -1102,6 +1287,13 @@ export class SessionsService {
         description,
         notes: createSessionDto.notes ?? null,
         location: finalLocation,
+        customLocationName: resolvedLocation.customLocationName,
+        customLocationAddress: resolvedLocation.customLocationAddress,
+        customLocationPlaceId: resolvedLocation.customLocationPlaceId,
+        customLocationLat: resolvedLocation.customLocationLat,
+        customLocationLng: resolvedLocation.customLocationLng,
+        customLocationDistrict: resolvedLocation.customLocationDistrict,
+        customLocationCity: resolvedLocation.customLocationCity,
         hostName,
         hostPhone,
         clubId: clubId || null,
@@ -1462,21 +1654,34 @@ export class SessionsService {
       }
     }
 
+    const hasExplicitLocationUpdate =
+      updateSessionDto.locationType !== undefined ||
+      updateSessionDto.venueId !== undefined ||
+      updateSessionDto.customLocation !== undefined;
+    const resolvedLocation = hasExplicitLocationUpdate
+      ? await this.resolveSessionLocation(updateSessionDto)
+      : undefined;
+
     // Recompute searchTerms if any searchable field is being updated
     const needsSearchTermsUpdate =
       updateSessionDto.name !== undefined ||
       updateSessionDto.location !== undefined ||
       updateSessionDto.hostName !== undefined ||
-      updateSessionDto.venue !== undefined;
+      updateSessionDto.venue !== undefined ||
+      hasExplicitLocationUpdate;
     let updatedSearchTerms: string | undefined;
     if (needsSearchTermsUpdate) {
       const updatedName = updateSessionDto.name ?? existingSession.name;
       const updatedLocation =
-        updateSessionDto.location ?? existingSession.location;
+        resolvedLocation?.location ??
+        updateSessionDto.location ??
+        existingSession.location;
       const updatedHostName =
         updateSessionDto.hostName ?? existingSession.hostName;
       let venueNameAddress = '';
-      if (updateSessionDto.venue) {
+      if (resolvedLocation) {
+        venueNameAddress = resolvedLocation.venueSearchText;
+      } else if (updateSessionDto.venue) {
         venueNameAddress = `${updateSessionDto.venue.name} ${updateSessionDto.venue.address}`;
       } else if (existingSession.venueId) {
         const v = await this.prisma.venue.findUnique({
@@ -1516,7 +1721,30 @@ export class SessionsService {
           : undefined,
         description: updateSessionDto.description,
         notes: updateSessionDto.notes,
-        location: updateSessionDto.location,
+        location: hasExplicitLocationUpdate
+          ? resolvedLocation?.location
+          : updateSessionDto.location,
+        customLocationName: hasExplicitLocationUpdate
+          ? resolvedLocation?.customLocationName
+          : undefined,
+        customLocationAddress: hasExplicitLocationUpdate
+          ? resolvedLocation?.customLocationAddress
+          : undefined,
+        customLocationPlaceId: hasExplicitLocationUpdate
+          ? resolvedLocation?.customLocationPlaceId
+          : undefined,
+        customLocationLat: hasExplicitLocationUpdate
+          ? resolvedLocation?.customLocationLat
+          : undefined,
+        customLocationLng: hasExplicitLocationUpdate
+          ? resolvedLocation?.customLocationLng
+          : undefined,
+        customLocationDistrict: hasExplicitLocationUpdate
+          ? resolvedLocation?.customLocationDistrict
+          : undefined,
+        customLocationCity: hasExplicitLocationUpdate
+          ? resolvedLocation?.customLocationCity
+          : undefined,
         hostName: updateSessionDto.hostName,
         searchTerms: updatedSearchTerms,
         hostPhone: updateSessionDto.hostPhone,
@@ -1534,22 +1762,26 @@ export class SessionsService {
         images: updateSessionDto.images,
         imagePublicIds: updateSessionDto.imagePublicIds,
         referenceVideoUrl: normalizedReferenceVideoUrl,
-        venue: updateSessionDto.venue
-          ? {
-              connectOrCreate: {
-                where: { placeId: updateSessionDto.venue.placeId },
-                create: {
-                  placeId: updateSessionDto.venue.placeId,
-                  name: updateSessionDto.venue.name,
-                  address: updateSessionDto.venue.address,
-                  lat: updateSessionDto.venue.lat,
-                  lng: updateSessionDto.venue.lng,
-                  district: updateSessionDto.venue.district,
-                  city: updateSessionDto.venue.city,
+        venue: hasExplicitLocationUpdate
+          ? resolvedLocation?.venueId
+            ? { connect: { id: resolvedLocation.venueId } }
+            : { disconnect: true }
+          : updateSessionDto.venue
+            ? {
+                connectOrCreate: {
+                  where: { placeId: updateSessionDto.venue.placeId },
+                  create: {
+                    placeId: updateSessionDto.venue.placeId,
+                    name: updateSessionDto.venue.name,
+                    address: updateSessionDto.venue.address,
+                    lat: updateSessionDto.venue.lat,
+                    lng: updateSessionDto.venue.lng,
+                    district: updateSessionDto.venue.district,
+                    city: updateSessionDto.venue.city,
+                  },
                 },
-              },
-            }
-          : undefined,
+              }
+            : undefined,
       },
       include: {
         host: {
@@ -3135,11 +3367,9 @@ export class SessionsService {
       startTime,
       endTime,
       description,
-      location,
       hostName,
       hostPhone,
       clubId,
-      venue,
       courtColor,
       courts: courtsConfig,
       shuttlecock,
@@ -3184,39 +3414,16 @@ export class SessionsService {
       throw new NotFoundException('Host not found');
     }
 
-    // Handle Venue Logic
-    let venueId: string | undefined;
-    let finalLocation = location;
-
-    if (venue) {
-      let existingVenue = await prismaClient.venue.findUnique({
-        where: { placeId: venue.placeId },
-      });
-
-      if (!existingVenue) {
-        existingVenue = await prismaClient.venue.create({
-          data: {
-            placeId: venue.placeId,
-            name: venue.name,
-            address: venue.address,
-            lat: venue.lat,
-            lng: venue.lng,
-            district: venue.district,
-            city: venue.city,
-          },
-        });
-      }
-      venueId = existingVenue.id;
-      if (!finalLocation) {
-        finalLocation = venue.address;
-      }
-    }
+    const resolvedLocation = await this.resolveSessionLocation(
+      createSessionDto,
+      prismaClient
+    );
+    const venueId = resolvedLocation.venueId;
+    const finalLocation = resolvedLocation.location;
 
     // Create session
     const internalSearchTerms = removeVietnameseTones(
-      `${name} ${finalLocation || ''} ${hostName || ''} ${
-        venue ? `${venue.name} ${venue.address}` : ''
-      }`
+      `${name} ${finalLocation || ''} ${hostName || ''} ${resolvedLocation.venueSearchText}`
     ).toLowerCase();
     const session = await prismaClient.session.create({
       data: {
@@ -3239,6 +3446,13 @@ export class SessionsService {
         status: 'PREPARING',
         description,
         location: finalLocation,
+        customLocationName: resolvedLocation.customLocationName,
+        customLocationAddress: resolvedLocation.customLocationAddress,
+        customLocationPlaceId: resolvedLocation.customLocationPlaceId,
+        customLocationLat: resolvedLocation.customLocationLat,
+        customLocationLng: resolvedLocation.customLocationLng,
+        customLocationDistrict: resolvedLocation.customLocationDistrict,
+        customLocationCity: resolvedLocation.customLocationCity,
         hostName,
         hostPhone,
         clubId: clubId || null,
@@ -3803,6 +4017,7 @@ export class SessionsService {
         startTime: candidate.startTime?.toISOString() || null,
         endTime: candidate.endTime?.toISOString() || null,
         coverPhoto: candidate.coverPhoto,
+        location: candidate.location,
         venue: candidate.venue
           ? {
               id: candidate.venue.id,
@@ -3957,6 +4172,7 @@ export class SessionsService {
           startTime: session.startTime?.toISOString() || null,
           endTime: session.endTime?.toISOString() || null,
           coverPhoto: session.coverPhoto,
+          location: session.location,
           venue: session.venue
             ? {
                 id: session.venue.id,

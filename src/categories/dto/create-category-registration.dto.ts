@@ -1,3 +1,4 @@
+import { ApiHideProperty } from '@nestjs/swagger';
 import {
   IsString,
   ValidateIf,
@@ -30,6 +31,16 @@ export class CreateCategoryRegistrationDto {
   @IsString()
   tournamentPairId?: string;
 
+  /**
+   * Not a request field. It exists only to hang the XOR constraint on, because
+   * class-validator needs a property to attach `@Validate` to.
+   *
+   * `@ApiHideProperty` keeps it out of the OpenAPI document: its declared type
+   * is `undefined`, which the Swagger CLI plugin cannot map, so it falls back
+   * to a self-reference and `createDocument` throws a circular-dependency error
+   * at boot.
+   */
+  @ApiHideProperty()
   @Validate(XorPlayerOrPairConstraint)
   readonly xorValidation?: undefined;
 }

@@ -7,6 +7,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
+    "openapi:export": "nest build && node dist/scripts/export-openapi.js",
     "postinstall": "prisma generate",
     "format": "prettier --write \"**/*.{js,ts,json,md}\"",
     "format:check": "prettier --check \"**/*.{js,ts,json,md}\"",
@@ -43,6 +44,7 @@
     "class-validator": "^0.14.3",
     "cloudinary": "^2.9.0",
     "helmet": "^8.1.0",
+    "jose": "^6.2.4",
     "passport": "^0.7.0",
     "passport-facebook": "^3.0.0",
     "passport-google-oauth20": "^2.0.0",

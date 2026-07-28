@@ -1,0 +1,62 @@
+name: OpenAPI contract
+
+# The Flutter client generates its DTOs from this document, so a change to any
+# controller or DTO is a change to that client's contract. This job exports it
+# on every PR and publishes it as an artifact, making contract drift visible in
+# review rather than at codegen time.
+#
+# No database is needed: the export runs Nest in preview mode, which builds the
+# module graph without instantiating providers, so PrismaService never connects.
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'nest-cli.json'
+      - 'scripts/export-openapi.ts'
+      - '.github/workflows/openapi.yml'
+  push:
+    branches: [staging, main]
+  workflow_dispatch:
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+
+    env:
+      # Swagger is gated on NODE_ENV !== 'production' in src/main.ts, and the
+      # CLI plugin metadata is only emitted by `nest build`. Neither is
+      # production, so keep this job explicitly non-production.
+      NODE_ENV: development
+      # Prisma's client requires the variable to be present at construction
+      # time even though preview mode never opens a connection.
+      DATABASE_URL: postgresql://unused:unused@127.0.0.1:5432/unused
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10.5.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Fails when the @nestjs/swagger CLI plugin is not applied, which would
+      # otherwise ship a document that generates empty Dart classes.
+      - name: Export OpenAPI document
+        run: pnpm run openapi:export
+
+      - name: Upload openapi.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi
+          path: openapi.json
+          if-no-files-found: error

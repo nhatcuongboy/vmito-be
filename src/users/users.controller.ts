@@ -1,5 +1,7 @@
 import {
   Controller,
+  HttpCode,
+  HttpStatus,
   Get,
   Post,
   Put,
@@ -105,6 +107,23 @@ export class UsersController {
     }
 
     return this.usersService.update(id, updateUserDto);
+  }
+
+  /**
+   * Delete the caller's own account.
+   *
+   * Declared **before** `@Delete(':id')` on purpose: Nest matches routes in
+   * declaration order, so the parameterised route would otherwise swallow
+   * `me` and try to delete a user with that id.
+   *
+   * Required by App Store Review Guideline 5.1.1(v) for any app that allows
+   * account creation. See `UsersService.deleteOwnAccount` for exactly what is
+   * removed and what is retained.
+   */
+  @Delete('me')
+  @HttpCode(HttpStatus.OK)
+  deleteOwnAccount(@CurrentUser() currentUser: { userId: string }) {
+    return this.usersService.deleteOwnAccount(currentUser.userId);
   }
 
   /**

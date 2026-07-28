@@ -8,6 +8,7 @@ import { VenueRentalsScheduler } from './venue-rentals.scheduler';
 import { VenueRentalsService } from './venue-rentals.service';
 import { VenueCourtsController } from './venue-courts.controller';
 import { VenueCourtsService } from './venue-courts.service';
+import { VenueRentalPaymentsService } from './venue-rental-payments.service';
 
 @Module({
   imports: [PrismaModule, NotificationsModule, VenuesModule],
@@ -16,7 +17,16 @@ import { VenueCourtsService } from './venue-courts.service';
     VenueRentalVenuesController,
     VenueCourtsController,
   ],
-  providers: [VenueRentalsService, VenueRentalsScheduler, VenueCourtsService],
-  exports: [VenueRentalsService, VenueCourtsService],
+  providers: [
+    VenueRentalsService,
+    VenueRentalPaymentsService,
+    VenueRentalsScheduler,
+    VenueCourtsService,
+  ],
+  exports: [
+    VenueRentalsService,
+    VenueRentalPaymentsService,
+    VenueCourtsService,
+  ],
 })
 export class VenueRentalsModule {}

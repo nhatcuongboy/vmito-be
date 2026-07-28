@@ -42,3 +42,8 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+
+# Exported by `npm run openapi:export`. The committed contract artifact lives
+# in the Flutter repo (vmito_app/openapi/openapi.json) so there is one source
+# of truth; this local copy is a build output.
+openapi.json
