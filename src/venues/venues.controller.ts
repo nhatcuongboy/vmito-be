@@ -82,10 +82,11 @@ export class VenuesController {
     return this.venuesService.backfillSearchTerms();
   }
 
+  /** `?rescan=true` re-derives already-migrated venues (e.g. after a mapping fix). */
   @Post('migrate-addresses')
   @UseGuards(AdminGuard)
-  migrateAddresses() {
-    return this.venuesService.migrateAddresses();
+  migrateAddresses(@Query('rescan') rescan?: string) {
+    return this.venuesService.migrateAddresses({ rescan: rescan === 'true' });
   }
 
   @Get('managed-by-me')

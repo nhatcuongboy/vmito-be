@@ -969,7 +969,9 @@ export class VenuesService {
       : createVenueDto.city;
 
     const { streetAddress, wardOld } = this.addressMapping.extractStreetAndWard(
-      createVenueDto.address || ''
+      createVenueDto.address || '',
+      district || createVenueDto.district || '',
+      city || createVenueDto.city || ''
     );
 
     // newDistrict/newCity: explicit value wins; otherwise auto-resolve from
@@ -1036,7 +1038,11 @@ export class VenuesService {
       const slug = await this.generateUniqueSlug(venue.name, venue.sportType);
 
       const { streetAddress, wardOld } =
-        this.addressMapping.extractStreetAndWard(venue.address || '');
+        this.addressMapping.extractStreetAndWard(
+          venue.address || '',
+          district || venue.district || '',
+          city || venue.city || ''
+        );
 
       // newDistrict/newCity: explicit value wins; otherwise auto-resolve from
       // the CSV mapping. `newAddress` is always derived below.
@@ -1124,16 +1130,29 @@ export class VenuesService {
       updateVenueDto.address !== undefined &&
       updateVenueDto.address !== existing.address;
 
+    // Ward extraction needs the district/city context to recognise a ward
+    // written without its "Phường/Xã" prefix, so merge those the same way.
+    const mergedDistrict = district || existing.district || '';
+    const mergedCity = city || existing.city || '';
+
     // Street is invariant across the admin reform, so only re-extract it (and
     // wardOld) when the underlying `address` text actually changed; otherwise
     // reuse the persisted value.
     const streetInfo = addressChanged
-      ? this.addressMapping.extractStreetAndWard(mergedAddress)
+      ? this.addressMapping.extractStreetAndWard(
+          mergedAddress,
+          mergedDistrict,
+          mergedCity
+        )
       : null;
     const streetAddress =
       streetInfo?.streetAddress ??
       existing.streetAddress ??
-      this.addressMapping.extractStreetAndWard(mergedAddress).streetAddress;
+      this.addressMapping.extractStreetAndWard(
+        mergedAddress,
+        mergedDistrict,
+        mergedCity
+      ).streetAddress;
 
     // newDistrict/newCity: explicit DTO value wins; otherwise auto-resolve
     // from the CSV mapping when the old-address fields changed. `newAddress`
@@ -1151,8 +1170,8 @@ export class VenuesService {
     ) {
       const resolved = this.addressMapping.resolve(
         mergedAddress,
-        district || existing.district || '',
-        city || existing.city || '',
+        mergedDistrict,
+        mergedCity,
         streetAddress
       );
       if (resolved?.newDistrict) newDistrict = resolved.newDistrict;
@@ -1385,9 +1404,17 @@ export class VenuesService {
    * Backfill slugs for existing venues that don't have a slug.
    * This is an admin-only one-time operation.
    */
-  async migrateAddresses() {
+  /**
+   * Resolve new-era address fields for venues from the CSV mapping.
+   *
+   * By default only untouched rows (`newAddress` still null) are processed, so
+   * repeated runs are cheap. Pass `rescan` to re-derive every venue instead —
+   * needed after the mapping logic itself changes, since those rows already
+   * have a (possibly wrong) `newAddress` and would otherwise be skipped.
+   */
+  async migrateAddresses(options?: { rescan?: boolean }) {
     const venues = await this.prisma.venue.findMany({
-      where: { newAddress: null },
+      where: options?.rescan ? {} : { newAddress: null },
       select: {
         id: true,
         address: true,
@@ -1405,7 +1432,11 @@ export class VenuesService {
 
     for (const venue of venues) {
       const { streetAddress, wardOld } =
-        this.addressMapping.extractStreetAndWard(venue.address || '');
+        this.addressMapping.extractStreetAndWard(
+          venue.address || '',
+          venue.district || '',
+          venue.city || ''
+        );
       const resolved = this.addressMapping.resolve(
         venue.address || '',
         venue.district || '',
