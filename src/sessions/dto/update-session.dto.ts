@@ -7,12 +7,18 @@ import {
   IsDateString,
   IsEnum,
   IsUrl,
+  MaxLength,
   Min,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { MatchType } from '@prisma/client';
 
-import { VenueDto, FeeConfigDto, CourtConfigDto } from './create-session.dto';
+import {
+  VenueDto,
+  FeeConfigDto,
+  CourtConfigDto,
+  SessionLocationType,
+} from './create-session.dto';
 
 export class UpdateSessionDto {
   @IsString()
@@ -28,8 +34,17 @@ export class UpdateSessionDto {
   notes?: string;
 
   @IsString()
+  @MaxLength(200)
   @IsOptional()
   location?: string;
+
+  @IsEnum(SessionLocationType)
+  @IsOptional()
+  locationType?: SessionLocationType;
+
+  @IsString()
+  @IsOptional()
+  venueId?: string;
 
   @IsString()
   @IsOptional()

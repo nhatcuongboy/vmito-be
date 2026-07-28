@@ -64,6 +64,9 @@ export class RecommendedSessionDto {
   @ApiPropertyOptional({ example: 'https://example.com/cover.jpg' })
   coverPhoto: string | null;
 
+  @ApiPropertyOptional({ example: 'Sân nội bộ ABC' })
+  location: string | null;
+
   @ApiPropertyOptional({ type: VenueDto })
   venue: VenueDto | null;
 

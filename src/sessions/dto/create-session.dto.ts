@@ -7,6 +7,7 @@ import {
   IsEnum,
   IsDateString,
   IsUrl,
+  MaxLength,
   Min,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
@@ -68,6 +69,11 @@ export class VenueDto {
   newCity?: string;
 }
 
+export enum SessionLocationType {
+  VENUE = 'VENUE',
+  CUSTOM = 'CUSTOM',
+}
+
 export class FeeConfigDto {
   @IsEnum(FeeType)
   feeType: FeeType;
@@ -98,8 +104,17 @@ export class CreateSessionDto {
   notes?: string;
 
   @IsString()
+  @MaxLength(200)
   @IsOptional()
   location?: string;
+
+  @IsEnum(SessionLocationType)
+  @IsOptional()
+  locationType?: SessionLocationType;
+
+  @IsString()
+  @IsOptional()
+  venueId?: string;
 
   @IsString()
   @IsOptional()
