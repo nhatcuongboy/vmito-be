@@ -9,6 +9,7 @@ import {
   NotificationType,
   Prisma,
   Role,
+  VenueRentalAllocationStatus,
   VenueRentalEventType,
   VenueRentalProposalStatus,
   VenueRentalSelectionMode,
@@ -27,6 +28,7 @@ import {
 } from './dto/venue-rental.dto';
 import { VenueCourtsService } from './venue-courts.service';
 import { VenuePricingService } from './venue-pricing.service';
+import { VenueRentalPaymentsService } from './venue-rental-payments.service';
 
 const RENTAL_INCLUDE = {
   venue: {
@@ -56,7 +58,7 @@ const RENTAL_INCLUDE = {
   cancelledBy: { select: { id: true, name: true, image: true } },
   createdBy: { select: { id: true, name: true, image: true } },
   courtAllocations: {
-    where: { status: 'CONFIRMED' as const },
+    where: { status: { in: ['RESERVED' as const, 'CONFIRMED' as const] } },
     include: { court: { select: { id: true, name: true, code: true } } },
   },
   proposals: {
@@ -76,7 +78,8 @@ export class VenueRentalsService {
     private readonly pricing: VenuePricingService,
     private readonly access: VenueAccessService,
     private readonly notifications: NotificationsService,
-    private readonly courts: VenueCourtsService
+    private readonly courts: VenueCourtsService,
+    private readonly payments: VenueRentalPaymentsService
   ) {}
 
   async createQuote(
@@ -173,7 +176,9 @@ export class VenueRentalsService {
     const rentals = await this.prisma.venueRentalRequest.findMany({
       where: {
         venueId,
-        status: VenueRentalStatus.CONFIRMED,
+        status: {
+          in: [VenueRentalStatus.AWAITING_DEPOSIT, VenueRentalStatus.CONFIRMED],
+        },
         confirmedStartTime: { lt: endTime },
         confirmedEndTime: { gt: startTime },
       },
@@ -307,6 +312,15 @@ export class VenueRentalsService {
     const selectionMode =
       dto.selectionMode || VenueRentalSelectionMode.AUTO_ASSIGN;
     const request = await this.prisma.$transaction(async (tx) => {
+      const acceptedAt = new Date();
+      const snapshot = await this.payments.buildSnapshot(
+        tx,
+        dto.venueId,
+        calculation.totalAmount,
+        calculation.startTime,
+        acceptedAt,
+        true
+      );
       const created = await tx.venueRentalRequest.create({
         data: {
           venueId: dto.venueId,
@@ -331,6 +345,7 @@ export class VenueRentalsService {
           } as unknown as Prisma.InputJsonValue,
           confirmedAt: new Date(),
           reviewedByUserId: userId,
+          ...snapshot,
         },
       });
       let allocatedCourtIds: string[] = [];
@@ -486,6 +501,17 @@ export class VenueRentalsService {
       throw new BadRequestException('Rental startTime has passed');
 
     await this.prisma.$transaction(async (tx) => {
+      const acceptedAt = new Date();
+      const snapshot = await this.payments.buildSnapshot(
+        tx,
+        source.venueId,
+        quote.totalAmount,
+        quote.startTime,
+        acceptedAt
+      );
+      const targetStatus = snapshot.depositAmount
+        ? VenueRentalStatus.AWAITING_DEPOSIT
+        : VenueRentalStatus.CONFIRMED;
       let allocatedCourtIds: string[] = [];
       if (source.venue.courtSelectionEnabled) {
         allocatedCourtIds = await this.courts.allocateRequest(tx, {
@@ -497,6 +523,10 @@ export class VenueRentalsService {
           selectionMode: source.selectionMode,
           courtIds: source.requestedCourtIds,
           timezone: source.venue.timezone,
+          status: snapshot.depositAmount
+            ? VenueRentalAllocationStatus.RESERVED
+            : VenueRentalAllocationStatus.CONFIRMED,
+          expiresAt: snapshot.depositDueAt,
         });
       } else {
         await this.lockCapacity(tx, source.venueId, quote.startTime);
@@ -511,7 +541,7 @@ export class VenueRentalsService {
       const updated = await tx.venueRentalRequest.updateMany({
         where: { id, status: VenueRentalStatus.PENDING },
         data: {
-          status: VenueRentalStatus.CONFIRMED,
+          status: targetStatus,
           reviewedByUserId: userId,
           confirmedStartTime: quote.startTime,
           confirmedEndTime: quote.endTime,
@@ -523,7 +553,9 @@ export class VenueRentalsService {
           requestedCourtIds: allocatedCourtIds.length
             ? allocatedCourtIds
             : source.requestedCourtIds,
-          confirmedAt: new Date(),
+          confirmedAt:
+            targetStatus === VenueRentalStatus.CONFIRMED ? acceptedAt : null,
+          ...snapshot,
         },
       });
       if (!updated.count) this.invalidTransition();
@@ -533,7 +565,7 @@ export class VenueRentalsService {
         userId,
         VenueRentalEventType.APPROVED,
         VenueRentalStatus.PENDING,
-        VenueRentalStatus.CONFIRMED
+        targetStatus
       );
       if (allocatedCourtIds.length) {
         await this.createEvent(
@@ -541,19 +573,24 @@ export class VenueRentalsService {
           id,
           userId,
           VenueRentalEventType.COURTS_ALLOCATED,
-          VenueRentalStatus.CONFIRMED,
-          VenueRentalStatus.CONFIRMED,
+          targetStatus,
+          targetStatus,
           { courtIds: allocatedCourtIds }
         );
       }
     });
+    const approvedRequest = await this.getRequest(id);
     await this.notifyRequester(
       source.requesterId,
-      'Yêu cầu thuê sân đã được xác nhận',
-      'Sân đã xác nhận lịch thuê của bạn.',
+      approvedRequest.status === VenueRentalStatus.AWAITING_DEPOSIT
+        ? 'Yêu cầu thuê sân đang chờ đặt cọc'
+        : 'Yêu cầu thuê sân đã được xác nhận',
+      approvedRequest.status === VenueRentalStatus.AWAITING_DEPOSIT
+        ? 'Vui lòng hoàn tất đặt cọc trước thời hạn để giữ sân.'
+        : 'Sân đã xác nhận lịch thuê của bạn.',
       id
     );
-    return this.getRequest(id);
+    return approvedRequest;
   }
 
   async reject(
@@ -701,6 +738,17 @@ export class VenueRentalsService {
       throw this.conflict('PROPOSAL_EXPIRED', 'Rental proposal has expired');
 
     await this.prisma.$transaction(async (tx) => {
+      const acceptedAt = new Date();
+      const snapshot = await this.payments.buildSnapshot(
+        tx,
+        source.venueId,
+        proposal.totalAmount,
+        proposal.startTime,
+        acceptedAt
+      );
+      const targetStatus = snapshot.depositAmount
+        ? VenueRentalStatus.AWAITING_DEPOSIT
+        : VenueRentalStatus.CONFIRMED;
       let allocatedCourtIds: string[] = [];
       if (source.venue.courtSelectionEnabled) {
         allocatedCourtIds = await this.courts.allocateRequest(tx, {
@@ -712,6 +760,10 @@ export class VenueRentalsService {
           selectionMode: proposal.selectionMode,
           courtIds: proposal.requestedCourtIds,
           timezone: source.venue.timezone,
+          status: snapshot.depositAmount
+            ? VenueRentalAllocationStatus.RESERVED
+            : VenueRentalAllocationStatus.CONFIRMED,
+          expiresAt: snapshot.depositDueAt,
         });
       } else {
         await this.lockCapacity(tx, source.venueId, proposal.startTime);
@@ -734,7 +786,7 @@ export class VenueRentalsService {
       await tx.venueRentalRequest.update({
         where: { id },
         data: {
-          status: VenueRentalStatus.CONFIRMED,
+          status: targetStatus,
           confirmedStartTime: proposal.startTime,
           confirmedEndTime: proposal.endTime,
           confirmedNumberOfCourts: proposal.numberOfCourts,
@@ -746,7 +798,9 @@ export class VenueRentalsService {
           requestedCourtIds: allocatedCourtIds.length
             ? allocatedCourtIds
             : proposal.requestedCourtIds,
-          confirmedAt: new Date(),
+          confirmedAt:
+            targetStatus === VenueRentalStatus.CONFIRMED ? acceptedAt : null,
+          ...snapshot,
         },
       });
       await this.createEvent(
@@ -755,7 +809,7 @@ export class VenueRentalsService {
         userId,
         VenueRentalEventType.PROPOSAL_ACCEPTED,
         VenueRentalStatus.COUNTER_OFFERED,
-        VenueRentalStatus.CONFIRMED,
+        targetStatus,
         { proposalId }
       );
       if (allocatedCourtIds.length) {
@@ -764,8 +818,8 @@ export class VenueRentalsService {
           id,
           userId,
           VenueRentalEventType.COURTS_ALLOCATED,
-          VenueRentalStatus.CONFIRMED,
-          VenueRentalStatus.CONFIRMED,
+          targetStatus,
+          targetStatus,
           { courtIds: allocatedCourtIds }
         );
       }
@@ -776,7 +830,16 @@ export class VenueRentalsService {
       'Người thuê đã chấp nhận lịch đề xuất.',
       id
     );
-    return this.getRequest(id);
+    const acceptedRequest = await this.getRequest(id);
+    if (acceptedRequest.status === VenueRentalStatus.AWAITING_DEPOSIT) {
+      await this.notifyRequester(
+        source.requesterId,
+        'Lịch thuê sân đang chờ đặt cọc',
+        'Vui lòng hoàn tất đặt cọc trước thời hạn để giữ sân.',
+        id
+      );
+    }
+    return acceptedRequest;
   }
 
   async declineProposal(id: string, proposalId: string, userId: string) {
@@ -846,7 +909,8 @@ export class VenueRentalsService {
       throw new BadRequestException('Rental does not have a scheduled time');
     if (startTime <= new Date())
       throw new BadRequestException('A started rental cannot be cancelled');
-    await this.prisma.$transaction(async (tx) => {
+    const cancelledAt = new Date();
+    const refund = await this.prisma.$transaction(async (tx) => {
       await tx.venueRentalProposal.updateMany({
         where: { requestId: id, status: VenueRentalProposalStatus.PENDING },
         data: {
@@ -860,12 +924,22 @@ export class VenueRentalsService {
           status: VenueRentalStatus.CANCELLED,
           cancelledByUserId: userId,
           cancellationReason: reason?.trim() || null,
-          cancelledAt: new Date(),
+          cancelledAt,
         },
       });
-      if (source.status === VenueRentalStatus.CONFIRMED) {
+      if (
+        source.status === VenueRentalStatus.CONFIRMED ||
+        source.status === VenueRentalStatus.AWAITING_DEPOSIT
+      ) {
         await this.courts.releaseRequestAllocations(tx, id);
       }
+      const pendingRefund = await this.payments.createRefundForCancellation(
+        tx,
+        source,
+        isRequester,
+        cancelledAt,
+        userId
+      );
       await this.createEvent(
         tx,
         id,
@@ -875,7 +949,16 @@ export class VenueRentalsService {
         VenueRentalStatus.CANCELLED,
         reason ? { reason: reason.trim() } : undefined
       );
+      return pendingRefund;
     });
+    if (refund) {
+      await this.notifyManagers(
+        source.venueId,
+        'Có khoản hoàn tiền thuê sân cần xử lý',
+        'Booking đã hủy có khoản hoàn tiền đang chờ xử lý.',
+        id
+      );
+    }
     if (isRequester) {
       await this.notifyManagers(
         source.venueId,
@@ -1118,7 +1201,9 @@ export class VenueRentalsService {
     const rentals = await tx.venueRentalRequest.findMany({
       where: {
         venueId,
-        status: VenueRentalStatus.CONFIRMED,
+        status: {
+          in: [VenueRentalStatus.AWAITING_DEPOSIT, VenueRentalStatus.CONFIRMED],
+        },
         confirmedStartTime: { lt: endTime },
         confirmedEndTime: { gt: startTime },
       },

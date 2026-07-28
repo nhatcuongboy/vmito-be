@@ -104,6 +104,7 @@ export class VenueCourtsService {
           status: {
             in: [
               VenueRentalAllocationStatus.HELD,
+              VenueRentalAllocationStatus.RESERVED,
               VenueRentalAllocationStatus.CONFIRMED,
             ],
           },
@@ -200,6 +201,7 @@ export class VenueCourtsService {
           endTime: { gt: start },
           OR: [
             { status: VenueRentalAllocationStatus.CONFIRMED },
+            { status: VenueRentalAllocationStatus.RESERVED },
             {
               status: VenueRentalAllocationStatus.HELD,
               expiresAt: { gt: new Date() },
@@ -336,6 +338,8 @@ export class VenueCourtsService {
       selectionMode: VenueRentalSelectionMode;
       courtIds?: string[];
       timezone: string;
+      status?: VenueRentalAllocationStatus;
+      expiresAt?: Date | null;
     }
   ) {
     await this.lockVenueDay(tx, input.venueId, input.startTime, input.timezone);
@@ -355,7 +359,8 @@ export class VenueCourtsService {
         requestId: input.requestId,
         startTime: input.startTime,
         endTime: input.endTime,
-        status: VenueRentalAllocationStatus.CONFIRMED,
+        status: input.status || VenueRentalAllocationStatus.CONFIRMED,
+        expiresAt: input.expiresAt,
       })),
     });
     return courtIds;
@@ -375,7 +380,12 @@ export class VenueCourtsService {
     return tx.venueRentalCourtAllocation.updateMany({
       where: {
         requestId,
-        status: VenueRentalAllocationStatus.CONFIRMED,
+        status: {
+          in: [
+            VenueRentalAllocationStatus.RESERVED,
+            VenueRentalAllocationStatus.CONFIRMED,
+          ],
+        },
       },
       data: {
         status: VenueRentalAllocationStatus.RELEASED,
@@ -407,10 +417,22 @@ export class VenueCourtsService {
       this.prisma.venueRentalRequest.count({
         where: {
           venueId,
-          status: VenueRentalStatus.CONFIRMED,
+          status: {
+            in: [
+              VenueRentalStatus.AWAITING_DEPOSIT,
+              VenueRentalStatus.CONFIRMED,
+            ],
+          },
           confirmedEndTime: { gt: new Date() },
           courtAllocations: {
-            none: { status: VenueRentalAllocationStatus.CONFIRMED },
+            none: {
+              status: {
+                in: [
+                  VenueRentalAllocationStatus.RESERVED,
+                  VenueRentalAllocationStatus.CONFIRMED,
+                ],
+              },
+            },
           },
         },
       }),
@@ -500,6 +522,7 @@ export class VenueCourtsService {
           endTime: { gt: startTime },
           OR: [
             { status: VenueRentalAllocationStatus.CONFIRMED },
+            { status: VenueRentalAllocationStatus.RESERVED },
             {
               status: VenueRentalAllocationStatus.HELD,
               expiresAt: { gt: new Date() },
@@ -595,7 +618,9 @@ export class VenueCourtsService {
           status =
             allocation.status === VenueRentalAllocationStatus.HELD
               ? 'HELD'
-              : 'BOOKED';
+              : allocation.status === VenueRentalAllocationStatus.RESERVED
+                ? 'RESERVED'
+                : 'BOOKED';
         else if (pendingRequest) status = 'PENDING_REQUEST';
         return {
           ...slot,
@@ -705,6 +730,7 @@ export class VenueCourtsService {
             endTime: { gt: startTime },
             OR: [
               { status: VenueRentalAllocationStatus.CONFIRMED },
+              { status: VenueRentalAllocationStatus.RESERVED },
               {
                 status: VenueRentalAllocationStatus.HELD,
                 expiresAt: { gt: new Date() },

@@ -74,6 +74,8 @@ model User {
   rentalEvents       VenueRentalEvent[]
   createdCourtBlocks VenueCourtBlock[]     @relation("CourtBlockCreator")
   createdRentals     VenueRentalRequest[]  @relation("RentalCreator")
+  submittedRentalTransactions VenueRentalTransaction[] @relation("RentalTransactionSubmitter")
+  processedRentalTransactions VenueRentalTransaction[] @relation("RentalTransactionProcessor")
 
   // Post relations
   posts        Post[]        @relation("UserPosts")
@@ -357,6 +359,7 @@ model Venue {
   operatingPeriods VenueOperatingPeriod[]
   courtBlocks      VenueCourtBlock[]
   courtAllocations VenueRentalCourtAllocation[]
+  rentalPaymentSettings VenueRentalPaymentSettings?
 
   // Amenities
   hasCarParking Boolean?
@@ -503,6 +506,7 @@ enum VenueCourtBlockType {
 
 enum VenueRentalAllocationStatus {
   HELD
+  RESERVED
   CONFIRMED
   RELEASED
 }
@@ -566,6 +570,7 @@ model VenueCourtBlock {
 enum VenueRentalStatus {
   PENDING
   COUNTER_OFFERED
+  AWAITING_DEPOSIT
   CONFIRMED
   REJECTED
   CANCELLED
@@ -594,6 +599,66 @@ enum VenueRentalEventType {
   MANUAL_CREATED
   COURTS_ALLOCATED
   COURTS_REALLOCATED
+  PAYMENT_SUBMITTED
+  PAYMENT_APPROVED
+  PAYMENT_REJECTED
+  DEPOSIT_EXPIRED
+  REFUND_REQUIRED
+  REFUND_COMPLETED
+}
+
+enum VenueRentalDepositMode {
+  NONE
+  PERCENTAGE
+  FIXED
+}
+
+enum VenueRentalTransactionPurpose {
+  DEPOSIT
+  BALANCE
+  REFUND
+}
+
+enum VenueRentalTransactionDirection {
+  IN
+  OUT
+}
+
+enum VenueRentalPaymentMethod {
+  BANK_TRANSFER
+  CASH
+}
+
+enum VenueRentalTransactionStatus {
+  PENDING
+  SUBMITTED
+  APPROVED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+model VenueRentalPaymentSettings {
+  id                     String                 @id @default(cuid())
+  venueId                String                 @unique
+  bankName               String?
+  bankAccountNumber      String?
+  bankAccountName        String?
+  qrUrl                  String?
+  qrPublicId             String?
+  depositMode            VenueRentalDepositMode @default(NONE)
+  depositValue           Int                    @default(0)
+  depositDeadlineMinutes Int                    @default(30)
+  balanceDueHours        Int                    @default(2)
+  refundCutoffHours      Int                    @default(24)
+  refundBeforePercent    Int                    @default(100)
+  refundAfterPercent     Int                    @default(0)
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+
+  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@map("venue_rental_payment_settings")
 }
 
 enum VenueRentalSelectionMode {
@@ -666,6 +731,24 @@ model VenueRentalRequest {
   rejectedAt              DateTime?
   cancelledAt             DateTime?
   completedAt             DateTime?
+  paymentDepositMode            VenueRentalDepositMode?
+  paymentDepositValue           Int?
+  paymentDepositDeadlineMinutes Int?
+  paymentBalanceDueHours        Int?
+  paymentRefundCutoffHours      Int?
+  paymentRefundBeforePercent    Int?
+  paymentRefundAfterPercent     Int?
+  paymentBankName               String?
+  paymentBankAccountNumber      String?
+  paymentBankAccountName        String?
+  paymentQrUrl                  String?
+  paymentQrPublicId             String?
+  depositAmount                 Int?
+  balanceAmount                 Int?
+  depositDueAt                  DateTime?
+  balanceDueAt                  DateTime?
+  depositReminderNotifiedAt     DateTime?
+  balanceOverdueNotifiedAt      DateTime?
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
 
@@ -679,12 +762,44 @@ model VenueRentalRequest {
   proposals        VenueRentalProposal[]
   events           VenueRentalEvent[]
   courtAllocations VenueRentalCourtAllocation[]
+  transactions     VenueRentalTransaction[]
 
   @@index([venueId, status, createdAt])
   @@index([venueId, confirmedStartTime, confirmedEndTime])
   @@index([requesterId, createdAt])
   @@index([sessionId])
+  @@index([status, depositDueAt])
+  @@index([status, balanceDueAt])
   @@map("venue_rental_requests")
+}
+
+model VenueRentalTransaction {
+  id                String                          @id @default(cuid())
+  requestId         String
+  purpose           VenueRentalTransactionPurpose
+  direction         VenueRentalTransactionDirection
+  method            VenueRentalPaymentMethod?
+  status            VenueRentalTransactionStatus    @default(PENDING)
+  amount            Int
+  currency          String                          @default("VND")
+  proofUrl          String?
+  proofPublicId     String?
+  notes             String?
+  submittedByUserId String?
+  processedByUserId String?
+  submittedAt       DateTime?
+  approvedAt        DateTime?
+  rejectedAt        DateTime?
+  createdAt         DateTime                        @default(now())
+  updatedAt         DateTime                        @updatedAt
+
+  request     VenueRentalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  submittedBy User?              @relation("RentalTransactionSubmitter", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  processedBy User?              @relation("RentalTransactionProcessor", fields: [processedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([requestId, purpose, status])
+  @@index([status, createdAt])
+  @@map("venue_rental_transactions")
 }
 
 model VenueRentalProposal {

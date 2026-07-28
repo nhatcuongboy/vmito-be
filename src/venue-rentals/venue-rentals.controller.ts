@@ -21,10 +21,20 @@ import {
   ReallocateRentalCourtsDto,
 } from './dto/venue-rental.dto';
 import { VenueRentalsService } from './venue-rentals.service';
+import { VenueRentalPaymentsService } from './venue-rental-payments.service';
+import {
+  CompleteRentalRefundDto,
+  RecordRentalCashPaymentDto,
+  RejectRentalPaymentDto,
+  SubmitRentalPaymentDto,
+} from './dto/venue-rental-payment.dto';
 
 @Controller('venue-rentals')
 export class VenueRentalsController {
-  constructor(private readonly service: VenueRentalsService) {}
+  constructor(
+    private readonly service: VenueRentalsService,
+    private readonly payments: VenueRentalPaymentsService
+  ) {}
 
   @Post()
   create(
@@ -129,5 +139,72 @@ export class VenueRentalsController {
     @CurrentUser() user: AuthenticatedUser
   ) {
     return this.service.reallocateCourts(id, dto, user.userId, user.role);
+  }
+
+  @Get(':id/payment-summary')
+  paymentSummary(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.payments.getSummary(id, user.userId, user.role);
+  }
+
+  @Post(':id/payments')
+  submitPayment(
+    @Param('id') id: string,
+    @Body() dto: SubmitRentalPaymentDto,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.payments.submitPayment(id, dto, user.userId);
+  }
+
+  @Post(':id/payments/cash')
+  recordCash(
+    @Param('id') id: string,
+    @Body() dto: RecordRentalCashPaymentDto,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.payments.recordCash(id, dto, user.userId, user.role);
+  }
+
+  @Post(':id/payments/:paymentId/approve')
+  approvePayment(
+    @Param('id') id: string,
+    @Param('paymentId') paymentId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.payments.approvePayment(id, paymentId, user.userId, user.role);
+  }
+
+  @Post(':id/payments/:paymentId/reject')
+  rejectPayment(
+    @Param('id') id: string,
+    @Param('paymentId') paymentId: string,
+    @Body() dto: RejectRentalPaymentDto,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.payments.rejectPayment(
+      id,
+      paymentId,
+      dto,
+      user.userId,
+      user.role
+    );
+  }
+
+  @Post(':id/refunds/:refundId/complete')
+  completeRefund(
+    @Param('id') id: string,
+    @Param('refundId') refundId: string,
+    @Body() dto: CompleteRentalRefundDto,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.payments.completeRefund(
+      id,
+      refundId,
+      dto,
+      user.userId,
+      user.role
+    );
   }
 }
