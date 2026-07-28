@@ -30,6 +30,7 @@ import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { ClubsService } from '../clubs/clubs.service';
 import { UserImagesService } from '../user-images/user-images.service';
 import { ScoringEngine } from './utils/scoring-engine';
+import { resolveCrawledSessionLocation } from './utils/crawled-location.util';
 import { VENUE_PUBLIC_OMIT } from '../venues/venues.service';
 import {
   generateSlug,
@@ -1496,23 +1497,32 @@ export class SessionsService {
       );
     }
 
+    // Re-verify the venue the AI matched: the id may have been soft-deleted or
+    // merged between extraction and ingest, and linking a stale id would blow
+    // up on the foreign key instead of degrading to a custom location.
     const matchedVenueId = extracted.venueId?.trim();
-
-    // Resolve the venue name for the session title:
-    // 1. If the AI matched a venue in our DB, fetch its canonical name.
-    // 2. Otherwise use the AI-extracted venue name from the post text.
-    // 3. Fall back to the extracted free-form name or the generic placeholder.
-    let resolvedVenueName: string | undefined;
+    let verifiedVenue: { id: string; name: string } | null = null;
     if (matchedVenueId) {
       const dbVenue = await this.prisma.venue.findUnique({
         where: { id: matchedVenueId },
-        select: { name: true },
+        select: { id: true, name: true },
       });
-      resolvedVenueName = dbVenue?.name?.trim() || undefined;
+      if (dbVenue?.name?.trim()) {
+        verifiedVenue = { id: dbVenue.id, name: dbVenue.name.trim() };
+      }
     }
-    if (!resolvedVenueName) {
-      resolvedVenueName = extracted.venue?.name?.trim() || undefined;
-    }
+
+    const resolvedLocation = resolveCrawledSessionLocation(
+      extracted,
+      verifiedVenue
+    );
+
+    // Resolve the venue name for the session title:
+    // 1. The canonical DB name when the venue was verified.
+    // 2. Otherwise the AI-extracted venue name from the post text.
+    // 3. Fall back to the extracted free-form name or the generic placeholder.
+    const resolvedVenueName =
+      verifiedVenue?.name || extracted.venue?.name?.trim() || undefined;
 
     // Session name follows the "Sân {tên sân}" convention so that cards in the
     // discovery feed immediately convey the venue. Fall back to the AI's title
@@ -1527,14 +1537,7 @@ export class SessionsService {
       VALID_LEVELS.includes(level)
     );
 
-    // Prefer the AI's explicit location; otherwise compose "<venue name>,
-    // <address>" so the court/venue name is never dropped.
-    const composedVenue = [extracted.venue?.name, extracted.venue?.address]
-      .map((s) => s?.trim())
-      .filter(Boolean)
-      .join(', ');
-    const finalLocation =
-      extracted.location?.trim() || composedVenue || undefined;
+    const finalLocation = resolvedLocation.location;
 
     const scheduledStart = extracted.startTime
       ? new Date(extracted.startTime)
@@ -1546,11 +1549,14 @@ export class SessionsService {
 
     const sessionSlug = `${generateSlug(name)}-${Math.random().toString(36).substring(2, 7)}`;
     const sessionSearchTerms = removeVietnameseTones(
-      `${name} ${finalLocation || ''} ${extracted.hostName || ''} ${
-        extracted.venue
-          ? `${extracted.venue.name || ''} ${extracted.venue.address || ''}`
-          : ''
-      }`
+      [
+        name,
+        finalLocation,
+        extracted.hostName,
+        ...resolvedLocation.searchTerms,
+      ]
+        .filter(Boolean)
+        .join(' ')
     ).toLowerCase();
 
     return this.prisma.session.create({
@@ -1558,7 +1564,7 @@ export class SessionsService {
         name,
         slug: sessionSlug,
         hostId: botUserId,
-        venueId: matchedVenueId || undefined,
+        venueId: resolvedLocation.venueId,
         isCrawled: true,
         externalUrl,
         externalSource,
@@ -1583,6 +1589,13 @@ export class SessionsService {
         description: extracted.description,
         notes: extracted.notes ?? null,
         location: finalLocation,
+        customLocationName: resolvedLocation.customLocationName,
+        customLocationAddress: resolvedLocation.customLocationAddress,
+        customLocationPlaceId: resolvedLocation.customLocationPlaceId,
+        customLocationLat: resolvedLocation.customLocationLat,
+        customLocationLng: resolvedLocation.customLocationLng,
+        customLocationDistrict: resolvedLocation.customLocationDistrict,
+        customLocationCity: resolvedLocation.customLocationCity,
         hostName: meta?.authorName || extracted.hostName,
         hostPhone: extracted.hostPhone,
         defaultMatchType: extracted.defaultMatchType || 'DOUBLES',

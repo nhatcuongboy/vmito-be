@@ -37,7 +37,6 @@ describe('GeminiService.extractSessionFromArticle', () => {
     maxPlayersPerCourt: null,
     requiredLevels: null,
     venue: null,
-    venueId: null,
     numberOfCourts: null,
     courts: null,
     courtNames: null,
@@ -209,6 +208,54 @@ describe('GeminiService.extractSessionFromArticle', () => {
     expect(result.location).toBe('Sân ABC, 123 Nguyễn Văn Linh');
   });
 
+  it('never asks the model for a venueId or placeId', async () => {
+    mockAiResponse(makeRawSession());
+
+    await service.extractSessionFromArticle('Kèo tối nay', Language.VI);
+
+    const calls = generateContent.mock.calls as unknown as Array<
+      [{ config: { responseSchema: Record<string, unknown> } }]
+    >;
+    const schema = calls[0][0].config.responseSchema;
+    const properties = schema.properties as Record<string, unknown>;
+    const venueProperties = (
+      properties.venue as { properties: Record<string, unknown> }
+    ).properties;
+
+    expect(properties.venueId).toBeUndefined();
+    expect(schema.required).not.toContain('venueId');
+    expect(schema.propertyOrdering).not.toContain('venueId');
+    expect(venueProperties.placeId).toBeUndefined();
+  });
+
+  it('ignores a venueId and placeId hallucinated by the model', async () => {
+    venueFindMany.mockResolvedValue([]);
+    mockAiResponse(
+      makeRawSession({
+        venueId: 'venue-hallucinated',
+        venue: {
+          placeId: 'ChIJ_fake_place_id',
+          name: 'Sân Không Có',
+          address: '999 Xa Lạ',
+          district: null,
+          city: null,
+        },
+      })
+    );
+
+    const result = await service.extractSessionFromArticle(
+      'Địa điểm: Sân Không Có',
+      Language.VI
+    );
+
+    expect(result.venueId).toBeUndefined();
+    expect(
+      (result.venue as Record<string, unknown> | undefined)?.placeId
+    ).toBeUndefined();
+    // The extracted text itself is preserved as a custom-location candidate.
+    expect(result.venue?.name).toBe('Sân Không Có');
+  });
+
   it('does not set venueId for weak venue matches', async () => {
     venueFindMany.mockResolvedValue([
       {
@@ -241,6 +288,14 @@ describe('GeminiService.extractSessionFromArticle', () => {
     );
 
     expect(result.venueId).toBeUndefined();
+    // Weak match keeps the AI data so callers can build a custom location.
+    expect(result.venue).toMatchObject({
+      name: 'Sân Không Có',
+      address: '999 Xa Lạ',
+      district: 'Quận 1',
+      city: 'Hồ Chí Minh',
+    });
+    expect(result.location).toBe('Sân Không Có, 999 Xa Lạ');
   });
 
   it('passes through isRecruitmentPost=true for a genuine recruitment post', async () => {
