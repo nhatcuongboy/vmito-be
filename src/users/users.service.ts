@@ -4,7 +4,7 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role, Gender } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -40,6 +40,12 @@ export class UsersService {
   async findAll(options?: {
     search?: string;
     role?: string;
+    gender?: string;
+    /**
+     * Registration method to filter by: 'email' (password-based direct
+     * sign-up) or an OAuth provider ('google', 'facebook', 'zalo', 'apple').
+     */
+    provider?: string;
     page?: number;
     limit?: number;
   }) {
@@ -50,6 +56,11 @@ export class UsersService {
         searchTerms?: { contains: string; mode: 'insensitive' };
       }[];
       role?: Role;
+      gender?: Gender;
+      // Registration-method filter, applied via the accounts relation and/or
+      // password presence (see the provider derivation below).
+      password?: { not: null } | null;
+      accounts?: { some: { provider: string } } | { none: object };
     } = {};
 
     if (options?.search) {
@@ -65,6 +76,26 @@ export class UsersService {
       where.role = options.role as Role;
     }
 
+    if (options?.gender) {
+      where.gender = options.gender as Gender;
+    }
+
+    if (options?.provider) {
+      if (options.provider === 'email') {
+        // Direct sign-up: has a password and no linked OAuth account.
+        where.password = { not: null };
+        where.accounts = { none: {} };
+      } else if (options.provider === 'google') {
+        // Google users are created passwordless without an Account row
+        // (see AuthService.findOrCreateGoogleUser), so identify them as the
+        // passwordless users that also have no linked OAuth account.
+        where.password = null;
+        where.accounts = { none: {} };
+      } else {
+        where.accounts = { some: { provider: options.provider } };
+      }
+    }
+
     const page = Math.max(1, options?.page ?? 1);
     const limit = Math.min(100, Math.max(1, options?.limit ?? 20));
     const skip = (page - 1) * limit;
@@ -72,7 +103,13 @@ export class UsersService {
     const [users, total] = await Promise.all([
       this.prisma.user.findMany({
         where,
-        select: this.userSelect,
+        select: {
+          ...this.userSelect,
+          // Needed to derive the registration method; password value itself
+          // is stripped before returning (only its presence matters).
+          password: true,
+          accounts: { select: { provider: true } },
+        },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
@@ -80,8 +117,16 @@ export class UsersService {
       this.prisma.user.count({ where }),
     ]);
 
+    const data = users.map(({ password, accounts, ...user }) => ({
+      ...user,
+      registrationProvider: this.resolveRegistrationProvider(
+        password,
+        accounts
+      ),
+    }));
+
     return {
-      data: users,
+      data,
       pagination: {
         page,
         limit,
@@ -89,6 +134,22 @@ export class UsersService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  /**
+   * Derive how a user registered from their password presence and linked
+   * OAuth accounts. Facebook/Zalo/Apple create an Account row; Google users
+   * are created passwordless with no Account row; direct sign-up sets a
+   * password. Returns the OAuth provider name, 'email', or 'google'.
+   */
+  private resolveRegistrationProvider(
+    password: string | null,
+    accounts: { provider: string }[]
+  ): string {
+    if (accounts.length > 0) {
+      return accounts[0].provider;
+    }
+    return password ? 'email' : 'google';
   }
 
   async findOne(id: string) {

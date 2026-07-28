@@ -25,8 +25,11 @@ const VENUE_MATCH_THRESHOLD = 60;
 const GEMINI_MAX_RETRIES = 3;
 const GEMINI_INITIAL_DELAY_MS = 1000;
 
+// No placeId and no venueId: identifiers are never accepted from model output.
+// A Google placeId or a Vmito venue id invented by the model looks perfectly
+// well-formed but points at the wrong record (or none), so the only trusted
+// source for both is the server-side venue match.
 type RawExtractedVenue = {
-  placeId?: string | null;
   name?: string | null;
   address?: string | null;
   district?: string | null;
@@ -57,7 +60,6 @@ type RawExtractedSession = {
   maxPlayersPerCourt?: number | string | null;
   requiredLevels?: Array<string | number> | string | number | null;
   venue?: RawExtractedVenue | null;
-  venueId?: string | null;
   numberOfCourts?: number | string | null;
   courts?: RawExtractedCourt[] | null;
   courtNames?: Array<string | number> | null;
@@ -116,7 +118,6 @@ const SESSION_EXTRACTION_SCHEMA = {
       type: GenAIType.OBJECT,
       nullable: true,
       properties: {
-        placeId: nullableStringSchema,
         name: nullableStringSchema,
         address: nullableStringSchema,
         district: nullableStringSchema,
@@ -125,7 +126,6 @@ const SESSION_EXTRACTION_SCHEMA = {
         newCity: nullableStringSchema,
       },
     },
-    venueId: nullableStringSchema,
     numberOfCourts: nullableIntegerSchema,
     courts: {
       type: GenAIType.ARRAY,
@@ -184,7 +184,6 @@ const SESSION_EXTRACTION_SCHEMA = {
     'maxPlayersPerCourt',
     'requiredLevels',
     'venue',
-    'venueId',
     'numberOfCourts',
     'courts',
     'courtNames',
@@ -207,7 +206,6 @@ const SESSION_EXTRACTION_SCHEMA = {
     'maxPlayersPerCourt',
     'requiredLevels',
     'venue',
-    'venueId',
     'numberOfCourts',
     'courts',
     'courtNames',
@@ -565,7 +563,6 @@ Only use another language if the user explicitly asks you to translate, compare 
     // never accepted as freeform AI-guessed text. The AI only suggests the
     // administrative units (newDistrict/newCity) when it can identify them.
     const normalized: ExtractedVenue = {
-      placeId: this.normalizeTextValue(venue.placeId),
       name: this.normalizeTextValue(venue.name),
       address: this.normalizeTextValue(venue.address),
       district: this.normalizeTextValue(venue.district),
@@ -687,7 +684,9 @@ Only use another language if the user explicitly asks you to translate, compare 
         DEFAULT_MAX_PLAYERS_PER_COURT,
       requiredLevels,
       venue,
-      venueId: this.normalizeTextValue(raw.venueId),
+      // Deliberately unset here. extractSessionFromArticle() fills it in only
+      // after findMatchingVenue() confirms a row in our own Venue table.
+      venueId: undefined,
       numberOfCourts,
       courts,
       courtNames,
@@ -1023,7 +1022,11 @@ Important rules:
 
     const extracted = this.normalizeExtractedSession(rawExtracted);
 
-    // Try to match venue in database
+    // The backend is the single source of truth for venue resolution. Two
+    // mutually exclusive outcomes leave this block:
+    // - venueId set  -> the venue snapshot is the canonical DB record.
+    // - venueId unset -> venue/location stay as the unverified AI candidate,
+    //   which consumers turn into a custom location instead of a Venue link.
     const venueForMatching =
       extracted.venue ||
       (extracted.location ? { name: extracted.location } : undefined);

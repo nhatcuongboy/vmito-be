@@ -88,6 +88,73 @@ describe('AddressMappingService', () => {
         wardOld: null,
       });
     });
+
+    it('recognizes a ward written without its "Phường" prefix when district/city are supplied', () => {
+      withWardMapping(service, [
+        {
+          wardOld: 'Phường Hòa Thuận Nam',
+          districtOld: 'Quận Hải Châu',
+          cityOld: 'Thành Phố Đà Nẵng',
+          wardNew: 'Phường Hải Châu',
+          cityNew: 'Thành Phố Đà Nẵng',
+        },
+      ]);
+
+      expect(
+        service.extractStreetAndWard(
+          '399 Trưng Nữ Vương, Hòa Thuận Nam, Hải Châu, Đà Nẵng',
+          'Hải Châu',
+          'Đà Nẵng'
+        )
+      ).toEqual({
+        streetAddress: '399 Trưng Nữ Vương',
+        wardOld: 'Hòa Thuận Nam',
+      });
+    });
+
+    it('does not guess a bare ward without district/city context', () => {
+      withWardMapping(service, [
+        {
+          wardOld: 'Phường Hòa Thuận Nam',
+          districtOld: 'Quận Hải Châu',
+          cityOld: 'Thành Phố Đà Nẵng',
+          wardNew: 'Phường Hải Châu',
+          cityNew: 'Thành Phố Đà Nẵng',
+        },
+      ]);
+
+      expect(
+        service.extractStreetAndWard(
+          '399 Trưng Nữ Vương, Hòa Thuận Nam, Hải Châu, Đà Nẵng'
+        )
+      ).toEqual({
+        streetAddress: '399 Trưng Nữ Vương, Hòa Thuận Nam, Hải Châu, Đà Nẵng',
+        wardOld: null,
+      });
+    });
+
+    it('does not treat an unknown segment as a ward even with district/city context', () => {
+      withWardMapping(service, [
+        {
+          wardOld: 'Phường Hòa Thuận Nam',
+          districtOld: 'Quận Hải Châu',
+          cityOld: 'Thành Phố Đà Nẵng',
+          wardNew: 'Phường Hải Châu',
+          cityNew: 'Thành Phố Đà Nẵng',
+        },
+      ]);
+
+      expect(
+        service.extractStreetAndWard(
+          '399 Trưng Nữ Vương, Toà Nhà ABC, Hải Châu, Đà Nẵng',
+          'Hải Châu',
+          'Đà Nẵng'
+        )
+      ).toEqual({
+        streetAddress: '399 Trưng Nữ Vương, Toà Nhà ABC, Hải Châu, Đà Nẵng',
+        wardOld: null,
+      });
+    });
   });
 
   describe('resolve', () => {
@@ -108,12 +175,13 @@ describe('AddressMappingService', () => {
         'Hồ Chí Minh'
       );
 
-      // newCity is omitted here because the province name is unchanged
-      // ("Hồ Chí Minh" -> "Thành Phố Hồ Chí Minh" normalizes to the same key).
+      // newCity is recorded even though the province name is unchanged: the
+      // column means "city in the new era", not "city that changed".
       expect(result).toEqual({
         newAddress:
           '108/20 Nguyễn Thượng Hiền, Phường Hạnh Thông, Thành Phố Hồ Chí Minh',
         newDistrict: 'Phường Hạnh Thông',
+        newCity: 'Thành Phố Hồ Chí Minh',
       });
     });
 
@@ -156,6 +224,31 @@ describe('AddressMappingService', () => {
       expect(result).toEqual({
         newAddress: 'Phường Hạnh Thông, Thành Phố Hồ Chí Minh',
         newDistrict: 'Phường Hạnh Thông',
+        newCity: 'Thành Phố Hồ Chí Minh',
+      });
+    });
+
+    it('keeps the stale district/city out of newAddress when the ward has no prefix', () => {
+      withWardMapping(service, [
+        {
+          wardOld: 'Phường Hòa Thuận Nam',
+          districtOld: 'Quận Hải Châu',
+          cityOld: 'Thành Phố Đà Nẵng',
+          wardNew: 'Phường Hải Châu',
+          cityNew: 'Thành Phố Đà Nẵng',
+        },
+      ]);
+
+      const result = service.resolve(
+        '399 Trưng Nữ Vương, Hòa Thuận Nam, Hải Châu, Đà Nẵng',
+        'Hải Châu',
+        'Đà Nẵng'
+      );
+
+      expect(result).toEqual({
+        newAddress: '399 Trưng Nữ Vương, Phường Hải Châu, Thành Phố Đà Nẵng',
+        newDistrict: 'Phường Hải Châu',
+        newCity: 'Thành Phố Đà Nẵng',
       });
     });
 
@@ -187,6 +280,53 @@ describe('AddressMappingService', () => {
       );
 
       expect(result).toEqual({ newCity: 'Thành Phố Hồ Chí Minh' });
+    });
+
+    it('does not mistake the district segment for a same-named ward', () => {
+      // "Phường 3" inside "Quận 3" is one of many ward/district name
+      // collisions. An address that only states its district must not be
+      // resolved to that ward's new name.
+      withWardMapping(service, [
+        {
+          wardOld: 'Phường 3',
+          districtOld: 'Quận 3',
+          cityOld: 'Hồ Chí Minh',
+          wardNew: 'Phường Bàn Cờ',
+          cityNew: 'Thành Phố Hồ Chí Minh',
+        },
+      ]);
+
+      expect(
+        service.resolve(
+          '123 Lê Lợi, Quận 3, Hồ Chí Minh',
+          'Quận 3',
+          'Hồ Chí Minh'
+        )
+      ).toBeNull();
+    });
+
+    it('still matches a ward that shares its district name when spelled out', () => {
+      withWardMapping(service, [
+        {
+          wardOld: 'Phường 3',
+          districtOld: 'Quận 3',
+          cityOld: 'Hồ Chí Minh',
+          wardNew: 'Phường Bàn Cờ',
+          cityNew: 'Thành Phố Hồ Chí Minh',
+        },
+      ]);
+
+      expect(
+        service.resolve(
+          '123 Lê Lợi, Phường 3, Quận 3, Hồ Chí Minh',
+          'Quận 3',
+          'Hồ Chí Minh'
+        )
+      ).toEqual({
+        newAddress: '123 Lê Lợi, Phường Bàn Cờ, Thành Phố Hồ Chí Minh',
+        newDistrict: 'Phường Bàn Cờ',
+        newCity: 'Thành Phố Hồ Chí Minh',
+      });
     });
 
     it('returns null when nothing matches', () => {

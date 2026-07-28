@@ -20,7 +20,6 @@ export class ExtractSessionRequestDto {
 }
 
 export interface ExtractedVenue {
-  placeId?: string;
   name?: string;
   address?: string;
   district?: string;
@@ -57,8 +56,13 @@ export interface ExtractedSessionDto {
   maxPlayersPerCourt?: number;
   // Numeric level IDs matching LEVELS constant
   requiredLevels?: number[];
+  // Venue snapshot. When venueId is set this is the canonical DB record; when
+  // venueId is absent it is the unverified AI-extracted candidate that callers
+  // should persist as a custom location instead of linking to a Venue.
   venue?: ExtractedVenue;
-  venueId?: string; // Matched venue ID from database
+  // Set ONLY by the backend after findMatchingVenue() confirms a DB match.
+  // Never populated from model output — the AI schema has no venueId field.
+  venueId?: string;
   numberOfCourts?: number;
   courts?: ExtractedCourt[];
   courtNames?: string[];
