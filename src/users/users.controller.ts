@@ -33,6 +33,8 @@ export class UsersController {
     @CurrentUser() user: { role: string },
     @Query('search') search?: string,
     @Query('role') role?: string,
+    @Query('gender') gender?: string,
+    @Query('provider') provider?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string
   ) {
@@ -49,6 +51,8 @@ export class UsersController {
     return this.usersService.findAll({
       search,
       role,
+      gender,
+      provider,
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
     });
