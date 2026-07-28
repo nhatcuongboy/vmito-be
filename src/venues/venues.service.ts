@@ -32,6 +32,11 @@ import {
   generateSlug,
 } from '../common/utils/string.utils';
 import { AddressMappingService } from './address-mapping.service';
+import {
+  SPORT_PREFIX,
+  buildVenueSearchTerms,
+  type VenueSearchTermsInput,
+} from './venue-search-terms.util';
 import { VENUE_PUBLIC_OMIT } from './venue-public-omit.constant';
 import { VenuePricingService } from '../venue-rentals/venue-pricing.service';
 import { VenueAccessService } from './venue-access.service';
@@ -42,18 +47,6 @@ import {
 } from './dto/venue-management.dto';
 
 export { VENUE_PUBLIC_OMIT };
-
-/**
- * Per-sport display/search prefixes. Raw venue names don't include the
- * sport prefix ("Nhật Cường" not "Sân cầu lông Nhật Cường"), so it is
- * prepended when generating slugs and searchTerms.
- * - label: Vietnamese display prefix (used for slugs)
- * - search: normalized (tone-less, lowercase) tokens for searchTerms
- */
-const SPORT_PREFIX: Record<SportType, { label: string; search: string }> = {
-  [SportType.BADMINTON]: { label: 'Sân cầu lông', search: 'san cau long' },
-  [SportType.PICKLEBALL]: { label: 'Sân pickleball', search: 'san pickleball' },
-};
 
 @Injectable()
 export class VenuesService {
@@ -97,37 +90,9 @@ export class VenuesService {
     return slug;
   }
 
-  /**
-   * Build the normalized searchTerms string for a venue. Includes the
-   * sport prefix tokens (e.g. "san cau long") so keyword searches like
-   * "Sân cầu lông Nhật Cường" or "Sân Nhật Cường" match venues whose
-   * stored name is just "Nhật Cường".
-   */
-  private buildSearchTerms(venue: {
-    name: string;
-    sportType?: SportType | null;
-    address?: string | null;
-    district?: string | null;
-    city?: string | null;
-    newAddress?: string | null;
-    newDistrict?: string | null;
-    newCity?: string | null;
-  }): string {
-    const prefix = SPORT_PREFIX[venue.sportType ?? SportType.BADMINTON].search;
-    return removeVietnameseTones(
-      [
-        prefix,
-        venue.name,
-        venue.address,
-        venue.district,
-        venue.city,
-        venue.newAddress,
-        venue.newDistrict,
-        venue.newCity,
-      ]
-        .filter(Boolean)
-        .join(' ')
-    ).toLowerCase();
+  /** @see buildVenueSearchTerms — kept as a method for the existing call sites. */
+  private buildSearchTerms(venue: VenueSearchTermsInput): string {
+    return buildVenueSearchTerms(venue);
   }
 
   async searchVenues(filters: SearchVenueDto, userId?: string) {
@@ -1401,98 +1366,6 @@ export class VenuesService {
   }
 
   /**
-   * Backfill slugs for existing venues that don't have a slug.
-   * This is an admin-only one-time operation.
-   */
-  /**
-   * Resolve new-era address fields for venues from the CSV mapping.
-   *
-   * By default only untouched rows (`newAddress` still null) are processed, so
-   * repeated runs are cheap. Pass `rescan` to re-derive every venue instead —
-   * needed after the mapping logic itself changes, since those rows already
-   * have a (possibly wrong) `newAddress` and would otherwise be skipped.
-   */
-  async migrateAddresses(options?: { rescan?: boolean }) {
-    const venues = await this.prisma.venue.findMany({
-      where: options?.rescan ? {} : { newAddress: null },
-      select: {
-        id: true,
-        address: true,
-        district: true,
-        city: true,
-        name: true,
-        sportType: true,
-        searchTerms: true,
-      },
-    });
-
-    let matched = 0;
-    let cityOnly = 0;
-    let unmatched = 0;
-
-    for (const venue of venues) {
-      const { streetAddress, wardOld } =
-        this.addressMapping.extractStreetAndWard(
-          venue.address || '',
-          venue.district || '',
-          venue.city || ''
-        );
-      const resolved = this.addressMapping.resolve(
-        venue.address || '',
-        venue.district || '',
-        venue.city || '',
-        streetAddress
-      );
-
-      if (!resolved) {
-        unmatched++;
-        continue;
-      }
-
-      const updateData: Record<string, string | undefined | null> = {
-        streetAddress,
-        wardOld,
-      };
-
-      if (resolved.newAddress) {
-        updateData.newAddress = resolved.newAddress;
-        updateData.newDistrict = resolved.newDistrict;
-        updateData.searchTerms = this.buildSearchTerms({
-          name: venue.name,
-          sportType: venue.sportType,
-          address: venue.address,
-          district: venue.district,
-          city: venue.city,
-          newAddress: resolved.newAddress,
-          newDistrict: resolved.newDistrict,
-          newCity: resolved.newCity,
-        });
-        matched++;
-      }
-
-      if (resolved.newCity) {
-        updateData.newCity = resolved.newCity;
-        if (!resolved.newAddress) cityOnly++;
-      }
-
-      if (Object.keys(updateData).length > 0) {
-        await this.prisma.venue.update({
-          where: { id: venue.id },
-          data: updateData,
-        });
-      }
-    }
-
-    return {
-      message: 'Address migration complete',
-      total: venues.length,
-      matched,
-      cityOnly,
-      unmatched,
-    };
-  }
-
-  /**
    * Canonical list of new-era Tỉnh/Thành phố -> Phường/Xã, for the
    * newDistrict/newCity dropdowns in venue forms (replacing free text).
    */
@@ -1500,6 +1373,10 @@ export class VenuesService {
     return this.addressMapping.getNewAdminUnits();
   }
 
+  /**
+   * Backfill slugs for existing venues that don't have a slug.
+   * This is an admin-only one-time operation.
+   */
   async backfillSlugs() {
     const venues = await this.prisma.venue.findMany({
       where: { slug: null },

@@ -12,6 +12,7 @@ import {
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { VenuesService } from './venues.service';
+import { VenueAddressMigrationService } from './venue-address-migration.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
@@ -40,7 +41,10 @@ import {
 @Controller('venues')
 @UseGuards(JwtAuthGuard)
 export class VenuesController {
-  constructor(private readonly venuesService: VenuesService) {}
+  constructor(
+    private readonly venuesService: VenuesService,
+    private readonly addressMigration: VenueAddressMigrationService
+  ) {}
 
   @Public()
   @UseGuards(OptionalJwtAuthGuard)
@@ -82,11 +86,21 @@ export class VenuesController {
     return this.venuesService.backfillSearchTerms();
   }
 
-  /** `?rescan=true` re-derives already-migrated venues (e.g. after a mapping fix). */
+  /**
+   * `?rescan=true` re-derives already-migrated venues (e.g. after a mapping
+   * fix); without it only rows whose `newAddress` is still null are touched.
+   * `?dryRun=true` reports what would change without writing anything.
+   */
   @Post('migrate-addresses')
   @UseGuards(AdminGuard)
-  migrateAddresses(@Query('rescan') rescan?: string) {
-    return this.venuesService.migrateAddresses({ rescan: rescan === 'true' });
+  migrateAddresses(
+    @Query('rescan') rescan?: string,
+    @Query('dryRun') dryRun?: string
+  ) {
+    return this.addressMigration.migrateAddresses({
+      rescan: rescan === 'true',
+      dryRun: dryRun === 'true',
+    });
   }
 
   @Get('managed-by-me')
