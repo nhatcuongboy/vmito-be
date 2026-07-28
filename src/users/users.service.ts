@@ -224,6 +224,90 @@ export class UsersService {
     return updated;
   }
 
+  /**
+   * Delete the caller's own account (App Store Guideline 5.1.1(v)).
+   *
+   * **This anonymizes rather than row-deletes, and that is deliberate.**
+   *
+   * `Session.host` has no `onDelete` rule, so Prisma defaults to `Restrict`:
+   * `user.delete()` throws for anyone who has ever hosted a session. Adding a
+   * cascade there would be worse — it would erase sessions that other players
+   * joined, along with their match history and payment records. The same holds
+   * for ratings given to other people and for the payment ledger, which is
+   * financial history belonging to both sides of a transaction.
+   *
+   * So the account is made permanently unusable and stripped of personal data,
+   * while rows that are *also* other people's data keep referential integrity:
+   *
+   * - removed: password, OAuth links, refresh tokens, auth sessions, phone,
+   *   gender, level, avatar and cover images, notifications, favourites,
+   *   uploaded images (all cascade from the deletes below);
+   * - anonymized: name and email — the email is replaced with a unique,
+   *   non-routable address so the account can never be signed into or
+   *   recovered, and so the real address is free to register again;
+   * - retained: hosted sessions, payment records and ratings, now attributed
+   *   to an anonymous user.
+   *
+   * The whole thing runs in one transaction: a half-anonymized account that
+   * still has a usable password would be worse than either outcome.
+   */
+  async deleteOwnAccount(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Same guard as the admin path: losing the last admin locks everyone out
+    // of the admin panel with no way back in.
+    if (user.role === Role.ADMIN) {
+      const adminCount = await this.prisma.user.count({
+        where: { role: Role.ADMIN },
+      });
+      if (adminCount <= 1) {
+        throw new BadRequestException('Cannot delete the last admin account');
+      }
+    }
+
+    const anonymousEmail = `deleted_${userId}@users.vmito.invalid`;
+
+    await this.prisma.$transaction([
+      // Kill every way back in first, so an interrupted transaction can never
+      // leave a signed-in session alive on an anonymized account.
+      this.prisma.refreshToken.deleteMany({ where: { userId } }),
+      this.prisma.authSession.deleteMany({ where: { userId } }),
+      this.prisma.account.deleteMany({ where: { userId } }),
+      this.prisma.notification.deleteMany({ where: { userId } }),
+
+      this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          email: anonymousEmail,
+          name: 'Người dùng đã xoá',
+          password: null,
+          image: null,
+          imagePublicId: null,
+          coverPhoto: null,
+          coverPhotoPublicId: null,
+          phone: null,
+          gender: null,
+          level: null,
+          levelDescription: null,
+          searchTerms: null,
+          emailVerified: null,
+        },
+      }),
+    ]);
+
+    return {
+      deleted: true,
+      message: 'Tài khoản đã được xoá.',
+    };
+  }
+
   async delete(id: string) {
     const user = await this.prisma.user.findUnique({
       where: { id },

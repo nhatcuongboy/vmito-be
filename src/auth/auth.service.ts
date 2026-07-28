@@ -619,6 +619,105 @@ export class AuthService {
    * Account table (provider = 'facebook') and fall back to a generated email
    * when Facebook doesn't provide one.
    */
+  /**
+   * Find or create the user behind a verified Apple identity.
+   *
+   * Keyed on Apple's `sub` via the `accounts` table, **not** on email. Apple
+   * lets a user hide their address behind a private relay, and that relay can
+   * change; email is therefore not a stable identity. `sub` is stable for the
+   * lifetime of the account against our team id.
+   *
+   * Two consequences worth knowing:
+   * - the display name arrives only on the **first** authorization, so it is
+   *   persisted the moment it appears and never overwritten afterwards;
+   * - a user who already signed up with the same real address gets that
+   *   account linked rather than a duplicate, but only when Apple actually
+   *   discloses the address (not a relay).
+   */
+  async findOrCreateAppleUser(identity: {
+    appleUserId: string;
+    email?: string;
+    emailVerified: boolean;
+    isPrivateRelay: boolean;
+    givenName?: string;
+    familyName?: string;
+  }) {
+    const existingAccount = await this.prisma.account.findUnique({
+      where: {
+        provider_providerAccountId: {
+          provider: 'apple',
+          providerAccountId: identity.appleUserId,
+        },
+      },
+      include: { user: true },
+    });
+
+    if (existingAccount?.user) {
+      const user = existingAccount.user;
+      const displayName = this.buildAppleName(identity);
+
+      // Backfill a name only if we never got one. Apple will not send it
+      // again, so a placeholder must not overwrite a real name later.
+      if (displayName && this.isPlaceholderName(user.name)) {
+        return this.prisma.user.update({
+          where: { id: user.id },
+          data: { name: displayName },
+        });
+      }
+      return user;
+    }
+
+    // A real (non-relay) address may already belong to an account created by
+    // email or by another provider. Link rather than duplicate.
+    const linkable =
+      identity.email && !identity.isPrivateRelay
+        ? await this.prisma.user.findUnique({
+            where: { email: identity.email },
+          })
+        : null;
+
+    const user =
+      linkable ??
+      (await this.prisma.user.create({
+        data: {
+          // Apple may withhold the address entirely on a repeat authorization
+          // from a new device. A synthetic, non-routable address keeps the
+          // unique constraint satisfiable without pretending to be reachable.
+          email:
+            identity.email ?? `apple_${identity.appleUserId}@users.vmito.local`,
+          name: this.buildAppleName(identity) ?? 'Người dùng Apple',
+          role: 'PLAYER',
+          emailVerified: identity.emailVerified ? new Date() : null,
+        },
+      }));
+
+    await this.prisma.account.create({
+      data: {
+        userId: user.id,
+        type: 'oauth',
+        provider: 'apple',
+        providerAccountId: identity.appleUserId,
+      },
+    });
+
+    return user;
+  }
+
+  private buildAppleName(identity: {
+    givenName?: string;
+    familyName?: string;
+  }): string | null {
+    const name = [identity.givenName, identity.familyName]
+      .filter((part) => part && part.trim().length > 0)
+      .join(' ')
+      .trim();
+    return name.length > 0 ? name : null;
+  }
+
+  private isPlaceholderName(name: string | null): boolean {
+    return !name || name.trim().length === 0 || name === 'Người dùng Apple';
+  }
+
   async findOrCreateFacebookUser(profile: IFacebookProfile) {
     const existingAccount = await this.prisma.account.findUnique({
       where: {

@@ -44,6 +44,7 @@
     "class-validator": "^0.14.3",
     "cloudinary": "^2.9.0",
     "helmet": "^8.1.0",
+    "jose": "^6.2.4",
     "passport": "^0.7.0",
     "passport-facebook": "^3.0.0",
     "passport-google-oauth20": "^2.0.0",

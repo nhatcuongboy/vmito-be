@@ -21,6 +21,15 @@ export default () => ({
         process.env.GOOGLE_CALLBACK_URL ||
         'http://localhost:3001/api/auth/google/callback',
     },
+    apple: {
+      // Audience values an Apple identity token may carry. The iOS app signs
+      // in with the **bundle id**; a web or Android flow would use the
+      // Services ID. Both are accepted so one endpoint serves every client.
+      audiences: (process.env.APPLE_AUDIENCES || 'com.vmito.app')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    },
     zalo: {
       appId: process.env.ZALO_APP_ID,
       secretKey: process.env.ZALO_SECRET_KEY,

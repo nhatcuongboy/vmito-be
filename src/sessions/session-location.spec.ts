@@ -179,19 +179,22 @@ describe('SessionsService location updates', () => {
     numberOfCourts: 1,
   };
 
-  const createUpdateService = () => {
+  const createUpdateService = (
+    currentSession: typeof existingSession = existingSession
+  ) => {
     const session = {
-      findUnique: jest.fn().mockResolvedValue(existingSession),
+      findUnique: jest.fn().mockResolvedValue(currentSession),
       update: jest.fn().mockResolvedValue({
-        ...existingSession,
+        ...currentSession,
         venueId: null,
         venue: null,
         location: 'Sân nội bộ ABC',
       }),
     };
+    const venue = { findUnique: jest.fn(), create: jest.fn() };
     const gateway = { notifySessionUpdate: jest.fn() };
     const service = new SessionsService(
-      { session, venue: { findUnique: jest.fn(), create: jest.fn() } } as never,
+      { session, venue } as never,
       undefined as never,
       gateway as never,
       undefined as never,
@@ -201,7 +204,7 @@ describe('SessionsService location updates', () => {
       undefined as never,
       undefined as never
     );
-    return { service, session };
+    return { service, session, venue };
   };
 
   it('disconnects the previous venue when switching to a custom location', async () => {
@@ -222,6 +225,82 @@ describe('SessionsService location updates', () => {
           location: 'Sân nội bộ ABC',
           customLocationName: 'Sân nội bộ ABC',
           venue: { disconnect: true },
+        }) as unknown,
+      })
+    );
+  });
+
+  it('updates every custom snapshot field when editing the address', async () => {
+    const { service, session } = createUpdateService();
+
+    await service.update(
+      'session-1',
+      {
+        locationType: SessionLocationType.CUSTOM,
+        customLocation: {
+          name: 'Sân ABC mới',
+          address: '456 Lê Lợi',
+          placeId: 'place-new',
+          lat: 10.77,
+          lng: 106.7,
+          district: 'Quận 1',
+          city: 'Hồ Chí Minh',
+        },
+      },
+      'host-1'
+    );
+
+    expect(session.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          location: 'Sân ABC mới',
+          customLocationName: 'Sân ABC mới',
+          customLocationAddress: '456 Lê Lợi',
+          customLocationPlaceId: 'place-new',
+          customLocationLat: 10.77,
+          customLocationLng: 106.7,
+          customLocationDistrict: 'Quận 1',
+          customLocationCity: 'Hồ Chí Minh',
+          searchTerms: expect.stringContaining('456 le loi'),
+          venue: { disconnect: true },
+        }) as unknown,
+      })
+    );
+  });
+
+  it('clears the custom snapshot when switching back to a linked venue', async () => {
+    const customSession = {
+      ...existingSession,
+      venueId: null,
+      location: 'Sân ABC',
+    };
+    const { service, session, venue } = createUpdateService(customSession);
+    venue.findUnique.mockResolvedValue({
+      id: 'venue-2',
+      name: 'Sân chính thức',
+      address: '789 Điện Biên Phủ',
+    });
+
+    await service.update(
+      'session-1',
+      {
+        locationType: SessionLocationType.VENUE,
+        venueId: 'venue-2',
+      },
+      'host-1'
+    );
+
+    expect(session.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          customLocationName: null,
+          customLocationAddress: null,
+          customLocationPlaceId: null,
+          customLocationLat: null,
+          customLocationLng: null,
+          customLocationDistrict: null,
+          customLocationCity: null,
+          venue: { connect: { id: 'venue-2' } },
         }) as unknown,
       })
     );

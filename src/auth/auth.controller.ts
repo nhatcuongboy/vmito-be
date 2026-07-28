@@ -25,12 +25,14 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AdminResetPasswordDto } from './dto/admin-reset-password.dto';
+import { AppleSignInDto } from './dto/apple-sign-in.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { FacebookAuthGuard } from './guards/facebook-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AdminGuard } from './guards/admin.guard';
 import { ZaloOAuthService } from './zalo-oauth.service';
+import { AppleIdentityService } from './apple-identity.service';
 
 interface GoogleUser {
   id: string;
@@ -65,7 +67,8 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
-    private readonly zaloOAuthService: ZaloOAuthService
+    private readonly zaloOAuthService: ZaloOAuthService,
+    private readonly appleIdentityService: AppleIdentityService
   ) {}
 
   @Public()
@@ -90,6 +93,39 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async refresh(@Body() refreshTokenDto: RefreshTokenDto) {
     return this.authService.refreshTokens(refreshTokenDto.refreshToken);
+  }
+
+  /**
+   * Sign in with Apple.
+   *
+   * Native flow: the client obtains an identity token from Apple and posts it
+   * here. Unlike Google and Facebook there is no browser redirect — Apple
+   * signs in on-device, so this is a plain JSON endpoint returning the same
+   * shape as `/auth/login`.
+   *
+   * Required by App Store Review Guideline 4.8 because the app offers Google
+   * and Facebook login.
+   */
+  @Public()
+  @Post('apple')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  async signInWithApple(@Body() appleSignInDto: AppleSignInDto) {
+    const identity = await this.appleIdentityService.verifyIdentityToken(
+      appleSignInDto.identityToken
+    );
+
+    const user = await this.authService.findOrCreateAppleUser({
+      ...identity,
+      givenName: appleSignInDto.givenName,
+      familyName: appleSignInDto.familyName,
+    });
+
+    return this.authService.generateTokenForUser({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    });
   }
 
   @UseGuards(JwtAuthGuard)
