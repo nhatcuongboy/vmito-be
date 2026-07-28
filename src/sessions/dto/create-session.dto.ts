@@ -9,8 +9,9 @@ import {
   IsUrl,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { CourtDirection, FeeType, MatchType } from '@prisma/client';
 
 export class CourtConfigDto {
@@ -74,6 +75,40 @@ export enum SessionLocationType {
   CUSTOM = 'CUSTOM',
 }
 
+export class CustomSessionLocationDto {
+  @IsString()
+  @MaxLength(200)
+  name: string;
+
+  @IsString()
+  @MaxLength(500)
+  @IsOptional()
+  address?: string;
+
+  @IsString()
+  @MaxLength(255)
+  @IsOptional()
+  placeId?: string;
+
+  @IsNumber()
+  @IsOptional()
+  lat?: number;
+
+  @IsNumber()
+  @IsOptional()
+  lng?: number;
+
+  @IsString()
+  @MaxLength(100)
+  @IsOptional()
+  district?: string;
+
+  @IsString()
+  @MaxLength(100)
+  @IsOptional()
+  city?: string;
+}
+
 export class FeeConfigDto {
   @IsEnum(FeeType)
   feeType: FeeType;
@@ -115,6 +150,11 @@ export class CreateSessionDto {
   @IsString()
   @IsOptional()
   venueId?: string;
+
+  @ValidateNested()
+  @Type(() => CustomSessionLocationDto)
+  @IsOptional()
+  customLocation?: CustomSessionLocationDto;
 
   @IsString()
   @IsOptional()

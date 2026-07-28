@@ -203,6 +203,13 @@ model Session {
   hostName           String?
   hostPhone          String?
   location           String? // Keeping for backward compatibility
+  customLocationName     String?
+  customLocationAddress  String?
+  customLocationPlaceId  String?
+  customLocationLat      Float?
+  customLocationLng      Float?
+  customLocationDistrict String?
+  customLocationCity     String?
   venueId            String?
   clubId             String?
   hostId             String

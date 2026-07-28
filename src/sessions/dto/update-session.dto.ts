@@ -9,8 +9,9 @@ import {
   IsUrl,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { MatchType } from '@prisma/client';
 
 import {
@@ -18,6 +19,7 @@ import {
   FeeConfigDto,
   CourtConfigDto,
   SessionLocationType,
+  CustomSessionLocationDto,
 } from './create-session.dto';
 
 export class UpdateSessionDto {
@@ -45,6 +47,11 @@ export class UpdateSessionDto {
   @IsString()
   @IsOptional()
   venueId?: string;
+
+  @ValidateNested()
+  @Type(() => CustomSessionLocationDto)
+  @IsOptional()
+  customLocation?: CustomSessionLocationDto;
 
   @IsString()
   @IsOptional()

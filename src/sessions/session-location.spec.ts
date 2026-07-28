@@ -7,12 +7,28 @@ type LocationResolver = (
     locationType?: SessionLocationType;
     venueId?: string;
     location?: string;
+    customLocation?: {
+      name: string;
+      address?: string;
+      placeId?: string;
+      lat?: number;
+      lng?: number;
+      district?: string;
+      city?: string;
+    };
   },
   prismaClient?: unknown
 ) => Promise<{
   venueId?: string;
   location?: string;
   venueSearchText: string;
+  customLocationName: string | null;
+  customLocationAddress: string | null;
+  customLocationPlaceId: string | null;
+  customLocationLat: number | null;
+  customLocationLng: number | null;
+  customLocationDistrict: string | null;
+  customLocationCity: string | null;
 }>;
 
 const createService = (venue: { findUnique: jest.Mock; create: jest.Mock }) => {
@@ -57,6 +73,44 @@ describe('SessionsService session location resolver', () => {
     ).resolves.toEqual({
       location: 'Sân nội bộ ABC',
       venueSearchText: '',
+      customLocationName: 'Sân nội bộ ABC',
+      customLocationAddress: null,
+      customLocationPlaceId: null,
+      customLocationLat: null,
+      customLocationLng: null,
+      customLocationDistrict: null,
+      customLocationCity: null,
+    });
+    expect(venueClient.findUnique).not.toHaveBeenCalled();
+    expect(venueClient.create).not.toHaveBeenCalled();
+  });
+
+  it('stores a custom address snapshot without creating a venue', async () => {
+    const resolve = getResolver(createService(venueClient));
+
+    await expect(
+      resolve({
+        locationType: SessionLocationType.CUSTOM,
+        customLocation: {
+          name: ' Sân ABC ',
+          address: ' 123 Nguyễn Trãi ',
+          placeId: ' place-1 ',
+          lat: 10.75,
+          lng: 106.67,
+          district: ' Quận 1 ',
+          city: ' Hồ Chí Minh ',
+        },
+      })
+    ).resolves.toEqual({
+      location: 'Sân ABC',
+      venueSearchText: '123 Nguyễn Trãi Quận 1 Hồ Chí Minh',
+      customLocationName: 'Sân ABC',
+      customLocationAddress: '123 Nguyễn Trãi',
+      customLocationPlaceId: 'place-1',
+      customLocationLat: 10.75,
+      customLocationLng: 106.67,
+      customLocationDistrict: 'Quận 1',
+      customLocationCity: 'Hồ Chí Minh',
     });
     expect(venueClient.findUnique).not.toHaveBeenCalled();
     expect(venueClient.create).not.toHaveBeenCalled();
@@ -90,6 +144,13 @@ describe('SessionsService session location resolver', () => {
       venueId: 'venue-1',
       location: '1 Nguyễn Trãi',
       venueSearchText: 'Sân A 1 Nguyễn Trãi',
+      customLocationName: null,
+      customLocationAddress: null,
+      customLocationPlaceId: null,
+      customLocationLat: null,
+      customLocationLng: null,
+      customLocationDistrict: null,
+      customLocationCity: null,
     });
   });
 
@@ -159,6 +220,7 @@ describe('SessionsService location updates', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           location: 'Sân nội bộ ABC',
+          customLocationName: 'Sân nội bộ ABC',
           venue: { disconnect: true },
         }) as unknown,
       })
