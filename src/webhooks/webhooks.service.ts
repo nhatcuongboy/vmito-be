@@ -10,7 +10,10 @@ export interface IngestResult {
   imported: number;
   skippedDuplicate: number;
   skippedNonRecruitment: number;
+  /** Post had no usable URL or no text to extract from. */
   skippedNoise: number;
+  /** Post looked like a session but lacked a start time and/or a location. */
+  skippedIncomplete: number;
   failed: number;
 }
 
@@ -28,8 +31,12 @@ export class WebhooksService {
    * Ingest crawled Facebook posts from an Apify run: for each post, run Gemini
    * extraction (which also classifies whether the post is actually a player
    * recruitment — class ads, court-rental listings, and equipment sales are
-   * rejected), filter out remaining noise, and create a view-only crawled
-   * session. Dedup is enforced downstream via externalUrl.
+   * rejected), drop posts that are noise or incomplete, and create a view-only
+   * crawled session. Dedup is enforced downstream via externalUrl.
+   *
+   * This completeness bar applies to the crawl path only. Sessions a host
+   * creates by hand go through SessionsService.create, which has its own
+   * validation and, unlike these rows, stays editable afterwards.
    *
    * Apify's native webhook only sends run metadata, so when the payload carries
    * a `resource.defaultDatasetId` we fetch the actual items from the Apify
@@ -44,6 +51,7 @@ export class WebhooksService {
       skippedDuplicate: 0,
       skippedNonRecruitment: 0,
       skippedNoise: 0,
+      skippedIncomplete: 0,
       failed: 0,
     };
 
@@ -74,10 +82,14 @@ export class WebhooksService {
         }
 
         // Gate 2: heuristic safety net for the classifier being wrong the
-        // other way — a real recruitment post must have at least a time or
-        // a venue; the model returns nulls for fields it can't determine.
-        if (!this.isValidSession(extracted)) {
-          result.skippedNoise++;
+        // other way — a real recruitment post must state both when and where;
+        // the model returns nulls for fields it can't determine.
+        const missing = this.missingSessionFields(extracted);
+        if (missing.length > 0) {
+          result.skippedIncomplete++;
+          this.logger.debug(
+            `Skipped incomplete post ${externalUrl}: missing ${missing.join(', ')}`
+          );
           continue;
         }
 
@@ -116,7 +128,8 @@ export class WebhooksService {
     this.logger.log(
       `Apify ingest: received=${result.received} imported=${result.imported} ` +
         `dup=${result.skippedDuplicate} nonRecruitment=${result.skippedNonRecruitment} ` +
-        `noise=${result.skippedNoise} failed=${result.failed}`
+        `noise=${result.skippedNoise} incomplete=${result.skippedIncomplete} ` +
+        `failed=${result.failed}`
     );
     return result;
   }
@@ -238,15 +251,28 @@ export class WebhooksService {
 
   /**
    * Heuristic noise filter used because the Gemini prompt returns nulls for
-   * fields it cannot determine. A valid session needs a start time OR a venue.
+   * fields it cannot determine. A crawled session must carry BOTH a start time
+   * and a location — the two axes the discovery feed is built on.
+   *
+   * Both are required rather than either-or because a crawled session cannot be
+   * repaired after the fact: update/cancel are blocked for isCrawled rows, so a
+   * half-empty import stays half-empty until the nightly cleanup removes it.
+   * Skipping is the recoverable side of that trade — no row means no externalUrl
+   * dedup key, so a later crawl run simply re-processes the post.
+   *
+   * Missing time is the more damaging half: createCrawledSession substitutes
+   * `new Date()` for a null startTime, so such a post would be published with a
+   * fabricated "starts now" that appears nowhere in the source.
    */
-  private isValidSession(extracted: ExtractedSessionDto): boolean {
-    const hasTime = !!extracted.startTime;
+  private missingSessionFields(extracted: ExtractedSessionDto): string[] {
+    const missing: string[] = [];
+    if (!extracted.startTime) missing.push('startTime');
     const hasVenue = !!(
       extracted.venue?.name ||
       extracted.venue?.address ||
       extracted.location
     );
-    return hasTime || hasVenue;
+    if (!hasVenue) missing.push('venue');
+    return missing;
   }
 }
