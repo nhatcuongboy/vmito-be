@@ -19,6 +19,7 @@ export interface SessionResultsStanding {
   winRate: number;
   totalWaitTime: number;
   userId?: string | null;
+  image?: string | null;
 }
 
 export interface SessionResultsMetadata {

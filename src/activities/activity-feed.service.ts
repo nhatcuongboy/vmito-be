@@ -284,6 +284,7 @@ export class ActivityFeedService {
         name: true,
         totalWaitTime: true,
         userId: true,
+        user: { select: { image: true } },
       },
     });
     const matches = await this.prisma.match.findMany({
@@ -316,6 +317,7 @@ export class ActivityFeedService {
         playerNumber: p.playerNumber,
         name: p.name ?? `Player ${p.playerNumber}`,
         userId: p.userId ?? null,
+        image: p.user?.image ?? null,
         totalWaitTime: p.totalWaitTime,
         totalMatches,
         wins,
@@ -323,9 +325,14 @@ export class ActivityFeedService {
       };
     });
 
-    const maxMatches = stats.reduce((max, s) => Math.max(max, s.totalMatches), 0);
+    const maxMatches = stats.reduce(
+      (max, s) => Math.max(max, s.totalMatches),
+      0
+    );
     const minMatches =
-      maxMatches <= 0 ? 1 : Math.max(1, Math.min(3, Math.ceil(maxMatches * 0.5)));
+      maxMatches <= 0
+        ? 1
+        : Math.max(1, Math.min(3, Math.ceil(maxMatches * 0.5)));
     const compare = (a: (typeof stats)[number], b: (typeof stats)[number]) =>
       b.winRate - a.winRate ||
       b.wins - a.wins ||
@@ -352,6 +359,7 @@ export class ActivityFeedService {
         winRate: s.winRate,
         totalWaitTime: s.totalWaitTime,
         userId: s.userId,
+        image: s.image,
       })),
     });
   }
