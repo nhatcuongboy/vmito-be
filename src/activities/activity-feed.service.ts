@@ -272,31 +272,86 @@ export class ActivityFeedService {
       );
     }
 
-    // Same standings query/order as SessionsService.end()
+    // Standings ranked by win rate, mirroring the host "Player statistics"
+    // overview (win rate → wins → matches → name, MVP-eligible players first).
+    // Point-differential tiebreak is intentionally omitted here: this is a
+    // frozen feed snapshot, and computing it would require parsing every score.
     const players = await this.prisma.player.findMany({
-      where: { sessionId },
+      where: { sessionId, registrationStatus: 'APPROVED' },
       select: {
+        id: true,
         playerNumber: true,
         name: true,
-        matchesPlayed: true,
         totalWaitTime: true,
         userId: true,
       },
-      orderBy: { matchesPlayed: 'desc' },
     });
+    const matches = await this.prisma.match.findMany({
+      where: { sessionId },
+      select: {
+        winnerIds: true,
+        players: { select: { playerId: true } },
+      },
+    });
+
+    const parseWinnerIds = (raw: string | null): string[] => {
+      if (!raw) return [];
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        return Array.isArray(parsed) ? (parsed as string[]) : [];
+      } catch {
+        return [];
+      }
+    };
+
+    const stats = players.map((p) => {
+      const played = matches.filter((m) =>
+        m.players.some((mp) => mp.playerId === p.id)
+      );
+      const wins = played.filter((m) =>
+        parseWinnerIds(m.winnerIds).includes(p.id)
+      ).length;
+      const totalMatches = played.length;
+      return {
+        playerNumber: p.playerNumber,
+        name: p.name ?? `Player ${p.playerNumber}`,
+        userId: p.userId ?? null,
+        totalWaitTime: p.totalWaitTime,
+        totalMatches,
+        wins,
+        winRate: totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : 0,
+      };
+    });
+
+    const maxMatches = stats.reduce((max, s) => Math.max(max, s.totalMatches), 0);
+    const minMatches =
+      maxMatches <= 0 ? 1 : Math.max(1, Math.min(3, Math.ceil(maxMatches * 0.5)));
+    const compare = (a: (typeof stats)[number], b: (typeof stats)[number]) =>
+      b.winRate - a.winRate ||
+      b.wins - a.wins ||
+      b.totalMatches - a.totalMatches ||
+      a.name.localeCompare(b.name);
+    const isEligible = (s: (typeof stats)[number]) =>
+      s.totalMatches >= minMatches && s.wins > 0;
+    const ranked = [
+      ...stats.filter(isEligible).sort(compare),
+      ...stats.filter((s) => !isEligible(s)).sort(compare),
+    ];
 
     return this.createActivityPost(userId, ActivityType.SESSION_RESULTS, {
       sessionId: session.id,
       sessionSlug: session.slug ?? null,
       sessionName: session.name,
       endTime: session.endTime?.toISOString() ?? null,
-      standings: players.map((p, index) => ({
+      standings: ranked.map((s, index) => ({
         rank: index + 1,
-        playerNumber: p.playerNumber,
-        name: p.name ?? `Player ${p.playerNumber}`,
-        matchesPlayed: p.matchesPlayed,
-        totalWaitTime: p.totalWaitTime,
-        userId: p.userId ?? null,
+        playerNumber: s.playerNumber,
+        name: s.name,
+        matchesPlayed: s.totalMatches,
+        wins: s.wins,
+        winRate: s.winRate,
+        totalWaitTime: s.totalWaitTime,
+        userId: s.userId,
       })),
     });
   }
