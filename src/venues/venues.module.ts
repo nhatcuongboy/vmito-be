@@ -3,6 +3,7 @@ import { VenuesService } from './venues.service';
 import { VenuesController } from './venues.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AddressMappingService } from './address-mapping.service';
+import { VenueAddressMigrationService } from './venue-address-migration.service';
 import { FavoritesModule } from '../favorites/favorites.module';
 import { VenuePricingService } from '../venue-rentals/venue-pricing.service';
 import { VenueAccessService } from './venue-access.service';
@@ -13,12 +14,14 @@ import { VenueAccessService } from './venue-access.service';
   providers: [
     VenuesService,
     AddressMappingService,
+    VenueAddressMigrationService,
     VenuePricingService,
     VenueAccessService,
   ],
   exports: [
     VenuesService,
     AddressMappingService,
+    VenueAddressMigrationService,
     VenuePricingService,
     VenueAccessService,
   ],

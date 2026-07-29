@@ -282,6 +282,27 @@ describe('AddressMappingService', () => {
       expect(result).toEqual({ newCity: 'Thành Phố Hồ Chí Minh' });
     });
 
+    it('matches a hyphenated province however it is spaced', () => {
+      // The CSV writes "Tỉnh Bà Rịa-Vũng Tàu"; venues store "Bà Rịa - Vũng Tàu".
+      withWardMapping(service, [
+        {
+          wardOld: 'Phường 7',
+          districtOld: 'Thành Phố Vũng Tàu',
+          cityOld: 'Tỉnh Bà Rịa-Vũng Tàu',
+          wardNew: 'Phường Tam Thắng',
+          cityNew: 'Thành Phố Hồ Chí Minh',
+        },
+      ]);
+
+      expect(
+        service.resolve('12 Lê Lợi, Phường 7', 'Vũng Tàu', 'Bà Rịa - Vũng Tàu')
+      ).toEqual({
+        newAddress: '12 Lê Lợi, Phường Tam Thắng, Thành Phố Hồ Chí Minh',
+        newDistrict: 'Phường Tam Thắng',
+        newCity: 'Thành Phố Hồ Chí Minh',
+      });
+    });
+
     it('does not mistake the district segment for a same-named ward', () => {
       // "Phường 3" inside "Quận 3" is one of many ward/district name
       // collisions. An address that only states its district must not be

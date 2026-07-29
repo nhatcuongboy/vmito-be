@@ -380,6 +380,11 @@ export class AddressMappingService implements OnModuleInit {
    * Phường, Xã and their abbreviations) and lowercasing. This makes matching
    * tolerant of venues that store bare names (e.g. "Hồ Chí Minh", "Bình Tân",
    * "Bình Trị Đông B") against the fully-qualified CSV values.
+   *
+   * Spacing around a hyphen and repeated whitespace are also normalised: the
+   * CSV writes "Tỉnh Bà Rịa-Vũng Tàu" while venues in the wild store
+   * "Bà Rịa - Vũng Tàu", and treating those as different keys starved every
+   * hyphenated province of both its ward- and district-level match.
    */
   private stripAdminPrefix(value: string): string {
     return (
@@ -392,6 +397,8 @@ export class AddressMappingService implements OnModuleInit {
           /^(?:thành\s*phố|tp|tỉnh|quận|q|huyện|h|thị\s*xã|tx|thị\s*trấn|tt|phường|p|xã|x)\.?\s+/i,
           ''
         )
+        .replace(/\s*-\s*/g, '-')
+        .replace(/\s+/g, ' ')
         .trim()
         .toLowerCase()
     );
