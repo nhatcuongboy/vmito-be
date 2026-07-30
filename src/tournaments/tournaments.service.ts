@@ -262,6 +262,12 @@ export class TournamentsService {
           include: { venue: { omit: VENUE_PUBLIC_OMIT } },
           orderBy: { createdAt: 'asc' },
         },
+        // Names only — browse cards show the event chips ("ĐÔI NAM", "ĐÔI NAM
+        // NỮ"). The full category payload belongs to findOne.
+        categories: {
+          select: { id: true, name: true, type: true },
+          orderBy: { createdAt: 'asc' },
+        },
         _count: {
           select: {
             players: true,
