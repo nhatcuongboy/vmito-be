@@ -42,6 +42,7 @@ import {
 } from './realtime/tournaments.gateway';
 import { FavoritesService } from '../favorites/favorites.service';
 import { ActivityFeedService } from '../activities/activity-feed.service';
+import { PointsService } from '../points/points.service';
 
 @Injectable()
 export class TournamentsService {
@@ -51,7 +52,8 @@ export class TournamentsService {
     private scheduleService: ScheduleService,
     private gateway: TournamentsGateway,
     private favoritesService: FavoritesService,
-    private activityFeedService: ActivityFeedService
+    private activityFeedService: ActivityFeedService,
+    private pointsService: PointsService
   ) {}
 
   private generateSlug(name: string): string {
@@ -1138,6 +1140,8 @@ export class TournamentsService {
       if (updateData.status === TournamentStatus.FINISHED) {
         // Announce champions on the newsfeed (fire-and-forget, self-caught).
         void this.activityFeedService.postTournamentFinished(id);
+        // Ranking points: placement bonuses per category (fire-and-forget).
+        void this.pointsService.awardTournamentPlacements(id);
       }
     }
 

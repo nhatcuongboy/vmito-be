@@ -42,6 +42,7 @@ const createService = (venue: { findUnique: jest.Mock; create: jest.Mock }) => {
     undefined as never,
     undefined as never,
     undefined as never,
+    undefined as never,
     undefined as never
   );
 };
@@ -197,6 +198,7 @@ describe('SessionsService location updates', () => {
       { session, venue } as never,
       undefined as never,
       gateway as never,
+      undefined as never,
       undefined as never,
       undefined as never,
       undefined as never,

@@ -37,6 +37,7 @@ export enum SessionEventType {
   REGISTRATION_REQUEST = 'registration_request',
   REGISTRATION_STATUS_UPDATED = 'registration_status_updated',
   NOTIFICATION_RECEIVED = 'notification_received',
+  POINTS_AWARDED = 'points_awarded',
   FAVORITE_UPDATED = 'favorite_updated',
   POST_LIKE_UPDATED = 'post_like_updated',
   POST_COMMENT_CREATED = 'post_comment_created',

@@ -5,6 +5,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { SessionsModule } from '../sessions/sessions.module';
 import { AiModule } from '../ai/ai.module';
 import { SessionAccessModule } from '../common/session-access/session-access.module';
+import { PointsModule } from '../points/points.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { SessionAccessModule } from '../common/session-access/session-access.mod
     forwardRef(() => SessionsModule),
     AiModule,
     SessionAccessModule,
+    PointsModule,
   ],
   controllers: [CourtsController],
   providers: [CourtsService],

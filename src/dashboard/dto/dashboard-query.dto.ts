@@ -9,7 +9,8 @@ export enum DashboardGranularity {
 
 export class DashboardQueryDto {
   @ApiPropertyOptional({
-    description: 'Start of the trend range (ISO date). Defaults to 30 days ago.',
+    description:
+      'Start of the trend range (ISO date). Defaults to 30 days ago.',
   })
   @IsOptional()
   @IsISO8601()

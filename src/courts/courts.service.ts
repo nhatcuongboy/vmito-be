@@ -16,6 +16,7 @@ import {
   SessionEventType,
 } from '../sessions/sessions.gateway';
 import { GeminiService } from '../ai/gemini.service';
+import { PointsService } from '../points/points.service';
 import { Language, DEFAULT_LANGUAGE } from '../common/constants/language.enum';
 import {
   LEVEL_SHORT_LABELS,
@@ -45,7 +46,8 @@ export class CourtsService {
     private prisma: PrismaService,
     @Inject(forwardRef(() => SessionsGateway))
     private sessionsGateway: SessionsGateway,
-    private geminiService: GeminiService
+    private geminiService: GeminiService,
+    private pointsService: PointsService
   ) {}
 
   async findOne(id: string) {
@@ -697,6 +699,9 @@ export class CourtsService {
       SessionEventType.MATCH_ENDED,
       { courtId: id, matchId: result.match.id }
     );
+
+    // Ranking points are best-effort and never block ending a match.
+    void this.pointsService.awardSessionMatch(result.match.id);
 
     return result;
   }
