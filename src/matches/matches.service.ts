@@ -5,10 +5,14 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateMatchDto } from './dto/update-match.dto';
+import { PointsService } from '../points/points.service';
 
 @Injectable()
 export class MatchesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private pointsService: PointsService
+  ) {}
 
   async remove(id: string) {
     const match = await this.prisma.match.findUnique({
@@ -24,42 +28,48 @@ export class MatchesService {
       throw new NotFoundException('Match not found');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      const playerIds = match.players.map((mp) => mp.playerId);
+    return this.prisma
+      .$transaction(async (tx) => {
+        const playerIds = match.players.map((mp) => mp.playerId);
 
-      // Decrement matchesPlayed for all players in this match
-      if (playerIds.length > 0) {
-        await tx.player.updateMany({
-          where: { id: { in: playerIds } },
-          data: {
-            matchesPlayed: { decrement: 1 },
-            courtPosition: null, // Clear court position
-            status: 'WAITING',
+        // Decrement matchesPlayed for all players in this match
+        if (playerIds.length > 0) {
+          await tx.player.updateMany({
+            where: { id: { in: playerIds } },
+            data: {
+              matchesPlayed: { decrement: 1 },
+              courtPosition: null, // Clear court position
+              status: 'WAITING',
+            },
+          });
+        }
+
+        // Clear currentMatchId from court if this match is currently active
+        await tx.court.updateMany({
+          where: { currentMatchId: id },
+          data: { currentMatchId: null, status: 'EMPTY' },
+        });
+
+        // Delete the MatchPlayer records (might be needed depending on cascade setup)
+        await tx.matchPlayer.deleteMany({
+          where: { matchId: id },
+        });
+
+        // Delete the match
+        return tx.match.delete({
+          where: { id },
+          include: {
+            players: true,
+            court: true,
+            session: true,
           },
         });
-      }
-
-      // Clear currentMatchId from court if this match is currently active
-      await tx.court.updateMany({
-        where: { currentMatchId: id },
-        data: { currentMatchId: null, status: 'EMPTY' },
+      })
+      .then((deleted) => {
+        // The match is gone — revoke any points it granted.
+        void this.pointsService.removeForRef('MATCH', id);
+        return deleted;
       });
-
-      // Delete the MatchPlayer records (might be needed depending on cascade setup)
-      await tx.matchPlayer.deleteMany({
-        where: { matchId: id },
-      });
-
-      // Delete the match
-      return tx.match.delete({
-        where: { id },
-        include: {
-          players: true,
-          court: true,
-          session: true,
-        },
-      });
-    });
   }
 
   async findOne(id: string) {
@@ -353,7 +363,10 @@ export class MatchesService {
       });
     });
 
-    return updatedMatch;
+    // A finished match's result may have changed — recompute its points.
+    if (updatedMatch.status === 'FINISHED') {
+      void this.pointsService.reawardSessionMatch(id);
+    }
 
     return updatedMatch;
   }

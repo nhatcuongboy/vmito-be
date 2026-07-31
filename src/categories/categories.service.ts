@@ -17,6 +17,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScheduleService } from '../tournaments/services/schedule.service';
+import { PointsService } from '../points/points.service';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateCategoryRegistrationDto } from './dto/create-category-registration.dto';
@@ -141,7 +142,8 @@ export class CategoriesService {
     private prisma: PrismaService,
     private tournamentsGateway: TournamentsGateway,
     private access: TournamentAccessService,
-    private scheduleService: ScheduleService
+    private scheduleService: ScheduleService,
+    private pointsService: PointsService
   ) {}
 
   // ─── Helpers ───────────────────────────────────────────────
@@ -2483,6 +2485,9 @@ export class CategoriesService {
       TournamentEventType.TOURNAMENT_MATCH_ENDED
     );
 
+    // Ranking points are best-effort and never block recording the result.
+    void this.pointsService.awardTournamentMatch(updatedMatch.id);
+
     // "Next Available Court" mode: when a match finishes, free its court and
     // pull the next queued match onto the next available court. Never let a
     // scheduling failure block recording the result.
@@ -2599,6 +2604,10 @@ export class CategoriesService {
     });
 
     this.broadcastMatch(updated, TournamentEventType.TOURNAMENT_MATCH_ENDED);
+
+    // The result no longer exists — revoke any points it granted.
+    void this.pointsService.removeForRef('CATEGORY_MATCH', id);
+
     return updated;
   }
 

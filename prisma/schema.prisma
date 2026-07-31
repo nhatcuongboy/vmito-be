@@ -86,7 +86,75 @@ model User {
   // Favorite relations
   favorites Favorite[] @relation("UserFavorites")
 
+  // Ranking points
+  pointTransactions PointTransaction[] @relation("UserPointTransactions")
+  pointsStates      UserPointsState[]  @relation("UserPointsStates")
+
   @@map("users")
+}
+
+// ===========================================
+// Ranking Points System
+// ===========================================
+
+enum PointReason {
+  SESSION_MATCH_WIN
+  SESSION_MATCH_DRAW
+  SESSION_MATCH_LOSS
+  SESSION_PARTICIPATION
+  TOURNAMENT_MATCH_WIN
+  TOURNAMENT_MATCH_DRAW
+  TOURNAMENT_MATCH_LOSS
+  TOURNAMENT_CHAMPION
+  TOURNAMENT_RUNNER_UP
+  TOURNAMENT_SEMIFINALIST
+  ADJUSTMENT
+}
+
+enum RankingTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+  DIAMOND
+}
+
+// Append-only ledger of points earned. Period leaderboards are SUMs over
+// occurredAt ranges; the unique constraint makes every award idempotent.
+model PointTransaction {
+  id         String      @id @default(cuid())
+  userId     String
+  sport      SportType   @default(BADMINTON)
+  points     Int
+  reason     PointReason
+  refType    String // MATCH | CATEGORY_MATCH | SESSION | CATEGORY | MANUAL
+  refId      String
+  occurredAt DateTime
+  createdAt  DateTime    @default(now())
+
+  user User @relation("UserPointTransactions", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, reason, refId])
+  @@index([sport, occurredAt])
+  @@index([userId, sport, occurredAt])
+  @@map("point_transactions")
+}
+
+// Denormalized all-time totals per user+sport; source of truth for tier.
+model UserPointsState {
+  id          String      @id @default(cuid())
+  userId      String
+  sport       SportType   @default(BADMINTON)
+  totalPoints Int         @default(0)
+  tier        RankingTier @default(BRONZE)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  user User @relation("UserPointsStates", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sport])
+  @@index([sport, totalPoints])
+  @@map("user_points_states")
 }
 
 // Notification System

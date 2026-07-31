@@ -231,7 +231,8 @@ export class FavoritesService {
     type: FavoriteType,
     target: FavoriteTarget
   ): Promise<boolean> {
-    if (role === 'ADMIN' || (target.ownerId && target.ownerId === userId)) return true;
+    if (role === 'ADMIN' || (target.ownerId && target.ownerId === userId))
+      return true;
 
     if (type === FavoriteType.CLUB) {
       const membership = await this.prisma.clubMember.findFirst({
