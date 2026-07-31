@@ -94,7 +94,7 @@ export class TournamentsService {
         venue: { omit: VENUE_PUBLIC_OMIT },
         tournamentVenues: {
           include: { venue: { omit: VENUE_PUBLIC_OMIT } },
-          orderBy: { createdAt: 'asc' },
+          orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
         },
         _count: {
           select: { categories: true, players: true, pairs: true },
@@ -260,7 +260,7 @@ export class TournamentsService {
         venue: { omit: VENUE_PUBLIC_OMIT },
         tournamentVenues: {
           include: { venue: { omit: VENUE_PUBLIC_OMIT } },
-          orderBy: { createdAt: 'asc' },
+          orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
         },
         // Names only — browse cards show the event chips ("ĐÔI NAM", "ĐÔI NAM
         // NỮ"). The full category payload belongs to findOne.
@@ -316,7 +316,7 @@ export class TournamentsService {
             venue: { omit: VENUE_PUBLIC_OMIT },
             courts: { orderBy: { courtNumber: 'asc' } },
           },
-          orderBy: { createdAt: 'asc' },
+          orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
         },
         categories: {
           include: {
@@ -423,13 +423,18 @@ export class TournamentsService {
 
       if (resolvedVenueId) {
         await (tx as any).tournamentVenue.create({
-          data: { tournamentId: tournament.id, venueId: resolvedVenueId },
+          data: {
+            tournamentId: tournament.id,
+            venueId: resolvedVenueId,
+            isPrimary: true,
+          },
         });
       } else if (location) {
         await (tx as any).tournamentVenue.create({
           data: {
             tournamentId: tournament.id,
             venueId: null,
+            isPrimary: true,
             name: location.name,
             acronym: location.acronym ?? null,
             placeId: location.placeId ?? null,
@@ -472,7 +477,7 @@ export class TournamentsService {
             venue: { omit: VENUE_PUBLIC_OMIT },
             courts: { orderBy: { courtNumber: 'asc' } },
           },
-          orderBy: { createdAt: 'asc' },
+          orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
         },
         categories: true,
         umpires: true,
@@ -634,6 +639,10 @@ export class TournamentsService {
               data: {
                 tournamentId: newTournament.id,
                 venueId: tv.venueId,
+                // An explicit dto.venueId overrides the source's main location.
+                isPrimary: dto.venueId
+                  ? tv.venueId === dto.venueId
+                  : tv.isPrimary,
                 // Inline address fields — carried over so inline venues don't
                 // become empty shells on the copy.
                 name: tv.name,
@@ -682,6 +691,7 @@ export class TournamentsService {
               data: {
                 tournamentId: newTournament.id,
                 venueId: newTournament.venueId,
+                isPrimary: true,
               },
             });
           }
@@ -1048,11 +1058,21 @@ export class TournamentsService {
         const existing = await (tx as any).tournamentVenue.findFirst({
           where: { tournamentId: id, venueId: updateData.venueId },
         });
-        if (!existing) {
-          await (tx as any).tournamentVenue.create({
-            data: { tournamentId: id, venueId: updateData.venueId },
-          });
-        }
+        const rowId =
+          existing?.id ??
+          (
+            await (tx as any).tournamentVenue.create({
+              data: { tournamentId: id, venueId: updateData.venueId },
+            })
+          ).id;
+        await (tx as any).tournamentVenue.updateMany({
+          where: { tournamentId: id, isPrimary: true, id: { not: rowId } },
+          data: { isPrimary: false },
+        });
+        await (tx as any).tournamentVenue.update({
+          where: { id: rowId },
+          data: { isPrimary: true },
+        });
       }
 
       return tx.tournament.update({
@@ -1073,7 +1093,7 @@ export class TournamentsService {
               venue: { omit: VENUE_PUBLIC_OMIT },
               courts: { orderBy: { courtNumber: 'asc' } },
             },
-            orderBy: { createdAt: 'asc' },
+            orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
           },
           _count: {
             select: {
@@ -1394,7 +1414,7 @@ export class TournamentsService {
           },
         },
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
     });
   }
 
@@ -1448,15 +1468,6 @@ export class TournamentsService {
       } else {
         tournamentVenue = await (this.prisma as any).tournamentVenue.create({
           data: { tournamentId, venueId: linkedVenueId },
-        });
-      }
-
-      // Denormalized primary-venue pointer: point it at the first linked
-      // venue when the tournament doesn't have one yet.
-      if (!tournament.venueId) {
-        await this.prisma.tournament.update({
-          where: { id: tournamentId },
-          data: { venueId: linkedVenueId },
         });
       }
     } else {
@@ -1542,10 +1553,56 @@ export class TournamentsService {
       }
     }
 
+    // The first venue a tournament gets becomes its main location.
+    const primary = await (this.prisma as any).tournamentVenue.findFirst({
+      where: { tournamentId, isPrimary: true },
+      select: { id: true },
+    });
+    if (!primary) {
+      await this.setPrimaryVenue(tournamentId, tournamentVenue.id);
+    }
+
     return (this.prisma as any).tournamentVenue.findUnique({
       where: { id: tournamentVenue.id },
       include: {
         venue: true,
+        courts: { orderBy: { courtNumber: 'asc' } },
+      },
+    });
+  }
+
+  /**
+   * Elects which venue is shown as the main location on public pages. Unlike
+   * `Tournament.venueId` this works for inline (address-only) venues; that
+   * column is kept as a mirror so venue-based browse filters keep working.
+   */
+  async setPrimaryVenue(tournamentId: string, tournamentVenueId: string) {
+    const target = await (this.prisma as any).tournamentVenue.findFirst({
+      where: { id: tournamentVenueId, tournamentId },
+    });
+    if (!target)
+      throw new NotFoundException('Venue not linked to this tournament');
+
+    await this.prisma.$transaction(async (tx) => {
+      const db = tx as any;
+      await db.tournamentVenue.updateMany({
+        where: { tournamentId, isPrimary: true, id: { not: target.id } },
+        data: { isPrimary: false },
+      });
+      await db.tournamentVenue.update({
+        where: { id: target.id },
+        data: { isPrimary: true },
+      });
+      await db.tournament.update({
+        where: { id: tournamentId },
+        data: { venueId: target.venueId ?? null },
+      });
+    });
+
+    return (this.prisma as any).tournamentVenue.findUnique({
+      where: { id: target.id },
+      include: {
+        venue: { omit: VENUE_PUBLIC_OMIT },
         courts: { orderBy: { courtNumber: 'asc' } },
       },
     });
@@ -1580,20 +1637,22 @@ export class TournamentsService {
       where: { id: tournamentVenue.id },
     });
 
-    // If the removed venue was the primary pointer, repoint to the oldest
-    // remaining linked venue (or clear it).
-    if (
-      tournamentVenue.venueId &&
-      tournament.venueId === tournamentVenue.venueId
-    ) {
+    // If the removed venue was the main location, promote the oldest remaining
+    // one so public pages never lose their venue.
+    if (tournamentVenue.isPrimary) {
       const next = await (this.prisma as any).tournamentVenue.findFirst({
-        where: { tournamentId, venueId: { not: null } },
+        where: { tournamentId },
         orderBy: { createdAt: 'asc' },
+        select: { id: true },
       });
-      await this.prisma.tournament.update({
-        where: { id: tournamentId },
-        data: { venueId: next?.venueId ?? null },
-      });
+      if (next) {
+        await this.setPrimaryVenue(tournamentId, next.id);
+      } else if (tournament.venueId) {
+        await this.prisma.tournament.update({
+          where: { id: tournamentId },
+          data: { venueId: null },
+        });
+      }
     }
 
     return { success: true };

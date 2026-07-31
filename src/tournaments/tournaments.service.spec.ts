@@ -7,6 +7,7 @@ import { TournamentAccessService } from '../common/tournament-access/tournament-
 import { ScheduleService } from './services/schedule.service';
 import { TournamentsGateway } from './realtime/tournaments.gateway';
 import { FavoritesService } from '../favorites/favorites.service';
+import { ActivityFeedService } from '../activities/activity-feed.service';
 
 /**
  * Venue-sync invariant coverage: a non-null tournament.venueId always has a
@@ -34,6 +35,8 @@ describe('TournamentsService venue sync', () => {
         findUnique: jest.fn(),
         findMany: jest.fn(),
         create: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn(),
         delete: jest.fn(),
       },
       tournamentCourt: {
@@ -62,6 +65,13 @@ describe('TournamentsService venue sync', () => {
         },
         { provide: TournamentsGateway, useValue: { emit: jest.fn() } },
         { provide: FavoritesService, useValue: {} },
+        {
+          provide: ActivityFeedService,
+          useValue: {
+            postTournamentCreated: jest.fn(),
+            postTournamentFinished: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -169,7 +179,7 @@ describe('TournamentsService venue sync', () => {
         })
       );
       expect(prisma.tournamentVenue.create).toHaveBeenCalledWith({
-        data: { tournamentId: 't1', venueId: 'v1' },
+        data: { tournamentId: 't1', venueId: 'v1', isPrimary: true },
       });
       expect(prisma.venue.create).not.toHaveBeenCalled();
     });
@@ -203,7 +213,7 @@ describe('TournamentsService venue sync', () => {
         })
       );
       expect(prisma.tournamentVenue.create).toHaveBeenCalledWith({
-        data: { tournamentId: 't1', venueId: 'v9' },
+        data: { tournamentId: 't1', venueId: 'v9', isPrimary: true },
       });
       expect(prisma.venue.create).not.toHaveBeenCalled();
     });
@@ -260,6 +270,7 @@ describe('TournamentsService venue sync', () => {
         status: 'PREPARING',
       });
       prisma.tournament.update.mockResolvedValue({ id: 't1' });
+      prisma.tournamentVenue.create.mockResolvedValue({ id: 'tv-new' });
     });
 
     it('upserts the TournamentVenue row when setting a new primary venue', async () => {
@@ -271,6 +282,10 @@ describe('TournamentsService venue sync', () => {
       expect(prisma.tournamentVenue.create).toHaveBeenCalledWith({
         data: { tournamentId: 't1', venueId: 'v1' },
       });
+      expect(prisma.tournamentVenue.update).toHaveBeenCalledWith({
+        where: { id: 'tv-new' },
+        data: { isPrimary: true },
+      });
     });
 
     it('does not duplicate an existing TournamentVenue row', async () => {
@@ -280,6 +295,10 @@ describe('TournamentsService venue sync', () => {
       await service.update('t1', { venueId: 'v1' } as any, 'host-1');
 
       expect(prisma.tournamentVenue.create).not.toHaveBeenCalled();
+      expect(prisma.tournamentVenue.update).toHaveBeenCalledWith({
+        where: { id: 'tv1' },
+        data: { isPrimary: true },
+      });
     });
 
     it('clears the pointer without touching TournamentVenue rows', async () => {
@@ -319,28 +338,41 @@ describe('TournamentsService venue sync', () => {
       });
     });
 
-    it('auto-sets the primary pointer when the tournament has none', async () => {
+    it('elects the first venue as the main location', async () => {
       prisma.tournament.findUnique.mockResolvedValue({
         id: 't1',
         venueId: null,
       });
+      // 1) existing link lookup, 2) primary lookup, 3) setPrimaryVenue target
+      prisma.tournamentVenue.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'tv1', venueId: 'v1' });
 
       await service.addVenue('t1', { venueId: 'v1' });
 
+      expect(prisma.tournamentVenue.update).toHaveBeenCalledWith({
+        where: { id: 'tv1' },
+        data: { isPrimary: true },
+      });
       expect(prisma.tournament.update).toHaveBeenCalledWith({
         where: { id: 't1' },
         data: { venueId: 'v1' },
       });
     });
 
-    it('leaves an existing primary pointer alone', async () => {
+    it('leaves an existing main location alone', async () => {
       prisma.tournament.findUnique.mockResolvedValue({
         id: 't1',
         venueId: 'v0',
       });
+      prisma.tournamentVenue.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'tv0' });
 
       await service.addVenue('t1', { venueId: 'v1' });
 
+      expect(prisma.tournamentVenue.update).not.toHaveBeenCalled();
       expect(prisma.tournament.update).not.toHaveBeenCalled();
     });
 
@@ -354,6 +386,10 @@ describe('TournamentsService venue sync', () => {
           ? Promise.resolve({ id: 'v1' })
           : Promise.resolve(null)
       );
+      prisma.tournamentVenue.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'tv1', venueId: 'v1' });
 
       await service.addVenue('t1', {
         name: 'Be Badminton',
@@ -447,6 +483,13 @@ describe('TournamentsService venue sync', () => {
         venueId: null,
       });
       prisma.venue.findUnique.mockResolvedValue(null);
+      prisma.tournamentVenue.create.mockResolvedValue({
+        id: 'tv-inline',
+        venueId: null,
+      });
+      prisma.tournamentVenue.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'tv-inline', venueId: null });
 
       await service.addVenue('t1', {
         name: 'Loca Badminton Club',
@@ -462,6 +505,43 @@ describe('TournamentsService venue sync', () => {
           placeId: 'gp-unknown',
         }),
       });
+      // An inline main location clears the directory pointer.
+      expect(prisma.tournament.update).toHaveBeenCalledWith({
+        where: { id: 't1' },
+        data: { venueId: null },
+      });
+    });
+  });
+
+  describe('setPrimaryVenue', () => {
+    it('promotes an inline venue and clears the directory pointer', async () => {
+      prisma.tournamentVenue.findFirst.mockResolvedValue({
+        id: 'tv2',
+        venueId: null,
+      });
+
+      await service.setPrimaryVenue('t1', 'tv2');
+
+      expect(prisma.tournamentVenue.updateMany).toHaveBeenCalledWith({
+        where: { tournamentId: 't1', isPrimary: true, id: { not: 'tv2' } },
+        data: { isPrimary: false },
+      });
+      expect(prisma.tournamentVenue.update).toHaveBeenCalledWith({
+        where: { id: 'tv2' },
+        data: { isPrimary: true },
+      });
+      expect(prisma.tournament.update).toHaveBeenCalledWith({
+        where: { id: 't1' },
+        data: { venueId: null },
+      });
+    });
+
+    it('404s on a venue that belongs to another tournament', async () => {
+      prisma.tournamentVenue.findFirst.mockResolvedValue(null);
+
+      await expect(service.setPrimaryVenue('t1', 'tv-x')).rejects.toThrow(
+        NotFoundException
+      );
       expect(prisma.tournament.update).not.toHaveBeenCalled();
     });
   });
@@ -472,14 +552,15 @@ describe('TournamentsService venue sync', () => {
       prisma.tournamentCourt.deleteMany.mockResolvedValue({});
     });
 
-    it('repoints the primary pointer to the oldest remaining linked venue', async () => {
+    it('promotes the oldest remaining venue when the main location is removed', async () => {
       prisma.tournament.findUnique.mockResolvedValue({
         id: 't1',
         venueId: 'v1',
       });
       prisma.tournamentVenue.findFirst
-        .mockResolvedValueOnce({ id: 'tv1', venueId: 'v1' }) // row being removed
-        .mockResolvedValueOnce({ id: 'tv2', venueId: 'v2' }); // next linked row
+        .mockResolvedValueOnce({ id: 'tv1', venueId: 'v1', isPrimary: true }) // row being removed
+        .mockResolvedValueOnce({ id: 'tv2' }) // oldest remaining row
+        .mockResolvedValueOnce({ id: 'tv2', venueId: 'v2' }); // setPrimaryVenue target
 
       await service.removeVenue('t1', 'v1');
 
@@ -489,13 +570,13 @@ describe('TournamentsService venue sync', () => {
       });
     });
 
-    it('clears the pointer when no linked venue remains', async () => {
+    it('clears the pointer when no venue remains', async () => {
       prisma.tournament.findUnique.mockResolvedValue({
         id: 't1',
         venueId: 'v1',
       });
       prisma.tournamentVenue.findFirst
-        .mockResolvedValueOnce({ id: 'tv1', venueId: 'v1' })
+        .mockResolvedValueOnce({ id: 'tv1', venueId: 'v1', isPrimary: true })
         .mockResolvedValueOnce(null);
 
       await service.removeVenue('t1', 'v1');
@@ -514,6 +595,7 @@ describe('TournamentsService venue sync', () => {
       prisma.tournamentVenue.findFirst.mockResolvedValueOnce({
         id: 'tv2',
         venueId: 'v2',
+        isPrimary: false,
       });
 
       await service.removeVenue('t1', 'v2');
@@ -547,6 +629,7 @@ describe('TournamentsService venue sync', () => {
             {
               id: 'tv1',
               venueId: 'v1',
+              isPrimary: true,
               name: null,
               acronym: null,
               placeId: null,
@@ -559,6 +642,7 @@ describe('TournamentsService venue sync', () => {
             {
               id: 'tv2',
               venueId: null,
+              isPrimary: false,
               name: 'Inline Court',
               acronym: 'IC',
               placeId: 'gp2',
@@ -599,6 +683,7 @@ describe('TournamentsService venue sync', () => {
           data: expect.objectContaining({
             tournamentId: 'nt1',
             venueId: null,
+            isPrimary: false,
             name: 'Inline Court',
             acronym: 'IC',
             placeId: 'gp2',

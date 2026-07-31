@@ -249,4 +249,12 @@ export class TournamentsController {
   removeVenue(@Param('id') id: string, @Param('venueId') venueId: string) {
     return this.tournamentsService.removeVenue(id, venueId);
   }
+
+  @Patch(':id/venues/:tournamentVenueId/primary')
+  setPrimaryVenue(
+    @Param('id') id: string,
+    @Param('tournamentVenueId') tournamentVenueId: string
+  ) {
+    return this.tournamentsService.setPrimaryVenue(id, tournamentVenueId);
+  }
 }
