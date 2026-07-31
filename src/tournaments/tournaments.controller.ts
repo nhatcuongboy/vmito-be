@@ -8,6 +8,7 @@ import {
   Param,
   Query,
   UseGuards,
+  Patch,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { TournamentsService } from './tournaments.service';
@@ -254,7 +255,7 @@ export class TournamentsController {
   setPrimaryVenue(
     @Param('id') id: string,
     @Param('tournamentVenueId') tournamentVenueId: string
-  ) {
+  ): Promise<unknown> {
     return this.tournamentsService.setPrimaryVenue(id, tournamentVenueId);
   }
 }

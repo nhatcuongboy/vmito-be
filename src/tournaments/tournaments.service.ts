@@ -1576,7 +1576,10 @@ export class TournamentsService {
    * `Tournament.venueId` this works for inline (address-only) venues; that
    * column is kept as a mirror so venue-based browse filters keep working.
    */
-  async setPrimaryVenue(tournamentId: string, tournamentVenueId: string) {
+  async setPrimaryVenue(
+    tournamentId: string,
+    tournamentVenueId: string
+  ): Promise<unknown> {
     const target = await (this.prisma as any).tournamentVenue.findFirst({
       where: { id: tournamentVenueId, tournamentId },
     });

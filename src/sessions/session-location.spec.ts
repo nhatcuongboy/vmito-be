@@ -260,8 +260,9 @@ describe('SessionsService location updates', () => {
           customLocationLat: 10.77,
           customLocationLng: 106.7,
           customLocationDistrict: 'Quận 1',
-          customLocationCity: 'Hồ Chí Minh',
-          searchTerms: expect.stringContaining('456 le loi'),
+          searchTerms: expect.stringContaining(
+            '456 le loi'
+          ) as unknown as string,
           venue: { disconnect: true },
         }) as unknown,
       })

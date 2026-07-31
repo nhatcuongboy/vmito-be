@@ -23,6 +23,7 @@ describe('FavoritesService', () => {
     tournament: { findFirst: jest.Mock; findMany: jest.Mock };
     clubMember: { findFirst: jest.Mock };
     tournamentManager: { findUnique: jest.Mock };
+    venueManager: { findUnique: jest.Mock };
     notification: { findFirst: jest.Mock };
     user: { findUnique: jest.Mock };
   };
@@ -45,6 +46,7 @@ describe('FavoritesService', () => {
       tournament: { findFirst: jest.fn(), findMany: jest.fn() },
       clubMember: { findFirst: jest.fn() },
       tournamentManager: { findUnique: jest.fn() },
+      venueManager: { findUnique: jest.fn() },
       notification: { findFirst: jest.fn() },
       user: { findUnique: jest.fn() },
     };
