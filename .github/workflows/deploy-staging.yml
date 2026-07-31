@@ -90,4 +90,6 @@ jobs:
             # If it fails, `set -e` aborts the deploy and the current backend keeps serving.
             docker compose --env-file .env.staging -f docker-compose.staging.yml run --rm backend-staging npx prisma migrate deploy
             docker compose --env-file .env.staging -f docker-compose.staging.yml up -d backend-staging
-            docker image prune -a -f
+            # Cleanup is best-effort: another prune may already be running (e.g.
+            # a parallel production deploy) and must not fail the deploy.
+            docker image prune -a -f || true
