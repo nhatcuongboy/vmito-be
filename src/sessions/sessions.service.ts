@@ -39,6 +39,7 @@ import {
 import { ExtractedSessionDto } from '../ai/dto/extract-session.dto';
 import { FavoritesService } from '../favorites/favorites.service';
 import { ActivityFeedService } from '../activities/activity-feed.service';
+import { PointsService } from '../points/points.service';
 
 @Injectable()
 export class SessionsService {
@@ -51,7 +52,8 @@ export class SessionsService {
     private clubsService: ClubsService,
     private userImagesService: UserImagesService,
     private favoritesService: FavoritesService,
-    private activityFeedService: ActivityFeedService
+    private activityFeedService: ActivityFeedService,
+    private pointsService: PointsService
   ) {}
 
   private readonly STATUS_PRIORITY: Record<string, number> = {
@@ -1551,12 +1553,7 @@ export class SessionsService {
 
     const sessionSlug = `${generateSlug(name)}-${Math.random().toString(36).substring(2, 7)}`;
     const sessionSearchTerms = removeVietnameseTones(
-      [
-        name,
-        finalLocation,
-        extracted.hostName,
-        ...resolvedLocation.searchTerms,
-      ]
+      [name, finalLocation, extracted.hostName, ...resolvedLocation.searchTerms]
         .filter(Boolean)
         .join(' ')
     ).toLowerCase();
@@ -2399,6 +2396,10 @@ export class SessionsService {
     );
 
     this.sessionsGateway.notifySessionUpdate(id);
+
+    // Ranking points: participation bonus for everyone who played ≥ 1 match.
+    void this.pointsService.awardSessionParticipation(id);
+
     return transactionResult;
   }
 

@@ -12,6 +12,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { SessionAccessModule } from '../common/session-access/session-access.module';
 import { FavoritesModule } from '../favorites/favorites.module';
 import { ActivitiesModule } from '../activities/activities.module';
+import { PointsModule } from '../points/points.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ActivitiesModule } from '../activities/activities.module';
     SessionAccessModule,
     FavoritesModule,
     ActivitiesModule,
+    PointsModule,
   ],
   controllers: [SessionsController],
   providers: [SessionsService, SessionSchedulerService],

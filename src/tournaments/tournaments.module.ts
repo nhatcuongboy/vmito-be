@@ -15,6 +15,7 @@ import { ScheduleModule } from './schedule.module';
 import { TournamentsGatewayModule } from './realtime/tournaments-gateway.module';
 import { FavoritesModule } from '../favorites/favorites.module';
 import { ActivitiesModule } from '../activities/activities.module';
+import { PointsModule } from '../points/points.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ActivitiesModule } from '../activities/activities.module';
     TournamentsGatewayModule,
     FavoritesModule,
     ActivitiesModule,
+    PointsModule,
   ],
   controllers: [
     TournamentsController,

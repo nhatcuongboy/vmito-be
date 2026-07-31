@@ -26,6 +26,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { RatingsModule } from './ratings/ratings.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { PointsModule } from './points/points.module';
 import { ClubsModule } from './clubs/clubs.module';
 import { UserImagesModule } from './user-images/user-images.module';
 import { PostsModule } from './posts/posts.module';
@@ -77,6 +78,7 @@ import configuration from './config';
     UploadsModule,
     RatingsModule,
     NotificationsModule,
+    PointsModule,
     ClubsModule,
     UserImagesModule,
     PostsModule,

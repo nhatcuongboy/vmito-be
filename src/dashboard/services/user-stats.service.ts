@@ -25,7 +25,7 @@ const GENDER_ORDER: (Gender | null)[] = [
 ];
 
 function sortByGenderOrder<T extends { gender: Gender | null }>(
-  rows: T[],
+  rows: T[]
 ): T[] {
   return [...rows].sort((a, b) => {
     const ai = GENDER_ORDER.indexOf(a.gender);
@@ -72,7 +72,7 @@ export class UserStatsService {
         byGenderRaw.map((row) => ({
           gender: row.gender,
           count: row._count._all,
-        })),
+        }))
       ),
       trend: toTrendBuckets(trendRaw),
     };
