@@ -93,4 +93,6 @@ jobs:
             # serving (no outage) — instead of the app container crash-looping.
             docker compose run --rm backend npx prisma migrate deploy
             docker compose up -d backend
-            docker image prune -a -f
+            # Cleanup is best-effort: another prune may already be running (e.g.
+            # a parallel staging deploy) and must not fail the deploy.
+            docker image prune -a -f || true
