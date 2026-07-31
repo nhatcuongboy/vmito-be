@@ -16,6 +16,27 @@ export interface UserStatsResponse {
   trend: TrendBucket[];
 }
 
+const GENDER_ORDER: (Gender | null)[] = [
+  Gender.MALE,
+  Gender.FEMALE,
+  Gender.OTHER,
+  Gender.PREFER_NOT_TO_SAY,
+  null,
+];
+
+function sortByGenderOrder<T extends { gender: Gender | null }>(
+  rows: T[],
+): T[] {
+  return [...rows].sort((a, b) => {
+    const ai = GENDER_ORDER.indexOf(a.gender);
+    const bi = GENDER_ORDER.indexOf(b.gender);
+    return (
+      (ai === -1 ? GENDER_ORDER.length : ai) -
+      (bi === -1 ? GENDER_ORDER.length : bi)
+    );
+  });
+}
+
 @Injectable()
 export class UserStatsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -47,10 +68,12 @@ export class UserStatsService {
         role: row.role,
         count: row._count._all,
       })),
-      byGender: byGenderRaw.map((row) => ({
-        gender: row.gender,
-        count: row._count._all,
-      })),
+      byGender: sortByGenderOrder(
+        byGenderRaw.map((row) => ({
+          gender: row.gender,
+          count: row._count._all,
+        })),
+      ),
       trend: toTrendBuckets(trendRaw),
     };
   }

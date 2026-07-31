@@ -144,8 +144,10 @@ export class SessionsService {
         customLocation?.district
       );
       const city = this.normalizeOptionalLocationPart(customLocation?.city);
-      const hasLat = customLocation?.lat !== undefined;
-      const hasLng = customLocation?.lng !== undefined;
+      const lat = customLocation?.lat;
+      const lng = customLocation?.lng;
+      const hasLat = lat !== undefined;
+      const hasLng = lng !== undefined;
 
       if (hasLat !== hasLng) {
         throw new BadRequestException(
@@ -153,8 +155,8 @@ export class SessionsService {
         );
       }
       if (
-        (hasLat && (customLocation!.lat! < -90 || customLocation!.lat! > 90)) ||
-        (hasLng && (customLocation!.lng! < -180 || customLocation!.lng! > 180))
+        (hasLat && (lat < -90 || lat > 90)) ||
+        (hasLng && (lng < -180 || lng > 180))
       ) {
         throw new BadRequestException('customLocation coordinates are invalid');
       }

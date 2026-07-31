@@ -125,6 +125,44 @@ export class PostsService {
     }
   }
 
+  private notifyPostCommentCreated(
+    postId: string,
+    comment: unknown,
+    commentCount: number,
+    actorId: string
+  ) {
+    try {
+      this.sessionsGateway.notifyPostCommentCreated(postId, {
+        comment,
+        commentCount,
+        actorId,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to emit post comment created ${postId}: ${String(error)}`
+      );
+    }
+  }
+
+  private notifyPostCommentDeleted(
+    postId: string,
+    commentId: string,
+    commentCount: number,
+    actorId: string
+  ) {
+    try {
+      this.sessionsGateway.notifyPostCommentDeleted(postId, {
+        commentId,
+        commentCount,
+        actorId,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to emit post comment deleted ${postId}: ${String(error)}`
+      );
+    }
+  }
+
   private normalizePost<T extends NormalizablePost>(
     post: T,
     userId?: string
@@ -524,6 +562,11 @@ export class PostsService {
       },
     });
 
+    const commentCount = await this.prisma.postComment.count({
+      where: { postId },
+    });
+    this.notifyPostCommentCreated(postId, comment, commentCount, userId);
+
     await this.notifyPostInteraction(
       post,
       userId,
@@ -579,6 +622,15 @@ export class PostsService {
     }
 
     await this.prisma.postComment.delete({ where: { id: commentId } });
+    const commentCount = await this.prisma.postComment.count({
+      where: { postId: comment.postId },
+    });
+    this.notifyPostCommentDeleted(
+      comment.postId,
+      commentId,
+      commentCount,
+      userId
+    );
     return { message: 'Comment deleted successfully' };
   }
 

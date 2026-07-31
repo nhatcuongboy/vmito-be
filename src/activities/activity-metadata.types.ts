@@ -15,8 +15,11 @@ export interface SessionResultsStanding {
   playerNumber: number;
   name: string;
   matchesPlayed: number;
+  wins: number;
+  winRate: number;
   totalWaitTime: number;
   userId?: string | null;
+  image?: string | null;
 }
 
 export interface SessionResultsMetadata {

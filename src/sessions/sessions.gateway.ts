@@ -39,6 +39,8 @@ export enum SessionEventType {
   NOTIFICATION_RECEIVED = 'notification_received',
   FAVORITE_UPDATED = 'favorite_updated',
   POST_LIKE_UPDATED = 'post_like_updated',
+  POST_COMMENT_CREATED = 'post_comment_created',
+  POST_COMMENT_DELETED = 'post_comment_deleted',
   // Session lifecycle events
   SESSION_START_REMINDER = 'session_start_reminder',
   SESSION_END_WARNING = 'session_end_warning',
@@ -277,6 +279,40 @@ export class SessionsGateway
     if (!roomName) return;
 
     this.server.to(roomName).emit(SessionEventType.POST_LIKE_UPDATED, {
+      postId,
+      ...payload,
+    });
+  }
+
+  notifyPostCommentCreated(
+    postId: string,
+    payload: {
+      comment: unknown;
+      commentCount: number;
+      actorId: string;
+    }
+  ) {
+    const roomName = this.getPostRoom(postId);
+    if (!roomName) return;
+
+    this.server.to(roomName).emit(SessionEventType.POST_COMMENT_CREATED, {
+      postId,
+      ...payload,
+    });
+  }
+
+  notifyPostCommentDeleted(
+    postId: string,
+    payload: {
+      commentId: string;
+      commentCount: number;
+      actorId: string;
+    }
+  ) {
+    const roomName = this.getPostRoom(postId);
+    if (!roomName) return;
+
+    this.server.to(roomName).emit(SessionEventType.POST_COMMENT_DELETED, {
       postId,
       ...payload,
     });

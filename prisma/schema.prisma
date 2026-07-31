@@ -1475,6 +1475,9 @@ model TournamentVenue {
   tournamentId String
   /// Null when using inline address mode (no Venue record created)
   venueId      String?
+  /// Main location shown on public pages. Works for inline venues too, unlike
+  /// Tournament.venueId which can only point at a directory Venue.
+  isPrimary    Boolean  @default(false)
   createdAt    DateTime @default(now())
 
   /// Inline address fields — populated when venueId is null
@@ -1492,6 +1495,7 @@ model TournamentVenue {
   venue      Venue?            @relation(fields: [venueId], references: [id])
   courts     TournamentCourt[]
 
+  @@index([tournamentId, isPrimary])
   @@map("tournament_venues")
 }
 
