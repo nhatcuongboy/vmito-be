@@ -24,6 +24,10 @@ export class WebhooksController {
    * Public endpoint hit by the Apify actor after each Facebook crawl.
    * Authenticated by a shared secret (header `x-apify-secret` or `?secret=`),
    * NOT by JWT — hence @Public() to bypass the global JwtAuthGuard.
+   *
+   * Multi-account rotation: each Actor's webhook URL must include
+   * `?account=<accountId>` so the service can resolve the correct API token
+   * for fetching the dataset. If omitted, falls back to APIFY_TOKEN.
    */
   @Public()
   @Post('apify')
@@ -31,7 +35,8 @@ export class WebhooksController {
   async handleApify(
     @Body() payload: ApifyWebhookPayload,
     @Headers('x-apify-secret') headerSecret?: string,
-    @Query('secret') querySecret?: string
+    @Query('secret') querySecret?: string,
+    @Query('account') accountId?: string
   ) {
     const expected = this.configService.get<string>('apify.webhookSecret');
     if (!expected) {
@@ -42,6 +47,6 @@ export class WebhooksController {
       throw new UnauthorizedException('Invalid webhook secret.');
     }
 
-    return this.webhooksService.ingestApifyPosts(payload);
+    return this.webhooksService.ingestApifyPosts(payload, accountId);
   }
 }
