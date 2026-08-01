@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { PointsService, PointEntry } from './points.service';
+import {
+  PointsService,
+  PointEntry,
+  sessionCompletionEntries,
+} from './points.service';
 import { POINT_VALUES, tierForPoints } from './points.constants';
 
 /**
@@ -90,28 +94,19 @@ export class PointsBackfillService {
         id: true,
         endTime: true,
         updatedAt: true,
+        hostId: true,
+        isCrawled: true,
         players: { select: { userId: true, matchesPlayed: true } },
       },
     });
 
-    const entries: PointEntry[] = [];
-    for (const session of sessions) {
-      const seen = new Set<string>();
-      for (const player of session.players) {
-        if (!player.userId || player.matchesPlayed < 1) continue;
-        if (seen.has(player.userId)) continue;
-        seen.add(player.userId);
-        entries.push({
-          userId: player.userId,
-          sport: 'BADMINTON',
-          reason: 'SESSION_PARTICIPATION',
-          refType: 'SESSION',
-          refId: session.id,
-          occurredAt: session.endTime ?? session.updatedAt,
-        });
-      }
-    }
-    return entries;
+    return sessions.flatMap((session) =>
+      sessionCompletionEntries(
+        session,
+        session.id,
+        session.endTime ?? session.updatedAt
+      )
+    );
   }
 
   private async tournamentMatchEntries(): Promise<PointEntry[]> {

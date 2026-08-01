@@ -198,6 +198,7 @@ export class LeaderboardService {
         losses: countFor(LOSS_REASONS),
         matchesPlayed: countFor(MATCH_REASONS),
         sessionsPlayed: countFor(['SESSION_PARTICIPATION']),
+        sessionsHosted: countFor(['SESSION_HOSTED']),
         tournamentTitles: countFor(['TOURNAMENT_CHAMPION']),
         tournamentRunnerUps: countFor(['TOURNAMENT_RUNNER_UP']),
       },

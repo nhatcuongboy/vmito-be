@@ -6,6 +6,7 @@ export const POINT_VALUES: Record<PointReason, number> = {
   SESSION_MATCH_DRAW: 5,
   SESSION_MATCH_LOSS: 2,
   SESSION_PARTICIPATION: 5,
+  SESSION_HOSTED: 15,
   TOURNAMENT_MATCH_WIN: 20,
   TOURNAMENT_MATCH_DRAW: 10,
   TOURNAMENT_MATCH_LOSS: 5,
@@ -14,6 +15,12 @@ export const POINT_VALUES: Record<PointReason, number> = {
   TOURNAMENT_SEMIFINALIST: 30,
   ADJUSTMENT: 0,
 };
+
+/**
+ * A host only earns points once this many distinct Vmito accounts actually
+ * played in the session — guests are excluded so points cannot be farmed.
+ */
+export const HOST_MIN_ACTIVE_PLAYERS = 4;
 
 // All-time points required to reach each tier (per sport).
 export const TIER_THRESHOLDS: { tier: RankingTier; minPoints: number }[] = [

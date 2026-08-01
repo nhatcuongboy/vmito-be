@@ -6,7 +6,12 @@ import {
   SessionsGateway,
   SessionEventType,
 } from '../sessions/sessions.gateway';
-import { POINT_VALUES, TIER_ORDER, tierForPoints } from './points.constants';
+import {
+  HOST_MIN_ACTIVE_PLAYERS,
+  POINT_VALUES,
+  TIER_ORDER,
+  tierForPoints,
+} from './points.constants';
 
 export interface PointEntry {
   userId: string;
@@ -154,38 +159,30 @@ export class PointsService {
     }
   }
 
-  /** Participation points for every linked player who played ≥1 match. Idempotent, never throws. */
-  async awardSessionParticipation(sessionId: string): Promise<void> {
+  /**
+   * Points awarded when a session is finalized: participation for every linked
+   * player who played, plus a hosting bonus when the session actually ran.
+   * Idempotent, never throws.
+   */
+  async awardSessionCompletion(sessionId: string): Promise<void> {
     try {
       const session = await this.prisma.session.findUnique({
         where: { id: sessionId },
         select: {
           status: true,
           endTime: true,
+          hostId: true,
+          isCrawled: true,
           players: { select: { userId: true, matchesPlayed: true } },
         },
       });
       if (!session || session.status !== 'FINISHED') return;
 
       const occurredAt = session.endTime ?? new Date();
-      const seen = new Set<string>();
-      const entries: PointEntry[] = [];
-      for (const player of session.players) {
-        if (!player.userId || player.matchesPlayed < 1) continue;
-        if (seen.has(player.userId)) continue;
-        seen.add(player.userId);
-        entries.push({
-          userId: player.userId,
-          sport: 'BADMINTON',
-          reason: 'SESSION_PARTICIPATION',
-          refType: 'SESSION',
-          refId: sessionId,
-          occurredAt,
-        });
-      }
+      const entries = sessionCompletionEntries(session, sessionId, occurredAt);
       await this.persistAndNotify(entries);
     } catch (error) {
-      this.logSwallowed('awardSessionParticipation', sessionId, error);
+      this.logSwallowed('awardSessionCompletion', sessionId, error);
     }
   }
 
@@ -406,4 +403,53 @@ function registrationUserIds(registration: RegistrationWithUsers): string[] {
     ? [registration.player]
     : (registration.pair?.members ?? []).map((m) => m.player);
   return players.map((p) => p.userId).filter((id): id is string => Boolean(id));
+}
+
+type SessionForPoints = {
+  hostId: string | null;
+  isCrawled: boolean;
+  players: { userId: string | null; matchesPlayed: number }[];
+};
+
+/**
+ * Participation entries for every linked player who played, plus the hosting
+ * bonus. Shared with the backfill so live awards and history stay identical.
+ */
+export function sessionCompletionEntries(
+  session: SessionForPoints,
+  sessionId: string,
+  occurredAt: Date
+): PointEntry[] {
+  const activeUserIds = new Set<string>();
+  for (const player of session.players) {
+    if (!player.userId || player.matchesPlayed < 1) continue;
+    activeUserIds.add(player.userId);
+  }
+
+  const entries: PointEntry[] = [...activeUserIds].map((userId) => ({
+    userId,
+    sport: 'BADMINTON',
+    reason: 'SESSION_PARTICIPATION',
+    refType: 'SESSION',
+    refId: sessionId,
+    occurredAt,
+  }));
+
+  // Crawled sessions are imported from Facebook — nobody hosted them here.
+  const hostQualifies =
+    !session.isCrawled &&
+    Boolean(session.hostId) &&
+    activeUserIds.size >= HOST_MIN_ACTIVE_PLAYERS;
+
+  if (hostQualifies && session.hostId) {
+    entries.push({
+      userId: session.hostId,
+      sport: 'BADMINTON',
+      reason: 'SESSION_HOSTED',
+      refType: 'SESSION',
+      refId: sessionId,
+      occurredAt,
+    });
+  }
+  return entries;
 }
