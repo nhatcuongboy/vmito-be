@@ -102,6 +102,7 @@ enum PointReason {
   SESSION_MATCH_DRAW
   SESSION_MATCH_LOSS
   SESSION_PARTICIPATION
+  SESSION_HOSTED
   TOURNAMENT_MATCH_WIN
   TOURNAMENT_MATCH_DRAW
   TOURNAMENT_MATCH_LOSS
@@ -145,8 +146,11 @@ model UserPointsState {
   id          String      @id @default(cuid())
   userId      String
   sport       SportType   @default(BADMINTON)
+  // Player board only — hosting rewards are tracked separately in hostPoints
+  // so organising sessions cannot inflate a player's rank or tier.
   totalPoints Int         @default(0)
   tier        RankingTier @default(BRONZE)
+  hostPoints  Int         @default(0)
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
@@ -154,6 +158,7 @@ model UserPointsState {
 
   @@unique([userId, sport])
   @@index([sport, totalPoints])
+  @@index([sport, hostPoints])
   @@map("user_points_states")
 }
 
@@ -2257,4 +2262,17 @@ model Feedback {
   @@index([status])
   @@index([createdAt])
   @@map("feedbacks")
+}
+
+// Global on/off switches read by clients at startup instead of being baked
+// into a frontend constants file, so toggling one doesn't require a redeploy.
+model FeatureFlag {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  enabled     Boolean  @default(false)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("feature_flags")
 }

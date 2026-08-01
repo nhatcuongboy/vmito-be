@@ -2397,8 +2397,8 @@ export class SessionsService {
 
     this.sessionsGateway.notifySessionUpdate(id);
 
-    // Ranking points: participation bonus for everyone who played ≥ 1 match.
-    void this.pointsService.awardSessionParticipation(id);
+    // Ranking points: participation for everyone who played, plus host bonus.
+    void this.pointsService.awardSessionCompletion(id);
 
     return transactionResult;
   }

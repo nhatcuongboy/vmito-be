@@ -6,7 +6,13 @@ import {
   SessionsGateway,
   SessionEventType,
 } from '../sessions/sessions.gateway';
-import { POINT_VALUES, TIER_ORDER, tierForPoints } from './points.constants';
+import {
+  HOST_MIN_ACTIVE_PLAYERS,
+  HOST_REASONS,
+  POINT_VALUES,
+  TIER_ORDER,
+  tierForPoints,
+} from './points.constants';
 
 export interface PointEntry {
   userId: string;
@@ -97,16 +103,38 @@ export class PointsService {
   }
 
   private async refreshState(userId: string, sport: SportType): Promise<void> {
-    const agg = await this.prisma.pointTransaction.aggregate({
+    const { totalPoints, hostPoints } = await this.sumBoards(userId, sport);
+    await this.prisma.userPointsState.upsert({
+      where: { userId_sport: { userId, sport } },
+      create: {
+        userId,
+        sport,
+        totalPoints,
+        hostPoints,
+        tier: tierForPoints(totalPoints),
+      },
+      update: { totalPoints, hostPoints, tier: tierForPoints(totalPoints) },
+    });
+  }
+
+  /** Player points and host points are ranked separately, so sum them apart. */
+  private async sumBoards(
+    userId: string,
+    sport: SportType
+  ): Promise<{ totalPoints: number; hostPoints: number }> {
+    const rows = await this.prisma.pointTransaction.groupBy({
+      by: ['reason'],
       where: { userId, sport },
       _sum: { points: true },
     });
-    const totalPoints = agg._sum.points ?? 0;
-    await this.prisma.userPointsState.upsert({
-      where: { userId_sport: { userId, sport } },
-      create: { userId, sport, totalPoints, tier: tierForPoints(totalPoints) },
-      update: { totalPoints, tier: tierForPoints(totalPoints) },
-    });
+    let totalPoints = 0;
+    let hostPoints = 0;
+    for (const row of rows) {
+      const points = row._sum.points ?? 0;
+      if (HOST_REASONS.includes(row.reason)) hostPoints += points;
+      else totalPoints += points;
+    }
+    return { totalPoints, hostPoints };
   }
 
   /** Award points for a finished tournament (category) match. Idempotent, never throws. */
@@ -154,38 +182,30 @@ export class PointsService {
     }
   }
 
-  /** Participation points for every linked player who played ≥1 match. Idempotent, never throws. */
-  async awardSessionParticipation(sessionId: string): Promise<void> {
+  /**
+   * Points awarded when a session is finalized: participation for every linked
+   * player who played, plus a hosting bonus when the session actually ran.
+   * Idempotent, never throws.
+   */
+  async awardSessionCompletion(sessionId: string): Promise<void> {
     try {
       const session = await this.prisma.session.findUnique({
         where: { id: sessionId },
         select: {
           status: true,
           endTime: true,
+          hostId: true,
+          isCrawled: true,
           players: { select: { userId: true, matchesPlayed: true } },
         },
       });
       if (!session || session.status !== 'FINISHED') return;
 
       const occurredAt = session.endTime ?? new Date();
-      const seen = new Set<string>();
-      const entries: PointEntry[] = [];
-      for (const player of session.players) {
-        if (!player.userId || player.matchesPlayed < 1) continue;
-        if (seen.has(player.userId)) continue;
-        seen.add(player.userId);
-        entries.push({
-          userId: player.userId,
-          sport: 'BADMINTON',
-          reason: 'SESSION_PARTICIPATION',
-          refType: 'SESSION',
-          refId: sessionId,
-          occurredAt,
-        });
-      }
+      const entries = sessionCompletionEntries(session, sessionId, occurredAt);
       await this.persistAndNotify(entries);
     } catch (error) {
-      this.logSwallowed('awardSessionParticipation', sessionId, error);
+      this.logSwallowed('awardSessionCompletion', sessionId, error);
     }
   }
 
@@ -314,29 +334,33 @@ export class PointsService {
     });
 
     for (const { userId, sport } of affected) {
-      const agg = await this.prisma.pointTransaction.aggregate({
-        where: { userId, sport },
-        _sum: { points: true },
-      });
-      const totalPoints = agg._sum.points ?? 0;
+      const { totalPoints, hostPoints } = await this.sumBoards(userId, sport);
       const tier = tierForPoints(totalPoints);
       const prev = beforeByKey.get(`${userId}:${sport}`);
       const prevPoints = prev?.totalPoints ?? 0;
+      const prevHostPoints = prev?.hostPoints ?? 0;
       const prevTier: RankingTier = prev?.tier ?? 'BRONZE';
       const delta = totalPoints - prevPoints;
-      if (delta === 0) continue; // Everything was a duplicate — nothing new.
+      const hostDelta = hostPoints - prevHostPoints;
+      if (delta === 0 && hostDelta === 0) continue; // Everything was a duplicate.
 
       await this.prisma.userPointsState.upsert({
         where: { userId_sport: { userId, sport } },
-        create: { userId, sport, totalPoints, tier },
-        update: { totalPoints, tier },
+        create: { userId, sport, totalPoints, hostPoints, tier },
+        update: { totalPoints, hostPoints, tier },
       });
 
       const tierChanged =
         TIER_ORDER.indexOf(tier) > TIER_ORDER.indexOf(prevTier);
-      if (!options?.silent) {
+      // Host points are not on the player board, so they raise no celebration.
+      if (!options?.silent && delta !== 0) {
         const reasons = entries
-          .filter((e) => e.userId === userId && e.sport === sport)
+          .filter(
+            (e) =>
+              e.userId === userId &&
+              e.sport === sport &&
+              !HOST_REASONS.includes(e.reason)
+          )
           .map((e) => e.reason);
         this.sessionsGateway.notifyUser(
           userId,
@@ -406,4 +430,53 @@ function registrationUserIds(registration: RegistrationWithUsers): string[] {
     ? [registration.player]
     : (registration.pair?.members ?? []).map((m) => m.player);
   return players.map((p) => p.userId).filter((id): id is string => Boolean(id));
+}
+
+type SessionForPoints = {
+  hostId: string | null;
+  isCrawled: boolean;
+  players: { userId: string | null; matchesPlayed: number }[];
+};
+
+/**
+ * Participation entries for every linked player who played, plus the hosting
+ * bonus. Shared with the backfill so live awards and history stay identical.
+ */
+export function sessionCompletionEntries(
+  session: SessionForPoints,
+  sessionId: string,
+  occurredAt: Date
+): PointEntry[] {
+  const activeUserIds = new Set<string>();
+  for (const player of session.players) {
+    if (!player.userId || player.matchesPlayed < 1) continue;
+    activeUserIds.add(player.userId);
+  }
+
+  const entries: PointEntry[] = [...activeUserIds].map((userId) => ({
+    userId,
+    sport: 'BADMINTON',
+    reason: 'SESSION_PARTICIPATION',
+    refType: 'SESSION',
+    refId: sessionId,
+    occurredAt,
+  }));
+
+  // Crawled sessions are imported from Facebook — nobody hosted them here.
+  const hostQualifies =
+    !session.isCrawled &&
+    Boolean(session.hostId) &&
+    activeUserIds.size >= HOST_MIN_ACTIVE_PLAYERS;
+
+  if (hostQualifies && session.hostId) {
+    entries.push({
+      userId: session.hostId,
+      sport: 'BADMINTON',
+      reason: 'SESSION_HOSTED',
+      refType: 'SESSION',
+      refId: sessionId,
+      occurredAt,
+    });
+  }
+  return entries;
 }
