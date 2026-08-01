@@ -42,9 +42,25 @@ export class WebhooksService {
    * a `resource.defaultDatasetId` we fetch the actual items from the Apify
    * dataset API. Inline `items`/`data`/bare-array payloads (e.g. via Make/n8n)
    * are also supported.
+   *
+   * @param accountId - Optional Apify account identifier passed via the
+   *   `?account=` query param on the webhook URL. Used to resolve the correct
+   *   API token when multiple Apify accounts are in rotation.
    */
-  async ingestApifyPosts(payload: ApifyWebhookPayload): Promise<IngestResult> {
-    const items = await this.resolveItems(payload);
+  async ingestApifyPosts(
+    payload: ApifyWebhookPayload,
+    accountId?: string
+  ): Promise<IngestResult> {
+    const runId = (payload?.resource as Record<string, unknown>)?.id as
+      | string
+      | undefined;
+    const eventType = payload?.eventType ?? 'unknown';
+    this.logger.log(
+      `[Apify] Webhook received | account=${accountId ?? 'default'} | event=${eventType}` +
+        (runId ? ` | runId=${runId}` : '')
+    );
+
+    const items = await this.resolveItems(payload, accountId);
     const result: IngestResult = {
       received: items.length,
       imported: 0,
@@ -126,7 +142,8 @@ export class WebhooksService {
     }
 
     this.logger.log(
-      `Apify ingest: received=${result.received} imported=${result.imported} ` +
+      `Apify ingest [account=${accountId ?? 'default'}]: ` +
+        `received=${result.received} imported=${result.imported} ` +
         `dup=${result.skippedDuplicate} nonRecruitment=${result.skippedNonRecruitment} ` +
         `noise=${result.skippedNoise} incomplete=${result.skippedIncomplete} ` +
         `failed=${result.failed}`
@@ -139,14 +156,15 @@ export class WebhooksService {
    * otherwise fetches them from the Apify dataset referenced by the run event.
    */
   private async resolveItems(
-    payload: ApifyWebhookPayload
+    payload: ApifyWebhookPayload,
+    accountId?: string
   ): Promise<ApifyPostItem[]> {
     const inline = this.extractInlineItems(payload);
     if (inline.length > 0) return inline;
 
     const datasetId = payload?.resource?.defaultDatasetId;
     if (datasetId) {
-      return this.fetchDatasetItems(datasetId);
+      return this.fetchDatasetItems(datasetId, accountId);
     }
 
     this.logger.warn(
@@ -163,25 +181,75 @@ export class WebhooksService {
     return [];
   }
 
-  /** Fetch the crawled posts from the Apify dataset API using APIFY_TOKEN. */
-  private async fetchDatasetItems(datasetId: string): Promise<ApifyPostItem[]> {
-    const token = this.configService.get<string>('apify.token');
-    if (!token) {
-      throw new Error(
-        'APIFY_TOKEN is not configured; cannot fetch dataset items.'
-      );
-    }
+  /** Fetch the crawled posts from the Apify dataset API using the resolved token. */
+  private async fetchDatasetItems(
+    datasetId: string,
+    accountId?: string
+  ): Promise<ApifyPostItem[]> {
+    const token = this.resolveToken(accountId);
+    this.logger.log(
+      `[Apify] Fetching dataset | account=${accountId ?? 'default'} | datasetId=${datasetId}`
+    );
     const url =
       `https://api.apify.com/v2/datasets/${datasetId}/items` +
       `?clean=true&format=json&token=${token}`;
     const res = await fetch(url);
     if (!res.ok) {
+      this.logger.error(
+        `[Apify] Dataset fetch FAILED | account=${accountId ?? 'default'} | datasetId=${datasetId} | status=${res.status} ${res.statusText}`
+      );
       throw new Error(
         `Apify dataset fetch failed (${res.status} ${res.statusText}).`
       );
     }
     const data = (await res.json()) as unknown;
-    return Array.isArray(data) ? (data as ApifyPostItem[]) : [];
+    const items = Array.isArray(data) ? (data as ApifyPostItem[]) : [];
+    this.logger.log(
+      `[Apify] Dataset fetched | account=${accountId ?? 'default'} | datasetId=${datasetId} | items=${items.length}`
+    );
+    return items;
+  }
+
+  /**
+   * Resolve the Apify API token for a given account.
+   *
+   * Resolution order:
+   *   1. APIFY_TOKENS JSON map keyed by `accountId`  (multi-account rotation)
+   *   2. APIFY_TOKEN single env var                  (legacy / single-account)
+   *
+   * Throws if no token is found so the error surfaces clearly in logs.
+   */
+  private resolveToken(accountId?: string): string {
+    const tokensRaw = this.configService.get<string>('apify.tokens');
+    if (tokensRaw) {
+      try {
+        const map = JSON.parse(tokensRaw) as Record<string, string>;
+        if (accountId && map[accountId]) {
+          this.logger.log(
+            `[Apify] Token resolved | account=${accountId} | source=APIFY_TOKENS`
+          );
+          return map[accountId];
+        }
+        if (accountId) {
+          this.logger.warn(
+            `[Apify] Token NOT found | account=${accountId} | source=APIFY_TOKENS → falling back to APIFY_TOKEN`
+          );
+        }
+      } catch {
+        this.logger.warn(
+          '[Apify] APIFY_TOKENS is not valid JSON; falling back to APIFY_TOKEN.'
+        );
+      }
+    }
+
+    const fallback = this.configService.get<string>('apify.token');
+    if (!fallback) {
+      throw new Error(
+        'No Apify token found. Set APIFY_TOKENS (JSON map) or APIFY_TOKEN.'
+      );
+    }
+    this.logger.log('[Apify] Token resolved | source=APIFY_TOKEN (fallback)');
+    return fallback;
   }
 
   /**
