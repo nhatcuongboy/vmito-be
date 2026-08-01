@@ -17,7 +17,7 @@ import {
   sortLevelsByRank,
 } from '../common/constants/level.constants';
 
-const MODEL = 'gemini-3.1-flash-lite';
+const MODEL = 'gemini-3.5-flash-lite';
 const VIETNAM_TIME_ZONE = 'Asia/Ho_Chi_Minh';
 const VIETNAM_UTC_OFFSET = '+07:00';
 const DEFAULT_MAX_PLAYERS_PER_COURT = 8;
