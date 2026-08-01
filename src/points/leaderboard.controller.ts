@@ -6,6 +6,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { LeaderboardService } from './leaderboard.service';
 import { PointsBackfillService } from './points-backfill.service';
+import { PointsAdminService } from './points-admin.service';
 import {
   AchievementsQueryDto,
   LeaderboardQueryDto,
@@ -18,7 +19,8 @@ import {
 export class LeaderboardController {
   constructor(
     private readonly leaderboardService: LeaderboardService,
-    private readonly backfillService: PointsBackfillService
+    private readonly backfillService: PointsBackfillService,
+    private readonly pointsAdminService: PointsAdminService
   ) {}
 
   @Public()
@@ -45,6 +47,13 @@ export class LeaderboardController {
     @Query() query: AchievementsQueryDto
   ) {
     return this.leaderboardService.getUserAchievements(userId, query.sport);
+  }
+
+  @UseGuards(AdminGuard)
+  @Get('admin/overview')
+  @ApiOperation({ summary: 'Admin: scoring config and points system stats' })
+  getAdminOverview(@Query() query: AchievementsQueryDto) {
+    return this.pointsAdminService.getOverview(query.sport);
   }
 
   @UseGuards(AdminGuard)
