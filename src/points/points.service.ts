@@ -8,6 +8,7 @@ import {
 } from '../sessions/sessions.gateway';
 import {
   HOST_MIN_ACTIVE_PLAYERS,
+  HOST_REASONS,
   POINT_VALUES,
   TIER_ORDER,
   tierForPoints,
@@ -102,16 +103,38 @@ export class PointsService {
   }
 
   private async refreshState(userId: string, sport: SportType): Promise<void> {
-    const agg = await this.prisma.pointTransaction.aggregate({
+    const { totalPoints, hostPoints } = await this.sumBoards(userId, sport);
+    await this.prisma.userPointsState.upsert({
+      where: { userId_sport: { userId, sport } },
+      create: {
+        userId,
+        sport,
+        totalPoints,
+        hostPoints,
+        tier: tierForPoints(totalPoints),
+      },
+      update: { totalPoints, hostPoints, tier: tierForPoints(totalPoints) },
+    });
+  }
+
+  /** Player points and host points are ranked separately, so sum them apart. */
+  private async sumBoards(
+    userId: string,
+    sport: SportType
+  ): Promise<{ totalPoints: number; hostPoints: number }> {
+    const rows = await this.prisma.pointTransaction.groupBy({
+      by: ['reason'],
       where: { userId, sport },
       _sum: { points: true },
     });
-    const totalPoints = agg._sum.points ?? 0;
-    await this.prisma.userPointsState.upsert({
-      where: { userId_sport: { userId, sport } },
-      create: { userId, sport, totalPoints, tier: tierForPoints(totalPoints) },
-      update: { totalPoints, tier: tierForPoints(totalPoints) },
-    });
+    let totalPoints = 0;
+    let hostPoints = 0;
+    for (const row of rows) {
+      const points = row._sum.points ?? 0;
+      if (HOST_REASONS.includes(row.reason)) hostPoints += points;
+      else totalPoints += points;
+    }
+    return { totalPoints, hostPoints };
   }
 
   /** Award points for a finished tournament (category) match. Idempotent, never throws. */
@@ -311,29 +334,33 @@ export class PointsService {
     });
 
     for (const { userId, sport } of affected) {
-      const agg = await this.prisma.pointTransaction.aggregate({
-        where: { userId, sport },
-        _sum: { points: true },
-      });
-      const totalPoints = agg._sum.points ?? 0;
+      const { totalPoints, hostPoints } = await this.sumBoards(userId, sport);
       const tier = tierForPoints(totalPoints);
       const prev = beforeByKey.get(`${userId}:${sport}`);
       const prevPoints = prev?.totalPoints ?? 0;
+      const prevHostPoints = prev?.hostPoints ?? 0;
       const prevTier: RankingTier = prev?.tier ?? 'BRONZE';
       const delta = totalPoints - prevPoints;
-      if (delta === 0) continue; // Everything was a duplicate — nothing new.
+      const hostDelta = hostPoints - prevHostPoints;
+      if (delta === 0 && hostDelta === 0) continue; // Everything was a duplicate.
 
       await this.prisma.userPointsState.upsert({
         where: { userId_sport: { userId, sport } },
-        create: { userId, sport, totalPoints, tier },
-        update: { totalPoints, tier },
+        create: { userId, sport, totalPoints, hostPoints, tier },
+        update: { totalPoints, hostPoints, tier },
       });
 
       const tierChanged =
         TIER_ORDER.indexOf(tier) > TIER_ORDER.indexOf(prevTier);
-      if (!options?.silent) {
+      // Host points are not on the player board, so they raise no celebration.
+      if (!options?.silent && delta !== 0) {
         const reasons = entries
-          .filter((e) => e.userId === userId && e.sport === sport)
+          .filter(
+            (e) =>
+              e.userId === userId &&
+              e.sport === sport &&
+              !HOST_REASONS.includes(e.reason)
+          )
           .map((e) => e.reason);
         this.sessionsGateway.notifyUser(
           userId,

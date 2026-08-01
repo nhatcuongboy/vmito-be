@@ -1,11 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { SportType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   PointsService,
   PointEntry,
   sessionCompletionEntries,
 } from './points.service';
-import { POINT_VALUES, tierForPoints } from './points.constants';
+import { HOST_REASONS, POINT_VALUES, tierForPoints } from './points.constants';
 
 /**
  * Recomputes historical points from every finished match/session/tournament.
@@ -199,23 +200,47 @@ export class PointsBackfillService {
   /** Rebuild every UserPointsState from the ledger. */
   private async rebuildStates(): Promise<number> {
     const totals = await this.prisma.pointTransaction.groupBy({
-      by: ['userId', 'sport'],
+      by: ['userId', 'sport', 'reason'],
       _sum: { points: true },
     });
+
+    const byUser = new Map<
+      string,
+      {
+        userId: string;
+        sport: SportType;
+        totalPoints: number;
+        hostPoints: number;
+      }
+    >();
     for (const row of totals) {
-      const totalPoints = row._sum.points ?? 0;
+      const key = `${row.userId}:${row.sport}`;
+      const state = byUser.get(key) ?? {
+        userId: row.userId,
+        sport: row.sport,
+        totalPoints: 0,
+        hostPoints: 0,
+      };
+      const points = row._sum.points ?? 0;
+      if (HOST_REASONS.includes(row.reason)) state.hostPoints += points;
+      else state.totalPoints += points;
+      byUser.set(key, state);
+    }
+
+    for (const { userId, sport, totalPoints, hostPoints } of byUser.values()) {
       await this.prisma.userPointsState.upsert({
-        where: { userId_sport: { userId: row.userId, sport: row.sport } },
+        where: { userId_sport: { userId, sport } },
         create: {
-          userId: row.userId,
-          sport: row.sport,
+          userId,
+          sport,
           totalPoints,
+          hostPoints,
           tier: tierForPoints(totalPoints),
         },
-        update: { totalPoints, tier: tierForPoints(totalPoints) },
+        update: { totalPoints, hostPoints, tier: tierForPoints(totalPoints) },
       });
     }
-    return totals.length;
+    return byUser.size;
   }
 }
 

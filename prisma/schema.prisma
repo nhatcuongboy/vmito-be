@@ -146,8 +146,11 @@ model UserPointsState {
   id          String      @id @default(cuid())
   userId      String
   sport       SportType   @default(BADMINTON)
+  // Player board only — hosting rewards are tracked separately in hostPoints
+  // so organising sessions cannot inflate a player's rank or tier.
   totalPoints Int         @default(0)
   tier        RankingTier @default(BRONZE)
+  hostPoints  Int         @default(0)
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
@@ -155,6 +158,7 @@ model UserPointsState {
 
   @@unique([userId, sport])
   @@index([sport, totalPoints])
+  @@index([sport, hostPoints])
   @@map("user_points_states")
 }
 

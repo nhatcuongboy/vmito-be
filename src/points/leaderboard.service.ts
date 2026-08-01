@@ -5,6 +5,9 @@ import {
   LeaderboardPeriod,
   nextTierInfo,
   periodStart,
+  PointsBoard,
+  reasonsForBoard,
+  resolvePeriodRange,
   tierForPoints,
 } from './points.constants';
 
@@ -31,18 +34,24 @@ export class LeaderboardService {
   async getLeaderboard(params: {
     sport?: SportType;
     period?: LeaderboardPeriod;
+    periodKey?: string;
+    board?: PointsBoard;
     page?: number;
     limit?: number;
   }) {
     const sport = params.sport ?? 'BADMINTON';
     const period = params.period ?? 'all';
+    const board = params.board ?? 'player';
     const page = params.page ?? 1;
     const limit = params.limit ?? 20;
-    const start = periodStart(period);
+    const range = resolvePeriodRange(period, params.periodKey);
 
     const where: Prisma.PointTransactionWhereInput = {
       sport,
-      ...(start ? { occurredAt: { gte: start } } : {}),
+      reason: { in: reasonsForBoard(board) },
+      ...(range.start
+        ? { occurredAt: { gte: range.start, lt: range.end ?? undefined } }
+        : {}),
     };
 
     const [rows, allUsers] = await Promise.all([
@@ -91,12 +100,18 @@ export class LeaderboardService {
     return {
       sport,
       period,
+      board,
+      periodKey: range.key,
+      periodStart: range.start,
+      periodEnd: range.end,
+      isCurrentPeriod: range.isCurrent,
       page,
       limit,
       total: allUsers.length,
       totalPages: Math.ceil(allUsers.length / limit) || 1,
       entries: rows.map((row, index) => {
         const user = userById.get(row.userId);
+        const state = stateByUser.get(row.userId);
         return {
           rank: (page - 1) * limit + index + 1,
           points: row._sum.points ?? 0,
@@ -106,7 +121,11 @@ export class LeaderboardService {
             image: user?.image ?? null,
             level: user?.level ?? null,
           },
-          tier: stateByUser.get(row.userId)?.tier ?? 'BRONZE',
+          tier: state?.tier ?? 'BRONZE',
+          // All-time total on this board, so the client can explain why the
+          // tier badge does not track the period points shown next to it.
+          totalPoints:
+            (board === 'host' ? state?.hostPoints : state?.totalPoints) ?? 0,
           matchesWon: countFor(row.userId, WIN_REASONS),
           matchesPlayed: countFor(row.userId, MATCH_REASONS),
         };
@@ -117,13 +136,16 @@ export class LeaderboardService {
   async getUserRank(
     userId: string,
     sport: SportType,
-    period: LeaderboardPeriod
+    period: LeaderboardPeriod,
+    board: PointsBoard = 'player'
   ) {
     const start = periodStart(period);
+    const reasons = reasonsForBoard(board);
     const agg = await this.prisma.pointTransaction.aggregate({
       where: {
         userId,
         sport,
+        reason: { in: reasons },
         ...(start ? { occurredAt: { gte: start } } : {}),
       },
       _sum: { points: true },
@@ -132,10 +154,14 @@ export class LeaderboardService {
     const points = agg._sum.points ?? 0;
     if (agg._count === 0) return { period, points: 0, rank: null };
 
+    const reasonList = Prisma.join(
+      reasons.map((reason) => Prisma.sql`${reason}::"PointReason"`)
+    );
     const higher = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
       SELECT COUNT(*)::bigint AS count FROM (
         SELECT "userId" FROM "point_transactions"
         WHERE "sport" = ${sport}::"SportType"
+        AND "reason" IN (${reasonList})
         ${start ? Prisma.sql`AND "occurredAt" >= ${start}` : Prisma.empty}
         GROUP BY "userId"
         HAVING SUM("points") > ${points}
@@ -189,6 +215,8 @@ export class LeaderboardService {
     return {
       sport: s,
       totalPoints,
+      // Hosting is ranked on its own board; surfaced here for future host UI.
+      hostPoints: state?.hostPoints ?? 0,
       tier: state?.tier ?? tierForPoints(totalPoints),
       nextTier: nextTierInfo(totalPoints),
       ranks,
