@@ -1474,8 +1474,9 @@ export class SessionsService {
    * The session is hosted by the system bot user (CRAWLER_BOT_USER_ID) and
    * flagged with isCrawled=true so the frontend renders a read-only variant.
    *
-   * Deduplication is enforced by the unique externalUrl column: re-ingesting
-   * the same post is a no-op that returns null (nothing created).
+   * Deduplication is enforced by unique permalink and crawl-fingerprint
+   * columns: re-ingesting the same post, or the same author's copy of it in
+   * another group, is a no-op that returns null (nothing created).
    */
   async createCrawledSession(
     extracted: ExtractedSessionDto,
@@ -1487,11 +1488,20 @@ export class SessionsService {
       authorAvatar?: string;
       groupUrl?: string;
       coverPhoto?: string;
+      crawlFingerprint?: string;
     }
   ) {
-    // Dedup: skip if this Facebook post was already imported
-    const existing = await this.prisma.session.findUnique({
-      where: { externalUrl },
+    // Fast path for repeat webhooks. The unique constraints below are still
+    // essential because separate webhook workers can pass this check together.
+    const existing = await this.prisma.session.findFirst({
+      where: {
+        OR: [
+          { externalUrl },
+          ...(meta?.crawlFingerprint
+            ? [{ crawlFingerprint: meta.crawlFingerprint }]
+            : []),
+        ],
+      },
       select: { id: true },
     });
     if (existing) {
@@ -1570,69 +1580,80 @@ export class SessionsService {
         .join(' ')
     ).toLowerCase();
 
-    return this.prisma.session.create({
-      data: {
-        name,
-        slug: sessionSlug,
-        hostId: botUserId,
-        venueId: resolvedLocation.venueId,
-        isCrawled: true,
-        externalUrl,
-        externalSource,
-        externalAuthorUrl: meta?.authorUrl,
-        externalAuthorAvatar: meta?.authorAvatar,
-        externalGroupUrl: meta?.groupUrl,
-        coverPhoto: meta?.coverPhoto,
-        // View-only: no player management, keep guest/new-player flags off
-        allowGuestJoin: false,
-        allowNewPlayers: false,
-        numberOfCourts: extracted.numberOfCourts ?? 1,
-        sessionDuration,
-        maxPlayersPerCourt: extracted.maxPlayersPerCourt ?? 8,
-        requiredLevels,
-        searchTerms: sessionSearchTerms,
-        scheduledStartTime: scheduledStart,
-        scheduledEndTime: scheduledEnd,
-        gracePeriodEnd,
-        startTime: scheduledStart,
-        endTime: scheduledEnd,
-        status: 'PREPARING',
-        description: extracted.description,
-        notes: extracted.notes ?? null,
-        location: finalLocation,
-        customLocationName: resolvedLocation.customLocationName,
-        customLocationAddress: resolvedLocation.customLocationAddress,
-        customLocationPlaceId: resolvedLocation.customLocationPlaceId,
-        customLocationLat: resolvedLocation.customLocationLat,
-        customLocationLng: resolvedLocation.customLocationLng,
-        customLocationDistrict: resolvedLocation.customLocationDistrict,
-        customLocationCity: resolvedLocation.customLocationCity,
-        hostName: meta?.authorName || extracted.hostName,
-        hostPhone: extracted.hostPhone,
-        defaultMatchType: extracted.defaultMatchType || 'DOUBLES',
-        shuttlecock: extracted.shuttlecock,
-        // Fee (display only) — created inline via nested write
-        ...(extracted.feeConfig
-          ? {
-              feeConfig: {
-                create: {
-                  feeType: extracted.feeConfig.feeType,
-                  maleFee: extracted.feeConfig.maleFee ?? null,
-                  femaleFee: extracted.feeConfig.femaleFee ?? null,
-                  notes: extracted.feeConfig.notes ?? null,
+    try {
+      return await this.prisma.session.create({
+        data: {
+          name,
+          slug: sessionSlug,
+          hostId: botUserId,
+          venueId: resolvedLocation.venueId,
+          isCrawled: true,
+          externalUrl,
+          crawlFingerprint: meta?.crawlFingerprint,
+          externalSource,
+          externalAuthorUrl: meta?.authorUrl,
+          externalAuthorAvatar: meta?.authorAvatar,
+          externalGroupUrl: meta?.groupUrl,
+          coverPhoto: meta?.coverPhoto,
+          // View-only: no player management, keep guest/new-player flags off
+          allowGuestJoin: false,
+          allowNewPlayers: false,
+          numberOfCourts: extracted.numberOfCourts ?? 1,
+          sessionDuration,
+          maxPlayersPerCourt: extracted.maxPlayersPerCourt ?? 8,
+          requiredLevels,
+          searchTerms: sessionSearchTerms,
+          scheduledStartTime: scheduledStart,
+          scheduledEndTime: scheduledEnd,
+          gracePeriodEnd,
+          startTime: scheduledStart,
+          endTime: scheduledEnd,
+          status: 'PREPARING',
+          description: extracted.description,
+          notes: extracted.notes ?? null,
+          location: finalLocation,
+          customLocationName: resolvedLocation.customLocationName,
+          customLocationAddress: resolvedLocation.customLocationAddress,
+          customLocationPlaceId: resolvedLocation.customLocationPlaceId,
+          customLocationLat: resolvedLocation.customLocationLat,
+          customLocationLng: resolvedLocation.customLocationLng,
+          customLocationDistrict: resolvedLocation.customLocationDistrict,
+          customLocationCity: resolvedLocation.customLocationCity,
+          hostName: meta?.authorName || extracted.hostName,
+          hostPhone: extracted.hostPhone,
+          defaultMatchType: extracted.defaultMatchType || 'DOUBLES',
+          shuttlecock: extracted.shuttlecock,
+          // Fee (display only) — created inline via nested write
+          ...(extracted.feeConfig
+            ? {
+                feeConfig: {
+                  create: {
+                    feeType: extracted.feeConfig.feeType,
+                    maleFee: extracted.feeConfig.maleFee ?? null,
+                    femaleFee: extracted.feeConfig.femaleFee ?? null,
+                    notes: extracted.feeConfig.notes ?? null,
+                  },
                 },
-              },
-            }
-          : {}),
-      },
-      include: {
-        host: {
-          select: { id: true, name: true, email: true, image: true },
+              }
+            : {}),
         },
-        venue: true,
-        feeConfig: true,
-      },
-    });
+        include: {
+          host: {
+            select: { id: true, name: true, email: true, image: true },
+          },
+          venue: true,
+          feeConfig: true,
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   async update(

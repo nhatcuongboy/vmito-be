@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'crypto';
 import { GeminiService } from '../ai/gemini.service';
 import { SessionsService } from '../sessions/sessions.service';
 import { ExtractedSessionDto } from '../ai/dto/extract-session.dto';
@@ -32,7 +33,8 @@ export class WebhooksService {
    * extraction (which also classifies whether the post is actually a player
    * recruitment — class ads, court-rental listings, and equipment sales are
    * rejected), drop posts that are noise or incomplete, and create a view-only
-   * crawled session. Dedup is enforced downstream via externalUrl.
+   * crawled session. Dedup is enforced downstream via the post permalink and,
+   * for cross-group copies, a fingerprint of the author and normalized text.
    *
    * This completeness bar applies to the crawl path only. Sessions a host
    * creates by hand go through SessionsService.create, which has its own
@@ -70,6 +72,9 @@ export class WebhooksService {
       skippedIncomplete: 0,
       failed: 0,
     };
+    // Avoid sending the same copied post to Gemini twice in one dataset. The
+    // database unique constraint remains the cross-webhook/concurrency guard.
+    const handledFingerprints = new Set<string>();
 
     for (const item of items) {
       const content = item.text || item.message || item.postText;
@@ -77,6 +82,11 @@ export class WebhooksService {
 
       if (!externalUrl || !content?.trim()) {
         result.skippedNoise++;
+        continue;
+      }
+      const crawlFingerprint = this.resolveCrawlFingerprint(item, content);
+      if (crawlFingerprint && handledFingerprints.has(crawlFingerprint)) {
+        result.skippedDuplicate++;
         continue;
       }
 
@@ -122,6 +132,7 @@ export class WebhooksService {
             authorAvatar: item.user?.profilePic,
             groupUrl: item.facebookUrl || item.groupUrl,
             coverPhoto: this.resolveImage(item),
+            crawlFingerprint,
           }
         );
 
@@ -131,6 +142,9 @@ export class WebhooksService {
         } else {
           result.skippedDuplicate++;
         }
+        // Only remember posts that reached the database deduplication step. A
+        // transient AI/database failure must still be retried by a later item.
+        if (crawlFingerprint) handledFingerprints.add(crawlFingerprint);
       } catch (err) {
         result.failed++;
         this.logger.warn(
@@ -281,6 +295,32 @@ export class WebhooksService {
       return `${base}?vmitoPost=${this.simpleHash(text)}`;
     }
     return null;
+  }
+
+  /**
+   * Stable key for the same author's copied post across Facebook groups.
+   * Author identity is required: identical recruitment templates from two
+   * different people must remain separate sessions. If Apify omits the author,
+   * the permalink remains the only safe deduplication key.
+   */
+  private resolveCrawlFingerprint(
+    item: ApifyPostItem,
+    content: string
+  ): string | undefined {
+    const authorId = item.user?.id?.trim();
+    if (!authorId) return undefined;
+
+    const normalizedContent = content
+      .normalize('NFKC')
+      .toLocaleLowerCase('vi-VN')
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!normalizedContent) return undefined;
+
+    return createHash('sha256')
+      .update(`facebook:${authorId}\n${normalizedContent}`, 'utf8')
+      .digest('hex');
   }
 
   /** Pick the best single image URL from the post's attachments (hotlinked). */

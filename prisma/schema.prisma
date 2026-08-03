@@ -328,6 +328,7 @@ model Session {
   // Crawled (vãng lai) sessions imported from public Facebook posts — view-only
   isCrawled            Boolean @default(false) // cờ phân biệt kèo cào Facebook
   externalUrl          String? @unique // link bài FB gốc — chống trùng + điều hướng
+  crawlFingerprint     String? @unique // tác giả + nội dung FB chuẩn hoá — chống bài copy sang group khác
   externalSource       String? // nguồn: tên group Facebook / "facebook"
   externalAuthorUrl    String? // link trang cá nhân FB của chủ bài đăng
   externalAuthorAvatar String? // ảnh đại diện FB của chủ bài (hotlink)

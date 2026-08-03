@@ -111,4 +111,32 @@ describe('WebhooksService Apify ingest gates', () => {
     expect(result.skippedIncomplete).toBe(0);
     expect(extractSessionFromArticle).not.toHaveBeenCalled();
   });
+
+  it('imports one session when the same author copies identical text to two groups', async () => {
+    const copiedPost = {
+      text: post.text,
+      postUrl: 'https://facebook.com/groups/another-group/posts/2',
+      user: { id: 'facebook-user-1', name: 'Quinny Phan' },
+    };
+    const originalPost = {
+      ...post,
+      user: { id: 'facebook-user-1', name: 'Quinny Phan' },
+    };
+    extractSessionFromArticle.mockResolvedValue(extraction());
+
+    const result = await service.ingestApifyPosts({
+      items: [originalPost, copiedPost],
+    } as never);
+
+    expect(result).toMatchObject({
+      received: 2,
+      imported: 1,
+      skippedDuplicate: 1,
+    });
+    expect(extractSessionFromArticle).toHaveBeenCalledTimes(1);
+    expect(createCrawledSession).toHaveBeenCalledTimes(1);
+    expect(createCrawledSession.mock.calls[0][3].crawlFingerprint).toMatch(
+      /^[a-f0-9]{64}$/
+    );
+  });
 });
