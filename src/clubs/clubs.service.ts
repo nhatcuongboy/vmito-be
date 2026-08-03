@@ -159,6 +159,8 @@ export class ClubsService {
       favoriteOnly,
     } = query;
     const skip = (page - 1) * limit;
+    const isDistanceSort =
+      sortBy === 'distance' && lat !== undefined && lng !== undefined;
 
     let favoriteIds: string[] | undefined;
     if (favoriteOnly) {
@@ -220,9 +222,13 @@ export class ClubsService {
     const [clubs, total] = await Promise.all([
       this.prisma.club.findMany({
         where,
-        skip,
-        take: limit,
-        orderBy: [{ sessionCount: 'desc' }, { createdAt: 'desc' }],
+        // Distance is calculated after fetching, so apply pagination only
+        // after the complete result set has been ranked by distance.
+        skip: isDistanceSort ? undefined : skip,
+        take: isDistanceSort ? undefined : limit,
+        orderBy: isDistanceSort
+          ? undefined
+          : [{ sessionCount: 'desc' }, { createdAt: 'desc' }],
         include: {
           host: {
             select: {
@@ -261,7 +267,7 @@ export class ClubsService {
     ]);
 
     // Post-fetch: distance calculation
-    const result = clubs.map((club) => ({
+    let result = clubs.map((club) => ({
       id: club.id,
       slug: club.slug ?? undefined,
       name: club.name,
@@ -294,15 +300,21 @@ export class ClubsService {
     }));
 
     // Sort by distance if requested
-    if (sortBy === 'distance' && lat !== undefined && lng !== undefined) {
+    if (isDistanceSort) {
       result.sort((a, b) => {
-        if (a.distance === null && b.distance === null) return 0;
+        if (a.distance === null && b.distance === null) {
+          return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+        }
         if (a.distance === null) return 1;
         if (b.distance === null) return -1;
-        return sortOrder === 'asc'
-          ? a.distance - b.distance
-          : b.distance - a.distance;
+        const distanceDifference =
+          sortOrder === 'asc'
+            ? a.distance - b.distance
+            : b.distance - a.distance;
+        if (distanceDifference !== 0) return distanceDifference;
+        return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
       });
+      result = result.slice(skip, skip + limit);
     }
 
     const favoriteSet = favoriteOnly

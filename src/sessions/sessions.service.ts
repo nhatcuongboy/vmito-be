@@ -819,9 +819,13 @@ export class SessionsService {
 
     // Get total count (before pagination but after Prisma filters)
     const total = await this.prisma.session.count({ where });
+    const isDistanceSort =
+      filters?.sortByDistance === true &&
+      filters.lat !== undefined &&
+      filters.lng !== undefined;
 
     // Build orderBy - use sortBy param if provided, otherwise default to startTime asc
-    const orderBy = filters?.sortByDistance
+    const orderBy = isDistanceSort
       ? { startTime: 'asc' as const } // distance sort is handled post-fetch
       : filters?.sortBy
         ? this.buildOrderBy(filters.sortBy, filters.sortOrder)
@@ -852,8 +856,10 @@ export class SessionsService {
         },
       },
       orderBy,
-      skip,
-      take: limit,
+      // Distance is calculated in memory, so database pagination here would
+      // limit ranking to an arbitrary time-sorted page.
+      skip: isDistanceSort ? undefined : skip,
+      take: isDistanceSort ? undefined : limit,
     });
 
     // Post-fetch filters (for complex calculations)
@@ -889,11 +895,7 @@ export class SessionsService {
       distance?: number | null;
     };
     let sessionsToReturn: SessionWithDistance[] = sessions;
-    if (
-      filters?.lat !== undefined &&
-      filters?.lng !== undefined &&
-      filters?.sortByDistance
-    ) {
+    if (isDistanceSort) {
       // Calculate distance for each session using Haversine formula
       sessionsToReturn = sessions
         .map((session) => {
@@ -909,12 +911,22 @@ export class SessionsService {
           return { ...session, distance: null };
         })
         .sort((a, b) => {
+          const startTimeDifference =
+            (a.startTime?.getTime() ?? Number.MAX_SAFE_INTEGER) -
+            (b.startTime?.getTime() ?? Number.MAX_SAFE_INTEGER);
           // Sort by distance (nulls last)
-          if (a.distance === null && b.distance === null) return 0;
+          if (a.distance === null && b.distance === null) {
+            return startTimeDifference || a.id.localeCompare(b.id);
+          }
           if (a.distance === null) return 1;
           if (b.distance === null) return -1;
-          return a.distance - b.distance;
+          return (
+            a.distance - b.distance ||
+            startTimeDifference ||
+            a.id.localeCompare(b.id)
+          );
         });
+      sessionsToReturn = sessionsToReturn.slice(skip, skip + limit);
     }
 
     const favoriteSet = filters?.favoriteOnly
