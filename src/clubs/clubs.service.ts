@@ -895,6 +895,9 @@ export class ClubsService {
 
     return requests.map((r) => ({
       id: r.id,
+      // Frontend matches requests by clubId (e.g. join-status lookup, cancel
+      // action) — must be top-level, not just nested inside `club`.
+      clubId: r.clubId,
       status: r.status,
       message: r.message,
       response: r.response,
