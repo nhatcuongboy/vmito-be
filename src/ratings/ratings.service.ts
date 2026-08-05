@@ -71,6 +71,30 @@ export class RatingsService {
     return ratings.map((r) => this.anonymizeRater(r));
   }
 
+  // HOST_TO_PLAYER review content (comment + which host gave it) is not public
+  // browsing material. Only the rated player, admins, or a host who has
+  // actually hosted that player may see it.
+  private async canViewHostToPlayerDetails(
+    targetUserId: string,
+    currentUserId?: string,
+    currentUserRole?: string
+  ): Promise<boolean> {
+    if (!currentUserId) {
+      return false;
+    }
+    if (currentUserId === targetUserId || currentUserRole === 'ADMIN') {
+      return true;
+    }
+    const sharedSession = await this.prisma.session.findFirst({
+      where: {
+        hostId: currentUserId,
+        players: { some: { userId: targetUserId } },
+      },
+      select: { id: true },
+    });
+    return !!sharedSession;
+  }
+
   // Create a new rating
   async create(dto: CreateRatingDto, raterUserId: string, role?: string) {
     // Verify session exists and is finished
@@ -170,7 +194,11 @@ export class RatingsService {
   }
 
   // Get ratings with filters
-  async findMany(query: GetRatingsDto) {
+  async findMany(
+    query: GetRatingsDto,
+    currentUserId?: string,
+    currentUserRole?: string
+  ) {
     const where: Prisma.RatingWhereInput = {};
 
     if (query.sessionId) {
@@ -195,7 +223,17 @@ export class RatingsService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return this.anonymizeRaters(ratings);
+    const anonymized = this.anonymizeRaters(ratings);
+    if (currentUserRole === 'ADMIN') {
+      return anonymized;
+    }
+    // HOST_TO_PLAYER content is only visible to that rating's own participants.
+    return anonymized.filter(
+      (r) =>
+        r.type === RatingType.PLAYER_TO_HOST ||
+        r.raterUserId === currentUserId ||
+        r.ratedUserId === currentUserId
+    );
   }
 
   // Get session rating eligibility for current user
@@ -431,24 +469,42 @@ export class RatingsService {
   }
 
   // Get ratings received by user
-  async getUserReceivedRatings(userId: string) {
+  async getUserReceivedRatings(
+    userId: string,
+    currentUserId?: string,
+    currentUserRole?: string
+  ) {
     const ratings = await this.prisma.rating.findMany({
       where: { ratedUserId: userId },
       select: this.ratingWithUsersSelect,
       orderBy: { createdAt: 'desc' },
     });
-    return this.anonymizeRaters(ratings);
+    const anonymized = this.anonymizeRaters(ratings);
+
+    const canViewHostToPlayer = await this.canViewHostToPlayerDetails(
+      userId,
+      currentUserId,
+      currentUserRole
+    );
+    return anonymized.filter(
+      (r) => r.type === RatingType.PLAYER_TO_HOST || canViewHostToPlayer
+    );
   }
 
-  // Get ratings given by user
-  async getUserGivenRatings(userId: string) {
+  // Get ratings given by user — only the rater themselves or an admin may view this
+  async getUserGivenRatings(
+    userId: string,
+    currentUserId: string,
+    currentUserRole?: string
+  ) {
+    if (currentUserId !== userId && currentUserRole !== 'ADMIN') {
+      throw new ForbiddenException('You can only view your own given ratings');
+    }
     const ratings = await this.prisma.rating.findMany({
       where: { raterUserId: userId },
       select: this.ratingWithUsersSelect,
       orderBy: { createdAt: 'desc' },
     });
-    // Anonymize even here: this is a public endpoint, so without this a caller
-    // could pass a known userId and deanonymize which host they rated.
     return this.anonymizeRaters(ratings);
   }
 }
