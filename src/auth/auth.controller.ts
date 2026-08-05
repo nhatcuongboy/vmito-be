@@ -27,6 +27,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AdminResetPasswordDto } from './dto/admin-reset-password.dto';
 import { AppleSignInDto } from './dto/apple-sign-in.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { GoogleOneTapDto } from './dto/google-one-tap.dto';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { FacebookAuthGuard } from './guards/facebook-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -225,6 +226,21 @@ export class AuthController {
     }
 
     res.redirect(callbackUrl);
+  }
+
+  /**
+   * Handle Google One Tap sign in
+   * Accepts Google ID Token and returns JWT authentication tokens
+   */
+  @Public()
+  @Post('google/one-tap')
+  @HttpCode(HttpStatus.OK)
+  async googleOneTap(@Body() dto: GoogleOneTapDto) {
+    const data = await this.authService.verifyGoogleOneTap(dto.idToken);
+    return {
+      success: true,
+      data,
+    };
   }
 
   /**

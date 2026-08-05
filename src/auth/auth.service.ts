@@ -9,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { RegisterDto } from './dto/register.dto';
@@ -533,6 +534,61 @@ export class AuthService {
     });
 
     return user;
+  }
+
+  /**
+   * Verify Google One Tap ID Token and login/register user
+   */
+  async verifyGoogleOneTap(idToken: string) {
+    try {
+      const JWKS = createRemoteJWKSet(
+        new URL('https://www.googleapis.com/oauth2/v3/certs')
+      );
+      const { payload } = await jwtVerify(idToken, JWKS, {
+        issuer: ['https://accounts.google.com', 'accounts.google.com'],
+      });
+
+      const email = payload.email as string;
+      const googleId = payload.sub as string;
+      const name = (payload.name as string) || null;
+      const image = (payload.picture as string) || null;
+
+      if (!email) {
+        throw new BadRequestException(
+          'Google ID token does not contain an email'
+        );
+      }
+
+      const user = await this.findOrCreateGoogleUser({
+        googleId,
+        email,
+        name: name || '',
+        image: image || undefined,
+      });
+
+      const tokenData = await this.generateTokenForUser({
+        id: user.id,
+        email: user.email,
+        role: user.role,
+      });
+
+      return {
+        ...tokenData,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          image: user.image,
+        },
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      console.error('Google One Tap verification error:', error);
+      throw new UnauthorizedException('Invalid Google ID token');
+    }
   }
 
   /**
