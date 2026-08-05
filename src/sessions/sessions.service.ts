@@ -11,6 +11,7 @@ import {
   SessionLocationType,
 } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
+import { CloneSessionDto } from './dto/clone-session.dto';
 import { ConfigService } from '@nestjs/config';
 import {
   CourtDirection,
@@ -1195,6 +1196,111 @@ export class SessionsService {
           }
         : session.club,
     };
+  }
+
+  async cloneSession(sourceSessionId: string, cloneDto: CloneSessionDto) {
+    const startTime = new Date(cloneDto.startTime);
+    const endTime = new Date(cloneDto.endTime);
+
+    if (startTime <= new Date()) {
+      throw new BadRequestException('Start time must be in the future');
+    }
+
+    if (endTime <= startTime) {
+      throw new BadRequestException('End time must be after start time');
+    }
+
+    const sourceSession = await this.prisma.session.findUnique({
+      where: { id: sourceSessionId },
+      include: {
+        courts: { orderBy: { courtNumber: 'asc' } },
+        feeConfig: true,
+      },
+    });
+
+    if (!sourceSession) {
+      throw new NotFoundException('Session not found');
+    }
+
+    if (sourceSession.isCrawled) {
+      throw new ForbiddenException('Crawled sessions cannot be cloned');
+    }
+
+    if (
+      !['PREPARING', 'FINISHED', 'CANCELLED'].includes(sourceSession.status)
+    ) {
+      throw new BadRequestException(
+        `Cannot clone a session with status ${sourceSession.status}`
+      );
+    }
+
+    const customLocationName =
+      sourceSession.customLocationName || sourceSession.location;
+    if (!sourceSession.venueId && !customLocationName) {
+      throw new BadRequestException('Source session has no valid location');
+    }
+
+    const createSessionDto: CreateSessionDto = {
+      name: sourceSession.name,
+      description: sourceSession.description || undefined,
+      notes: sourceSession.notes || undefined,
+      hostName: sourceSession.hostName || undefined,
+      hostPhone: sourceSession.hostPhone || undefined,
+      clubId: sourceSession.clubId,
+      numberOfCourts: sourceSession.numberOfCourts,
+      sessionDuration: Math.round(
+        (endTime.getTime() - startTime.getTime()) / 60000
+      ),
+      maxPlayersPerCourt: sourceSession.maxPlayersPerCourt,
+      requirePlayerInfo: sourceSession.requirePlayerInfo,
+      allowGuestJoin: sourceSession.allowGuestJoin,
+      allowNewPlayers: sourceSession.allowNewPlayers,
+      allowZaloContact: sourceSession.allowZaloContact,
+      requiredLevels: sourceSession.requiredLevels,
+      courtColor: sourceSession.courtColor || undefined,
+      coverPhoto: sourceSession.coverPhoto || undefined,
+      coverPhotoPublicId: sourceSession.coverPhotoPublicId || undefined,
+      images: sourceSession.images,
+      imagePublicIds: sourceSession.imagePublicIds,
+      shuttlecock: sourceSession.shuttlecock || undefined,
+      referenceVideoUrl: sourceSession.referenceVideoUrl,
+      defaultMatchType: sourceSession.defaultMatchType,
+      startTime: cloneDto.startTime,
+      endTime: cloneDto.endTime,
+      courts: sourceSession.courts.map((court) => ({
+        courtNumber: court.courtNumber,
+        courtName: court.courtName || undefined,
+        direction: court.direction,
+      })),
+      feeConfig: sourceSession.feeConfig
+        ? {
+            feeType: sourceSession.feeConfig.feeType,
+            maleFee: sourceSession.feeConfig.maleFee ?? undefined,
+            femaleFee: sourceSession.feeConfig.femaleFee ?? undefined,
+            notes: sourceSession.feeConfig.notes || undefined,
+          }
+        : undefined,
+    };
+
+    if (sourceSession.venueId) {
+      createSessionDto.locationType = SessionLocationType.VENUE;
+      createSessionDto.venueId = sourceSession.venueId;
+    } else {
+      createSessionDto.locationType = SessionLocationType.CUSTOM;
+      createSessionDto.customLocation = {
+        name: customLocationName!,
+        address: sourceSession.customLocationAddress || undefined,
+        placeId: sourceSession.customLocationPlaceId || undefined,
+        lat: sourceSession.customLocationLat ?? undefined,
+        lng: sourceSession.customLocationLng ?? undefined,
+        district: sourceSession.customLocationDistrict || undefined,
+        city: sourceSession.customLocationCity || undefined,
+      };
+    }
+
+    return this.prisma.$transaction((tx) =>
+      this.createSessionInternal(createSessionDto, sourceSession.hostId, tx)
+    );
   }
 
   async create(createSessionDto: CreateSessionDto, hostId: string) {
@@ -3488,12 +3594,20 @@ export class SessionsService {
         allowZaloContact,
         requiredLevels: requiredLevels || [],
         searchTerms: internalSearchTerms,
+        scheduledStartTime: startTime ? new Date(startTime) : new Date(),
+        scheduledEndTime: endTime
+          ? new Date(endTime)
+          : new Date(Date.now() + sessionDuration * 60 * 1000),
+        gracePeriodEnd: endTime
+          ? new Date(new Date(endTime).getTime() + 30 * 60 * 1000)
+          : new Date(Date.now() + (sessionDuration + 30) * 60 * 1000),
         startTime: startTime ? new Date(startTime) : new Date(),
         endTime: endTime
           ? new Date(endTime)
           : new Date(Date.now() + sessionDuration * 60 * 1000),
         status: 'PREPARING',
         description,
+        notes: createSessionDto.notes ?? null,
         location: finalLocation,
         customLocationName: resolvedLocation.customLocationName,
         customLocationAddress: resolvedLocation.customLocationAddress,

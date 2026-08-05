@@ -5,6 +5,7 @@ import {
   Body,
   Param,
   Query,
+  Request,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -14,10 +15,15 @@ import {
   ApiResponse,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { RatingsService } from './ratings.service';
 import { CreateRatingDto, GetRatingsDto, BatchUserStatsDto } from './dto';
+
+interface OptionallyAuthenticatedRequest {
+  user?: { userId: string; role: string };
+}
 
 @ApiTags('ratings')
 @ApiBearerAuth('JWT-auth')
@@ -40,11 +46,15 @@ export class RatingsController {
   }
 
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get()
   @ApiOperation({ summary: 'Get ratings with filters' })
   @ApiResponse({ status: 200, description: 'List of ratings' })
-  async findMany(@Query() query: GetRatingsDto) {
-    return this.service.findMany(query);
+  async findMany(
+    @Query() query: GetRatingsDto,
+    @Request() req?: OptionallyAuthenticatedRequest
+  ) {
+    return this.service.findMany(query, req?.user?.userId, req?.user?.role);
   }
 
   @Get('session/:sessionId/eligibility')
@@ -74,18 +84,29 @@ export class RatingsController {
   }
 
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get('user/:userId/received')
   @ApiOperation({ summary: 'Get ratings received by a user' })
   @ApiResponse({ status: 200, description: 'List of received ratings' })
-  async getUserReceivedRatings(@Param('userId') userId: string) {
-    return this.service.getUserReceivedRatings(userId);
+  async getUserReceivedRatings(
+    @Param('userId') userId: string,
+    @Request() req?: OptionallyAuthenticatedRequest
+  ) {
+    return this.service.getUserReceivedRatings(
+      userId,
+      req?.user?.userId,
+      req?.user?.role
+    );
   }
 
-  @Public()
   @Get('user/:userId/given')
   @ApiOperation({ summary: 'Get ratings given by a user' })
   @ApiResponse({ status: 200, description: 'List of given ratings' })
-  async getUserGivenRatings(@Param('userId') userId: string) {
-    return this.service.getUserGivenRatings(userId);
+  @ApiResponse({ status: 403, description: 'Not authorized' })
+  async getUserGivenRatings(
+    @Param('userId') userId: string,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    return this.service.getUserGivenRatings(userId, user.userId, user.role);
   }
 }

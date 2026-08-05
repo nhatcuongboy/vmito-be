@@ -68,6 +68,10 @@ export interface AvatarUpdatedMetadata {
   image: string;
 }
 
+export interface CoverPhotoUpdatedMetadata {
+  coverPhoto: string;
+}
+
 // Intentionally excludes the rating value — ratings are private.
 export interface UserRatedMetadata {
   ratedUserId: string;
@@ -83,4 +87,5 @@ export type ActivityMetadata =
   | TournamentCreatedMetadata
   | TournamentFinishedMetadata
   | AvatarUpdatedMetadata
+  | CoverPhotoUpdatedMetadata
   | UserRatedMetadata;
