@@ -544,8 +544,20 @@ export class AuthService {
       const JWKS = createRemoteJWKSet(
         new URL('https://www.googleapis.com/oauth2/v3/certs')
       );
+
+      // Google ID tokens always have `aud` = the OAuth client ID.
+      // jose v5+ requires `audience` to be supplied when the token contains
+      // an `aud` claim, otherwise it throws JWTClaimValidationFailed.
+      const clientId = this.configService.get<string>('auth.google.clientId');
+      if (!clientId) {
+        throw new BadRequestException(
+          'GOOGLE_CLIENT_ID is not configured on the server'
+        );
+      }
+
       const { payload } = await jwtVerify(idToken, JWKS, {
         issuer: ['https://accounts.google.com', 'accounts.google.com'],
+        audience: clientId,
       });
 
       const email = payload.email as string;
@@ -583,7 +595,10 @@ export class AuthService {
         },
       };
     } catch (error) {
-      if (error instanceof BadRequestException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof UnauthorizedException
+      ) {
         throw error;
       }
       console.error('Google One Tap verification error:', error);
