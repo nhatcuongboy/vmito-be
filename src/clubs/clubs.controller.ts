@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Param,
   Query,
@@ -21,6 +22,7 @@ import {
   JoinRequestDto,
   CreateAnnouncementDto,
   UpdateAnnouncementDto,
+  UpdateOperationalStatusDto,
 } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
@@ -540,5 +542,29 @@ export class ClubsController {
   @Roles(Role.ADMIN)
   async rejectClub(@Param('id') id: string, @Body('reason') reason: string) {
     return this.clubsService.rejectClub(id, reason);
+  }
+
+  // ===========================================
+  // Operational Status Endpoint
+  // ===========================================
+
+  /**
+   * Update a club's operational status.
+   * Host: ACTIVE <-> INACTIVE. Admin only: DISSOLVED.
+   */
+  @Patch(':id/operational-status')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async updateOperationalStatus(
+    @Param('id') clubId: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: UpdateOperationalStatusDto
+  ) {
+    return this.clubsService.updateClubOperationalStatus(
+      clubId,
+      user.userId,
+      user.role,
+      dto.operationalStatus
+    );
   }
 }

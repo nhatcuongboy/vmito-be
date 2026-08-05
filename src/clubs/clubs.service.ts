@@ -23,6 +23,7 @@ import {
   JoinRequestStatus,
   ClubJoinPolicy,
   ClubStatus,
+  ClubOperationalStatus,
   Role,
   FavoriteType,
   NotificationType,
@@ -178,6 +179,7 @@ export class ClubsService {
     const andConditions: Prisma.ClubWhereInput[] = [
       { isPublic: true },
       { status: ClubStatus.APPROVED },
+      { operationalStatus: ClubOperationalStatus.ACTIVE },
     ];
 
     if (favoriteIds) {
@@ -239,6 +241,7 @@ export class ClubsService {
           },
           schedules: {
             orderBy: { dayOfWeek: 'asc' },
+            where: { isActive: true },
           },
           defaultVenue: {
             select: {
@@ -378,6 +381,7 @@ export class ClubsService {
         },
         schedules: {
           orderBy: { dayOfWeek: 'asc' },
+          where: { isActive: true }, // only show active schedules publicly
         },
         defaultVenue: {
           select: {
@@ -542,6 +546,13 @@ export class ClubsService {
       throw new NotFoundException('Club not found');
     }
 
+    // Block joining if club is not operationally active
+    if (club.operationalStatus !== ClubOperationalStatus.ACTIVE) {
+      throw new BadRequestException(
+        'This club is not currently accepting new members'
+      );
+    }
+
     // Check if already a member
     if (club.members.length > 0) {
       throw new ConflictException('You are already a member of this club');
@@ -699,6 +710,7 @@ export class ClubsService {
             },
             schedules: {
               orderBy: { dayOfWeek: 'asc' },
+              where: { isActive: true }, // only show active schedules in member/public views
             },
             defaultVenue: {
               select: {
@@ -1076,6 +1088,7 @@ export class ClubsService {
                 startTime: s.startTime,
                 endTime: s.endTime,
                 notes: s.notes,
+                isActive: s.isActive ?? true,
               })),
             },
           }),
@@ -1257,6 +1270,7 @@ export class ClubsService {
                   startTime: s.startTime,
                   endTime: s.endTime,
                   notes: s.notes,
+                  isActive: s.isActive ?? true,
                 })),
               },
             }),
@@ -2479,5 +2493,45 @@ export class ClubsService {
     );
 
     return updatedClub;
+  }
+
+  // ===========================================
+  // Operational Status Management
+  // ===========================================
+
+  /**
+   * Update a club's operational status.
+   * - Host can toggle ACTIVE <-> INACTIVE.
+   * - Only ADMIN can set DISSOLVED (irreversible).
+   */
+  async updateClubOperationalStatus(
+    clubId: string,
+    userId: string,
+    userRole: Role,
+    operationalStatus: ClubOperationalStatus
+  ) {
+    // DISSOLVED is admin-only and irreversible
+    if (
+      operationalStatus === ClubOperationalStatus.DISSOLVED &&
+      userRole !== Role.ADMIN
+    ) {
+      throw new ForbiddenException('Only admins can dissolve a club');
+    }
+
+    await this.ensureManagedClub(clubId, userId, userRole);
+
+    const club = await this.prisma.club.findUnique({ where: { id: clubId } });
+
+    // Prevent un-dissolving
+    if (club?.operationalStatus === ClubOperationalStatus.DISSOLVED) {
+      throw new BadRequestException(
+        'A dissolved club cannot be reactivated'
+      );
+    }
+
+    return this.prisma.club.update({
+      where: { id: clubId },
+      data: { operationalStatus },
+    });
   }
 }
