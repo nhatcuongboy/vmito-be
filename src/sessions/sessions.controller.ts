@@ -30,6 +30,7 @@ import { UpdateSessionDto } from './dto/update-session.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { UpdateWaitTimesDto } from './dto/update-wait-times.dto';
 import { BulkSessionCreationDto } from './dto/bulk-session.dto';
+import { CloneSessionDto } from './dto/clone-session.dto';
 import { RecommendationResponseDto } from './dto/recommendation-response.dto';
 import { SessionSuggestionsQueryDto } from './dto/session-suggestions.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -305,6 +306,16 @@ export class SessionsController {
       throw new ForbiddenException('Only authorized users can create sessions');
     }
     return this.sessionsService.createBulkSessions(bulkSessionDto, user.userId);
+  }
+
+  @Post(':id/clone')
+  async cloneSession(
+    @Param('id') id: string,
+    @Body() cloneSessionDto: CloneSessionDto,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    await this.sessionAccess.assertSessionHost(id, user.userId, user.role);
+    return this.sessionsService.cloneSession(id, cloneSessionDto);
   }
 
   @Put(':id')
