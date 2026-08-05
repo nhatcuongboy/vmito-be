@@ -197,6 +197,30 @@ export class ActivityFeedService {
     }
   }
 
+  async postCoverPhotoUpdated(
+    userId: string,
+    coverPhoto: string
+  ): Promise<void> {
+    try {
+      // Debounce: at most one COVER_PHOTO_UPDATED post per user per 6 hours.
+      const recent = await this.prisma.post.findFirst({
+        where: {
+          type: 'ACTIVITY',
+          activityType: ActivityType.COVER_PHOTO_UPDATED,
+          authorId: userId,
+          createdAt: { gte: this.hoursAgo(6) },
+        },
+        select: { id: true },
+      });
+      if (recent) return;
+      await this.createActivityPost(userId, ActivityType.COVER_PHOTO_UPDATED, {
+        coverPhoto,
+      });
+    } catch (error) {
+      this.logActivityError(ActivityType.COVER_PHOTO_UPDATED, error);
+    }
+  }
+
   async postUserRated(
     raterUserId: string,
     rated: { id: string; name: string | null; image?: string | null },

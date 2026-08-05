@@ -282,6 +282,18 @@ export class UsersService {
       await this.activityFeedService.postAvatarUpdated(id, updateUserDto.image);
     }
 
+    // Newsfeed: announce cover photo changes.
+    if (
+      updateUserDto.coverPhoto !== undefined &&
+      updateUserDto.coverPhoto &&
+      updateUserDto.coverPhoto !== user.coverPhoto
+    ) {
+      await this.activityFeedService.postCoverPhotoUpdated(
+        id,
+        updateUserDto.coverPhoto
+      );
+    }
+
     return updated;
   }
 
