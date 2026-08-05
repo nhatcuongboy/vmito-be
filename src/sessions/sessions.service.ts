@@ -1226,7 +1226,9 @@ export class SessionsService {
       throw new ForbiddenException('Crawled sessions cannot be cloned');
     }
 
-    if (!['PREPARING', 'FINISHED'].includes(sourceSession.status)) {
+    if (
+      !['PREPARING', 'FINISHED', 'CANCELLED'].includes(sourceSession.status)
+    ) {
       throw new BadRequestException(
         `Cannot clone a session with status ${sourceSession.status}`
       );
