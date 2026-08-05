@@ -328,6 +328,7 @@ model Session {
   // Crawled (vãng lai) sessions imported from public Facebook posts — view-only
   isCrawled            Boolean @default(false) // cờ phân biệt kèo cào Facebook
   externalUrl          String? @unique // link bài FB gốc — chống trùng + điều hướng
+  crawlFingerprint     String? @unique // tác giả + nội dung FB chuẩn hoá — chống bài copy sang group khác
   externalSource       String? // nguồn: tên group Facebook / "facebook"
   externalAuthorUrl    String? // link trang cá nhân FB của chủ bài đăng
   externalAuthorAvatar String? // ảnh đại diện FB của chủ bài (hotlink)
@@ -1801,8 +1802,9 @@ model Club {
   sessionCount       Int @default(0)
   totalPlayersServed Int @default(0)
 
-  status          ClubStatus @default(APPROVED)
-  rejectionReason String?
+  status            ClubStatus            @default(APPROVED)
+  operationalStatus ClubOperationalStatus @default(ACTIVE)
+  rejectionReason   String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1924,6 +1926,12 @@ enum ClubStatus {
   REJECTED
 }
 
+enum ClubOperationalStatus {
+  ACTIVE    // Đang hoạt động bình thường
+  INACTIVE  // Tạm ngừng hoạt động (host tự set)
+  DISSOLVED // Giải thể vĩnh viễn (chỉ admin set, không reversible)
+}
+
 // ===========================================
 // Club Join Request Model
 // ===========================================
@@ -1998,10 +2006,11 @@ model ClubSession {
 model ClubSchedule {
   id        String  @id @default(cuid())
   clubId    String
-  dayOfWeek Int // 0=CN, 1=T2, 2=T3, 3=T4, 4=T5, 5=T6, 6=T7
-  startTime String // "19:00"
-  endTime   String // "21:00"
+  dayOfWeek Int     // 0=CN, 1=T2, 2=T3, 3=T4, 4=T5, 5=T6, 6=T7
+  startTime String  // "19:00"
+  endTime   String  // "21:00"
   notes     String?
+  isActive  Boolean @default(true) // Tắt/bật lịch mà không cần xóa
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2009,6 +2018,7 @@ model ClubSchedule {
   club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   @@index([clubId])
+  @@index([clubId, isActive])
   @@map("club_schedules")
 }
 

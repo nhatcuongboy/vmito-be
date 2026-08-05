@@ -23,6 +23,7 @@ import {
   JoinRequestStatus,
   ClubJoinPolicy,
   ClubStatus,
+  ClubOperationalStatus,
   Role,
   FavoriteType,
   NotificationType,
@@ -159,6 +160,8 @@ export class ClubsService {
       favoriteOnly,
     } = query;
     const skip = (page - 1) * limit;
+    const isDistanceSort =
+      sortBy === 'distance' && lat !== undefined && lng !== undefined;
 
     let favoriteIds: string[] | undefined;
     if (favoriteOnly) {
@@ -176,6 +179,7 @@ export class ClubsService {
     const andConditions: Prisma.ClubWhereInput[] = [
       { isPublic: true },
       { status: ClubStatus.APPROVED },
+      { operationalStatus: ClubOperationalStatus.ACTIVE },
     ];
 
     if (favoriteIds) {
@@ -220,9 +224,13 @@ export class ClubsService {
     const [clubs, total] = await Promise.all([
       this.prisma.club.findMany({
         where,
-        skip,
-        take: limit,
-        orderBy: [{ sessionCount: 'desc' }, { createdAt: 'desc' }],
+        // Distance is calculated after fetching, so apply pagination only
+        // after the complete result set has been ranked by distance.
+        skip: isDistanceSort ? undefined : skip,
+        take: isDistanceSort ? undefined : limit,
+        orderBy: isDistanceSort
+          ? undefined
+          : [{ sessionCount: 'desc' }, { createdAt: 'desc' }],
         include: {
           host: {
             select: {
@@ -233,6 +241,7 @@ export class ClubsService {
           },
           schedules: {
             orderBy: { dayOfWeek: 'asc' },
+            where: { isActive: true },
           },
           defaultVenue: {
             select: {
@@ -261,7 +270,7 @@ export class ClubsService {
     ]);
 
     // Post-fetch: distance calculation
-    const result = clubs.map((club) => ({
+    let result = clubs.map((club) => ({
       id: club.id,
       slug: club.slug ?? undefined,
       name: club.name,
@@ -294,15 +303,21 @@ export class ClubsService {
     }));
 
     // Sort by distance if requested
-    if (sortBy === 'distance' && lat !== undefined && lng !== undefined) {
+    if (isDistanceSort) {
       result.sort((a, b) => {
-        if (a.distance === null && b.distance === null) return 0;
+        if (a.distance === null && b.distance === null) {
+          return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+        }
         if (a.distance === null) return 1;
         if (b.distance === null) return -1;
-        return sortOrder === 'asc'
-          ? a.distance - b.distance
-          : b.distance - a.distance;
+        const distanceDifference =
+          sortOrder === 'asc'
+            ? a.distance - b.distance
+            : b.distance - a.distance;
+        if (distanceDifference !== 0) return distanceDifference;
+        return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
       });
+      result = result.slice(skip, skip + limit);
     }
 
     const favoriteSet = favoriteOnly
@@ -366,6 +381,7 @@ export class ClubsService {
         },
         schedules: {
           orderBy: { dayOfWeek: 'asc' },
+          where: { isActive: true }, // only show active schedules publicly
         },
         defaultVenue: {
           select: {
@@ -530,6 +546,13 @@ export class ClubsService {
       throw new NotFoundException('Club not found');
     }
 
+    // Block joining if club is not operationally active
+    if (club.operationalStatus !== ClubOperationalStatus.ACTIVE) {
+      throw new BadRequestException(
+        'This club is not currently accepting new members'
+      );
+    }
+
     // Check if already a member
     if (club.members.length > 0) {
       throw new ConflictException('You are already a member of this club');
@@ -687,6 +710,7 @@ export class ClubsService {
             },
             schedules: {
               orderBy: { dayOfWeek: 'asc' },
+              where: { isActive: true }, // only show active schedules in member/public views
             },
             defaultVenue: {
               select: {
@@ -883,6 +907,9 @@ export class ClubsService {
 
     return requests.map((r) => ({
       id: r.id,
+      // Frontend matches requests by clubId (e.g. join-status lookup, cancel
+      // action) — must be top-level, not just nested inside `club`.
+      clubId: r.clubId,
       status: r.status,
       message: r.message,
       response: r.response,
@@ -1061,6 +1088,7 @@ export class ClubsService {
                 startTime: s.startTime,
                 endTime: s.endTime,
                 notes: s.notes,
+                isActive: s.isActive ?? true,
               })),
             },
           }),
@@ -1242,6 +1270,7 @@ export class ClubsService {
                   startTime: s.startTime,
                   endTime: s.endTime,
                   notes: s.notes,
+                  isActive: s.isActive ?? true,
                 })),
               },
             }),
@@ -1407,26 +1436,24 @@ export class ClubsService {
               ],
             }),
       },
-      include: {
-        _count: {
-          select: { members: true, players: true },
-        },
-      },
     });
 
     if (!club) {
       throw new NotFoundException('Club not found');
     }
 
-    // Check if club has active players in sessions
-    if (club._count.players > 0) {
-      throw new BadRequestException(
-        'Cannot delete club with active players in sessions. Remove club member status from players first.'
-      );
-    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.player.updateMany({
+        where: { clubId },
+        data: {
+          clubId: null,
+          isClubMember: false,
+        },
+      });
 
-    await this.prisma.club.delete({
-      where: { id: clubId },
+      await tx.club.delete({
+        where: { id: clubId },
+      });
     });
 
     return { success: true };
@@ -2464,5 +2491,45 @@ export class ClubsService {
     );
 
     return updatedClub;
+  }
+
+  // ===========================================
+  // Operational Status Management
+  // ===========================================
+
+  /**
+   * Update a club's operational status.
+   * - Host can toggle ACTIVE <-> INACTIVE.
+   * - Only ADMIN can set DISSOLVED (irreversible).
+   */
+  async updateClubOperationalStatus(
+    clubId: string,
+    userId: string,
+    userRole: Role,
+    operationalStatus: ClubOperationalStatus
+  ) {
+    // DISSOLVED is admin-only and irreversible
+    if (
+      operationalStatus === ClubOperationalStatus.DISSOLVED &&
+      userRole !== Role.ADMIN
+    ) {
+      throw new ForbiddenException('Only admins can dissolve a club');
+    }
+
+    await this.ensureManagedClub(clubId, userId, userRole);
+
+    const club = await this.prisma.club.findUnique({ where: { id: clubId } });
+
+    // Prevent un-dissolving
+    if (club?.operationalStatus === ClubOperationalStatus.DISSOLVED) {
+      throw new BadRequestException(
+        'A dissolved club cannot be reactivated'
+      );
+    }
+
+    return this.prisma.club.update({
+      where: { id: clubId },
+      data: { operationalStatus },
+    });
   }
 }

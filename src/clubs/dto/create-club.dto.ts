@@ -15,7 +15,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ClubJoinPolicy } from '@prisma/client';
+import { ClubJoinPolicy, ClubOperationalStatus } from '@prisma/client';
 
 export class ClubScheduleDto {
   @IsInt()
@@ -35,6 +35,10 @@ export class ClubScheduleDto {
   @IsString()
   @MaxLength(200)
   notes?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean; // Tắt/bật lịch, mặc định true
 }
 
 export class SocialLinksDto {
@@ -163,4 +167,8 @@ export class CreateClubDto {
   @ValidateNested()
   @Type(() => SocialLinksDto)
   socialLinks?: SocialLinksDto;
+
+  @IsOptional()
+  @IsEnum(ClubOperationalStatus)
+  operationalStatus?: ClubOperationalStatus;
 }

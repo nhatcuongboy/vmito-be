@@ -250,16 +250,23 @@ export class VenuesService {
       andConditions.length > 0 ? { AND: andConditions } : {};
 
     const isRelevanceSort = sortBy === 'relevance' && !!keyword;
+    const isDistanceSort =
+      sortBy === 'distance' && lat !== undefined && lng !== undefined;
+    // Neither Prisma nor the database schema has a calculated distance field.
+    // Fetch the matching set before pagination so distance can be calculated
+    // and ranked globally, rather than only within an already name-paginated
+    // page of venues.
+    const requiresInMemoryPagination = isRelevanceSort || isDistanceSort;
 
     const [venues, total] = await Promise.all([
       this.prisma.venue.findMany({
         where,
-        skip: isRelevanceSort ? undefined : skip,
-        // Relevance sort ranks in JS after fetching, so it can't use skip/take
-        // for pagination — but still needs a hard ceiling so a broad keyword
-        // can't pull the entire table in one request.
-        take: isRelevanceSort ? 1000 : limit,
-        orderBy: isRelevanceSort
+        skip: requiresInMemoryPagination ? undefined : skip,
+        // Relevance and distance are ranked after fetching. They must not be
+        // paginated in the database first, otherwise page 1 would only be
+        // correctly ranked inside an arbitrary subset of venues.
+        take: requiresInMemoryPagination ? undefined : limit,
+        orderBy: requiresInMemoryPagination
           ? undefined
           : this.buildOrderBy(sortBy, sortOrder),
         omit: VENUE_PUBLIC_OMIT,
@@ -284,14 +291,19 @@ export class VenuesService {
     }
 
     // Sort by distance if requested
-    if (sortBy === 'distance' && lat !== undefined && lng !== undefined) {
+    if (isDistanceSort) {
       result.sort((a, b) => {
-        if (a.distance === null && b.distance === null) return 0;
+        if (a.distance === null && b.distance === null) {
+          return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+        }
         if (a.distance === null) return 1;
         if (b.distance === null) return -1;
-        return sortOrder === 'asc'
-          ? a.distance - b.distance
-          : b.distance - a.distance;
+        const distanceDifference =
+          sortOrder === 'asc'
+            ? a.distance - b.distance
+            : b.distance - a.distance;
+        if (distanceDifference !== 0) return distanceDifference;
+        return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
       });
     }
 
@@ -355,6 +367,10 @@ export class VenuesService {
         return aName.localeCompare(bName);
       });
       // Apply pagination in JS
+      result = result.slice(skip, skip + limit);
+    } else if (isDistanceSort) {
+      // Distance is calculated in memory, so paginate only after the global
+      // distance ordering above has been established.
       result = result.slice(skip, skip + limit);
     }
 
