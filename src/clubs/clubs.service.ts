@@ -1436,26 +1436,24 @@ export class ClubsService {
               ],
             }),
       },
-      include: {
-        _count: {
-          select: { members: true, players: true },
-        },
-      },
     });
 
     if (!club) {
       throw new NotFoundException('Club not found');
     }
 
-    // Check if club has active players in sessions
-    if (club._count.players > 0) {
-      throw new BadRequestException(
-        'Cannot delete club with active players in sessions. Remove club member status from players first.'
-      );
-    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.player.updateMany({
+        where: { clubId },
+        data: {
+          clubId: null,
+          isClubMember: false,
+        },
+      });
 
-    await this.prisma.club.delete({
-      where: { id: clubId },
+      await tx.club.delete({
+        where: { id: clubId },
+      });
     });
 
     return { success: true };
