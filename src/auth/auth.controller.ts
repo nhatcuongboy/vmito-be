@@ -236,11 +236,14 @@ export class AuthController {
   @Post('google/one-tap')
   @HttpCode(HttpStatus.OK)
   async googleOneTap(@Body() dto: GoogleOneTapDto) {
-    const data = await this.authService.verifyGoogleOneTap(dto.idToken);
-    return {
-      success: true,
-      data,
-    };
+    // Don't manually wrap the response here - the global TransformInterceptor
+    // already wraps every controller return value in { success, data }.
+    // Wrapping it again produced a double-nested body (data.data.accessToken),
+    // which made the frontend destructure `undefined` for the tokens and
+    // silently mark the user as authenticated with no accessToken, causing
+    // every subsequent authenticated request to be sent without the
+    // Authorization header (401 Unauthorized).
+    return this.authService.verifyGoogleOneTap(dto.idToken);
   }
 
   /**
