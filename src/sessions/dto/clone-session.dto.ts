@@ -1,9 +1,23 @@
-import { IsDateString } from 'class-validator';
+import { Transform } from 'class-transformer';
+import {
+  IsDateString,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class CloneSessionDto {
-  @IsDateString()
-  startTime: string;
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value
+  )
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  name?: string;
 
   @IsDateString()
-  endTime: string;
+  startTime!: string;
+
+  @IsDateString()
+  endTime!: string;
 }

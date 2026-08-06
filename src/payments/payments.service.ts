@@ -16,6 +16,7 @@ import {
   FeeType,
   RegistrationStatus,
   SessionStatus,
+  PaymentReminderStatus,
 } from '@prisma/client';
 
 @Injectable()
@@ -169,7 +170,7 @@ export class PaymentsService {
       );
     }
 
-    return this.prisma.paymentRecord.update({
+    const updated = await this.prisma.paymentRecord.update({
       where: { id: paymentId },
       data: {
         paymentMethod: dto.paymentMethod,
@@ -180,6 +181,73 @@ export class PaymentsService {
       },
       select: this.paymentSelect,
     });
+
+    await this.syncRemindersForPayment(paymentId);
+
+    return updated;
+  }
+
+  // Recompute PaymentReminder status from the current state of its linked payments.
+  // Called after submit/approve/reject so reminders stay correct regardless of which
+  // UI path (direct payment flow vs reminder flow) was used to change the payment.
+  private async syncRemindersForPayment(paymentId: string) {
+    const links = await this.prisma.paymentReminderPayment.findMany({
+      where: { paymentId },
+      select: { reminderId: true },
+    });
+
+    if (links.length === 0) return;
+
+    const reminderIds = [...new Set(links.map((l) => l.reminderId))];
+
+    for (const reminderId of reminderIds) {
+      const reminder = await this.prisma.paymentReminder.findUnique({
+        where: { id: reminderId },
+        select: {
+          status: true,
+          payments: { select: { payment: { select: { status: true } } } },
+        },
+      });
+
+      if (!reminder || reminder.status === PaymentReminderStatus.RESOLVED) {
+        continue;
+      }
+
+      const paymentStatuses = reminder.payments.map((p) => p.payment.status);
+      const allApproved = paymentStatuses.every(
+        (s) => s === PaymentStatus.APPROVED
+      );
+      const anyRejected = paymentStatuses.some(
+        (s) => s === PaymentStatus.REJECTED
+      );
+      const allSubmittedOrBeyond = paymentStatuses.every(
+        (s) => s === PaymentStatus.SUBMITTED || s === PaymentStatus.APPROVED
+      );
+
+      let nextStatus: PaymentReminderStatus = reminder.status;
+      if (allApproved) {
+        nextStatus = PaymentReminderStatus.RESOLVED;
+      } else if (anyRejected) {
+        nextStatus = PaymentReminderStatus.PENDING;
+      } else if (allSubmittedOrBeyond) {
+        nextStatus = PaymentReminderStatus.AWAITING_CONFIRMATION;
+      } else {
+        nextStatus = PaymentReminderStatus.PENDING;
+      }
+
+      if (nextStatus !== reminder.status) {
+        await this.prisma.paymentReminder.update({
+          where: { id: reminderId },
+          data: {
+            status: nextStatus,
+            resolvedAt:
+              nextStatus === PaymentReminderStatus.RESOLVED
+                ? new Date()
+                : null,
+          },
+        });
+      }
+    }
   }
 
   // Approve payment (host)
@@ -215,7 +283,7 @@ export class PaymentsService {
       );
     }
 
-    return this.prisma.paymentRecord.update({
+    const updated = await this.prisma.paymentRecord.update({
       where: { id: paymentId },
       data: {
         status: PaymentStatus.APPROVED,
@@ -232,6 +300,10 @@ export class PaymentsService {
       },
       select: this.paymentSelect,
     });
+
+    await this.syncRemindersForPayment(paymentId);
+
+    return updated;
   }
 
   // Reject payment (host)
@@ -267,7 +339,7 @@ export class PaymentsService {
       );
     }
 
-    return this.prisma.paymentRecord.update({
+    const updated = await this.prisma.paymentRecord.update({
       where: { id: paymentId },
       data: {
         status: PaymentStatus.REJECTED,
@@ -280,6 +352,10 @@ export class PaymentsService {
       },
       select: this.paymentSelect,
     });
+
+    await this.syncRemindersForPayment(paymentId);
+
+    return updated;
   }
 
   // Bulk approve payments

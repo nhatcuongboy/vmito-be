@@ -9,16 +9,16 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  name          String
-  password      String? // For email/password auth
-  emailVerified DateTime?
-  image         String?
-  imagePublicId String? // Cloudinary public ID for avatar
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  name               String
+  password           String? // For email/password auth
+  emailVerified      DateTime?
+  image              String?
+  imagePublicId      String? // Cloudinary public ID for avatar
   coverPhoto         String? // Profile cover/banner image URL
   coverPhotoPublicId String? // Cloudinary public ID for cover photo
-  role          Role      @default(PLAYER)
+  role               Role      @default(PLAYER)
 
   // Player related information
   gender           Gender?
@@ -46,6 +46,10 @@ model User {
   ratingsReceived    Rating[]              @relation("RatingsReceived")
   notifications      Notification[]
 
+  // Payment reminders
+  paymentRemindersCreated  PaymentReminder[] @relation("PaymentReminderCreator")
+  paymentRemindersReceived PaymentReminder[] @relation("PaymentReminderRecipient")
+
   // Club relations
   hostedClubs        Club[]              @relation("HostClubs")
   clubMemberships    ClubMember[]        @relation("UserClubs")
@@ -65,15 +69,15 @@ model User {
   reviewedVenueRequests  VenueRequest[] @relation("ReviewedVenueRequests")
 
   // Venue rental management
-  managedVenues      VenueManager[]        @relation("VenueManagers")
-  rentalQuotes       VenueRentalQuote[]    @relation("RentalQuoteRequester")
-  rentalRequests     VenueRentalRequest[]  @relation("RentalRequester")
-  reviewedRentals    VenueRentalRequest[]  @relation("RentalReviewer")
-  cancelledRentals   VenueRentalRequest[]  @relation("RentalCanceller")
-  rentalProposals    VenueRentalProposal[]
-  rentalEvents       VenueRentalEvent[]
-  createdCourtBlocks VenueCourtBlock[]     @relation("CourtBlockCreator")
-  createdRentals     VenueRentalRequest[]  @relation("RentalCreator")
+  managedVenues               VenueManager[]           @relation("VenueManagers")
+  rentalQuotes                VenueRentalQuote[]       @relation("RentalQuoteRequester")
+  rentalRequests              VenueRentalRequest[]     @relation("RentalRequester")
+  reviewedRentals             VenueRentalRequest[]     @relation("RentalReviewer")
+  cancelledRentals            VenueRentalRequest[]     @relation("RentalCanceller")
+  rentalProposals             VenueRentalProposal[]
+  rentalEvents                VenueRentalEvent[]
+  createdCourtBlocks          VenueCourtBlock[]        @relation("CourtBlockCreator")
+  createdRentals              VenueRentalRequest[]     @relation("RentalCreator")
   submittedRentalTransactions VenueRentalTransaction[] @relation("RentalTransactionSubmitter")
   processedRentalTransactions VenueRentalTransaction[] @relation("RentalTransactionProcessor")
 
@@ -268,14 +272,14 @@ model LevelDefinition {
 }
 
 model Session {
-  id                 String        @id @default(cuid())
-  slug               String?       @unique
-  name               String
-  description        String?
-  notes              String?
-  hostName           String?
-  hostPhone          String?
-  location           String? // Keeping for backward compatibility
+  id                     String        @id @default(cuid())
+  slug                   String?       @unique
+  name                   String
+  description            String?
+  notes                  String?
+  hostName               String?
+  hostPhone              String?
+  location               String? // Keeping for backward compatibility
   customLocationName     String?
   customLocationAddress  String?
   customLocationPlaceId  String?
@@ -283,17 +287,17 @@ model Session {
   customLocationLng      Float?
   customLocationDistrict String?
   customLocationCity     String?
-  venueId            String?
-  clubId             String?
-  hostId             String
-  numberOfCourts     Int           @default(2)
-  searchTerms        String? // Normalized search string
-  sessionDuration    Int           @default(120)
-  maxPlayersPerCourt Int           @default(8)
-  requirePlayerInfo  Boolean       @default(true)
-  status             SessionStatus @default(PREPARING)
-  startTime          DateTime?
-  endTime            DateTime?
+  venueId                String?
+  clubId                 String?
+  hostId                 String
+  numberOfCourts         Int           @default(2)
+  searchTerms            String? // Normalized search string
+  sessionDuration        Int           @default(120)
+  maxPlayersPerCourt     Int           @default(8)
+  requirePlayerInfo      Boolean       @default(true)
+  status                 SessionStatus @default(PREPARING)
+  startTime              DateTime?
+  endTime                DateTime?
 
   // Scheduling fields: planned times vs actual times
   scheduledStartTime DateTime? // Original planned start time
@@ -346,6 +350,7 @@ model Session {
   // Fee & Payment relations
   feeConfig           SessionFeeConfig?
   paymentRecords      PaymentRecord[]
+  paymentReminders    PaymentReminder[]
   expenses            SessionExpense[]
   ratings             Rating[]
   clubSessions        ClubSession[]
@@ -398,48 +403,48 @@ model Favorite {
 }
 
 model Venue {
-  id               String                       @id @default(cuid())
-  slug             String?                      @unique
-  placeId          String?                      @unique // Google Place ID
-  name             String
-  sportType        SportType                    @default(BADMINTON)
-  acronym          String? // Venue acronym
-  description      String? // Venue description
-  searchTerms      String? // Normalized search string
-  address          String
-  streetAddress    String? // House number + street, extracted from `address`; invariant across admin reform, shared by old/new address composition
-  lat              Float?
-  lng              Float?
-  district         String?
-  city             String?
-  wardOld          String? // Old ward/commune, extracted from `address`
-  newAddress       String? // New admin unit address (post Nghị quyết 60) — derived from streetAddress + newDistrict + newCity, not directly editable
-  newDistrict      String? // New ward/district name
-  newCity          String? // New city/province name if changed
-  isVerified       Boolean                      @default(false)
-  openingHours     String?
-  numberOfCourts   Int?
-  status           VenueStatus                  @default(ACTIVE)
-  phone            String?
-  website          String?
-  hourlyRateFixed  Int?
-  hourlyRateWalkIn Int?
-  createdAt        DateTime                     @default(now())
-  updatedAt        DateTime                     @updatedAt
-  sessions         Session[]
-  clubs            Club[]
-  tournaments      Tournament[]
-  tournamentVenues TournamentVenue[]
-  venueRequests    VenueRequest[]               @relation("RequestedVenue")
-  appliedRequests  VenueRequest[]               @relation("AppliedVenue")
-  priceBooks       VenuePriceBook[]
-  managers         VenueManager[]
-  rentalQuotes     VenueRentalQuote[]
-  rentalRequests   VenueRentalRequest[]
-  courts           VenueCourt[]
-  operatingPeriods VenueOperatingPeriod[]
-  courtBlocks      VenueCourtBlock[]
-  courtAllocations VenueRentalCourtAllocation[]
+  id                    String                       @id @default(cuid())
+  slug                  String?                      @unique
+  placeId               String?                      @unique // Google Place ID
+  name                  String
+  sportType             SportType                    @default(BADMINTON)
+  acronym               String? // Venue acronym
+  description           String? // Venue description
+  searchTerms           String? // Normalized search string
+  address               String
+  streetAddress         String? // House number + street, extracted from `address`; invariant across admin reform, shared by old/new address composition
+  lat                   Float?
+  lng                   Float?
+  district              String?
+  city                  String?
+  wardOld               String? // Old ward/commune, extracted from `address`
+  newAddress            String? // New admin unit address (post Nghị quyết 60) — derived from streetAddress + newDistrict + newCity, not directly editable
+  newDistrict           String? // New ward/district name
+  newCity               String? // New city/province name if changed
+  isVerified            Boolean                      @default(false)
+  openingHours          String?
+  numberOfCourts        Int?
+  status                VenueStatus                  @default(ACTIVE)
+  phone                 String?
+  website               String?
+  hourlyRateFixed       Int?
+  hourlyRateWalkIn      Int?
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+  sessions              Session[]
+  clubs                 Club[]
+  tournaments           Tournament[]
+  tournamentVenues      TournamentVenue[]
+  venueRequests         VenueRequest[]               @relation("RequestedVenue")
+  appliedRequests       VenueRequest[]               @relation("AppliedVenue")
+  priceBooks            VenuePriceBook[]
+  managers              VenueManager[]
+  rentalQuotes          VenueRentalQuote[]
+  rentalRequests        VenueRentalRequest[]
+  courts                VenueCourt[]
+  operatingPeriods      VenueOperatingPeriod[]
+  courtBlocks           VenueCourtBlock[]
+  courtAllocations      VenueRentalCourtAllocation[]
   rentalPaymentSettings VenueRentalPaymentSettings?
 
   // Amenities
@@ -783,35 +788,35 @@ model VenueRentalQuote {
 }
 
 model VenueRentalRequest {
-  id                      String                   @id @default(cuid())
-  venueId                 String
-  requesterId             String?
-  quoteId                 String?                  @unique
-  createdByUserId         String?
-  source                  VenueRentalSource        @default(ONLINE)
-  selectionMode           VenueRentalSelectionMode @default(AUTO_ASSIGN)
-  requestedCourtIds       String[]                 @default([])
-  allocationNeedsReview   Boolean                  @default(false)
-  sessionId               String?
-  status                  VenueRentalStatus        @default(PENDING)
-  contactName             String
-  contactPhone            String
-  notes                   String?
-  rejectionReason         String?
-  confirmedStartTime      DateTime?
-  confirmedEndTime        DateTime?
-  confirmedNumberOfCourts Int?
-  confirmedCustomerType   VenueCustomerType?
-  confirmedAmount         Int?
-  confirmedCurrency       String?
-  confirmedBreakdown      Json?
-  reviewedByUserId        String?
-  cancelledByUserId       String?
-  cancellationReason      String?
-  confirmedAt             DateTime?
-  rejectedAt              DateTime?
-  cancelledAt             DateTime?
-  completedAt             DateTime?
+  id                            String                   @id @default(cuid())
+  venueId                       String
+  requesterId                   String?
+  quoteId                       String?                  @unique
+  createdByUserId               String?
+  source                        VenueRentalSource        @default(ONLINE)
+  selectionMode                 VenueRentalSelectionMode @default(AUTO_ASSIGN)
+  requestedCourtIds             String[]                 @default([])
+  allocationNeedsReview         Boolean                  @default(false)
+  sessionId                     String?
+  status                        VenueRentalStatus        @default(PENDING)
+  contactName                   String
+  contactPhone                  String
+  notes                         String?
+  rejectionReason               String?
+  confirmedStartTime            DateTime?
+  confirmedEndTime              DateTime?
+  confirmedNumberOfCourts       Int?
+  confirmedCustomerType         VenueCustomerType?
+  confirmedAmount               Int?
+  confirmedCurrency             String?
+  confirmedBreakdown            Json?
+  reviewedByUserId              String?
+  cancelledByUserId             String?
+  cancellationReason            String?
+  confirmedAt                   DateTime?
+  rejectedAt                    DateTime?
+  cancelledAt                   DateTime?
+  completedAt                   DateTime?
   paymentDepositMode            VenueRentalDepositMode?
   paymentDepositValue           Int?
   paymentDepositDeadlineMinutes Int?
@@ -830,8 +835,8 @@ model VenueRentalRequest {
   balanceDueAt                  DateTime?
   depositReminderNotifiedAt     DateTime?
   balanceOverdueNotifiedAt      DateTime?
-  createdAt               DateTime                 @default(now())
-  updatedAt               DateTime                 @updatedAt
+  createdAt                     DateTime                 @default(now())
+  updatedAt                     DateTime                 @updatedAt
 
   venue            Venue                        @relation(fields: [venueId], references: [id], onDelete: Cascade)
   requester        User?                        @relation("RentalRequester", fields: [requesterId], references: [id], onDelete: SetNull)
@@ -1710,15 +1715,71 @@ model PaymentRecord {
   updatedAt          DateTime       @updatedAt
 
   // Relations
-  session      Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  player       Player  @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  host         User    @relation("HostPayments", fields: [hostId], references: [id])
-  registeredBy User?   @relation("RegisteredPayments", fields: [registeredByUserId], references: [id])
+  session       Session                  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  player        Player                   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  host          User                     @relation("HostPayments", fields: [hostId], references: [id])
+  registeredBy  User?                    @relation("RegisteredPayments", fields: [registeredByUserId], references: [id])
+  reminderLinks PaymentReminderPayment[]
 
   @@index([sessionId])
   @@index([hostId])
   @@index([registeredByUserId])
   @@map("payment_records")
+}
+
+enum PaymentReminderType {
+  SINGLE_PAYMENT
+  AGGREGATE
+  CUSTOM
+}
+
+enum PaymentReminderStatus {
+  PENDING
+  AWAITING_CONFIRMATION
+  RESOLVED
+}
+
+// Host -> player payment reminders (per-payment, aggregate debt, or freeform custom).
+model PaymentReminder {
+  id                 String                @id @default(cuid())
+  type               PaymentReminderType
+  creatorId          String
+  recipientId        String
+  sessionId          String? // null for AGGREGATE (may span sessions) and CUSTOM
+  amount             Int // Amount in VND
+  note               String?
+  status             PaymentReminderStatus @default(PENDING)
+  reminderCount      Int                   @default(1)
+  lastRemindedAt     DateTime              @default(now())
+  resolvedAt         DateTime?
+  proofImageUrl      String? // CUSTOM only — SINGLE/AGGREGATE proof lives on PaymentRecord
+  proofImagePublicId String?
+  proofNotes         String?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  creator   User                     @relation("PaymentReminderCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  recipient User                     @relation("PaymentReminderRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  session   Session?                 @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  payments  PaymentReminderPayment[]
+
+  @@index([creatorId, status])
+  @@index([recipientId, status])
+  @@map("payment_reminders")
+}
+
+// Join table linking a reminder to the PaymentRecord(s) it covers (1 for SINGLE_PAYMENT, N for AGGREGATE, none for CUSTOM).
+model PaymentReminderPayment {
+  id         String @id @default(cuid())
+  reminderId String
+  paymentId  String
+
+  reminder PaymentReminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+  payment  PaymentRecord   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@unique([reminderId, paymentId])
+  @@index([paymentId])
+  @@map("payment_reminder_payments")
 }
 
 model SessionExpense {
@@ -1927,8 +1988,8 @@ enum ClubStatus {
 }
 
 enum ClubOperationalStatus {
-  ACTIVE    // Đang hoạt động bình thường
-  INACTIVE  // Tạm ngừng hoạt động (host tự set)
+  ACTIVE // Đang hoạt động bình thường
+  INACTIVE // Tạm ngừng hoạt động (host tự set)
   DISSOLVED // Giải thể vĩnh viễn (chỉ admin set, không reversible)
 }
 
@@ -2006,9 +2067,9 @@ model ClubSession {
 model ClubSchedule {
   id        String  @id @default(cuid())
   clubId    String
-  dayOfWeek Int     // 0=CN, 1=T2, 2=T3, 3=T4, 4=T5, 5=T6, 6=T7
-  startTime String  // "19:00"
-  endTime   String  // "21:00"
+  dayOfWeek Int // 0=CN, 1=T2, 2=T3, 3=T4, 4=T5, 5=T6, 6=T7
+  startTime String // "19:00"
+  endTime   String // "21:00"
   notes     String?
   isActive  Boolean @default(true) // Tắt/bật lịch mà không cần xóa
 
