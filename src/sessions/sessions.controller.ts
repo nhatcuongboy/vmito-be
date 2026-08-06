@@ -39,8 +39,19 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { ConfigService } from '@nestjs/config';
-import { SessionStatus } from '@prisma/client';
+import { SessionStatus, SportType } from '@prisma/client';
 import { SessionAccessService } from '../common/session-access/session-access.service';
+import { isSportType } from '../common/utils/sport.utils';
+
+/** Parses a `sportType=BADMINTON,PICKLEBALL` query param. */
+const parseSportTypes = (raw?: string): SportType[] | undefined => {
+  if (!raw) return undefined;
+  const values = raw
+    .split(',')
+    .map((v) => v.trim())
+    .filter(isSportType);
+  return values.length > 0 ? values : undefined;
+};
 
 @ApiTags('sessions')
 @ApiBearerAuth('JWT-auth')
@@ -71,6 +82,7 @@ export class SessionsController {
     @Query('startTimeTo') startTimeTo?: string,
     @Query('city') city?: string,
     @Query('district') district?: string,
+    @Query('sportType') sportTypeRaw?: string,
     @Query('sessionType') sessionType?: 'all' | 'regular' | 'facebook',
     @Query('favoriteOnly') favoriteOnly?: string
   ) {
@@ -96,6 +108,7 @@ export class SessionsController {
       startTimeTo,
       city,
       district,
+      sportType: parseSportTypes(sportTypeRaw),
       sessionType,
       favoriteOnly: favoriteOnly === 'true',
     });
@@ -138,6 +151,7 @@ export class SessionsController {
     @Query('city') city?: string,
     @Query('district') district?: string,
     @Query('venueId') venueId?: string,
+    @Query('sportType') sportTypeRaw?: string,
     @Query('minFee') minFee?: string,
     @Query('maxFee') maxFee?: string,
     @Query('hasSlots') hasSlots?: string,
@@ -163,6 +177,7 @@ export class SessionsController {
         city,
         district,
         venueId,
+        sportType: parseSportTypes(sportTypeRaw),
         minFee: minFee ? parseFloat(minFee) : undefined,
         maxFee: maxFee ? parseFloat(maxFee) : undefined,
         hasSlots:

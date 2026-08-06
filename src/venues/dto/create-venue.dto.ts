@@ -5,6 +5,8 @@ import {
   IsBoolean,
   IsInt,
   IsEnum,
+  IsArray,
+  ArrayNotEmpty,
   Min,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
@@ -23,11 +25,24 @@ export class CreateVenueDto {
   @ApiProperty({
     required: false,
     enum: SportType,
-    description: 'Sport played at the venue (default BADMINTON)',
+    description: 'Primary sport (drives slug, display name and search terms)',
   })
   @IsOptional()
   @IsEnum(SportType)
   sportType?: SportType;
+
+  @ApiProperty({
+    required: false,
+    enum: SportType,
+    isArray: true,
+    description:
+      'All sports offered by the venue. Always ends up containing sportType.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsEnum(SportType, { each: true })
+  sportTypes?: SportType[];
 
   @ApiProperty({ required: false, description: 'Venue acronym' })
   @IsOptional()

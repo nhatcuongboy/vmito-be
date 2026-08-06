@@ -9,7 +9,7 @@ import {
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
-import { ClosureStatus, VenueStatus } from '@prisma/client';
+import { ClosureStatus, SportType, VenueStatus } from '@prisma/client';
 
 export class SearchVenueDto {
   @ApiProperty({
@@ -72,6 +72,25 @@ export class SearchVenueDto {
   @IsOptional()
   @IsEnum(VenueStatus)
   status?: VenueStatus;
+
+  @ApiProperty({
+    required: false,
+    enum: SportType,
+    isArray: true,
+    description:
+      'Only venues offering at least one of these sports. Comma-separated.',
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string'
+      ? value
+          .split(',')
+          .map((v) => v.trim())
+          .filter(Boolean)
+      : value
+  )
+  @IsEnum(SportType, { each: true })
+  sportType?: SportType[];
 
   @ApiProperty({
     required: false,

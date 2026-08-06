@@ -80,6 +80,7 @@ export class VenueAddressMigrationService {
         city: true,
         name: true,
         sportType: true,
+        sportTypes: true,
       },
     });
 
@@ -148,6 +149,7 @@ export class VenueAddressMigrationService {
         updateData.searchTerms = buildVenueSearchTerms({
           name: venue.name,
           sportType: venue.sportType,
+          sportTypes: venue.sportTypes,
           address: venue.address,
           district: venue.district,
           city: venue.city,
