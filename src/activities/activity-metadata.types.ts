@@ -1,5 +1,6 @@
 // Metadata shapes stored in Post.metadata (Json) per ActivityType.
 // Keep these in sync with the FE mirror in vmito-fe/src/types/post.ts.
+import { SportType } from '@prisma/client';
 
 export interface SessionCreatedMetadata {
   sessionId: string;
@@ -8,6 +9,7 @@ export interface SessionCreatedMetadata {
   coverPhoto?: string | null;
   scheduledStartTime?: string | null;
   location?: string | null;
+  sportType: SportType;
 }
 
 export interface SessionResultsStanding {
@@ -28,6 +30,7 @@ export interface SessionResultsMetadata {
   sessionName: string;
   endTime?: string | null;
   standings: SessionResultsStanding[];
+  sportType: SportType;
 }
 
 export interface ClubMetadata {
@@ -44,6 +47,7 @@ export interface TournamentCreatedMetadata {
   coverPhoto?: string | null;
   startDate?: string | null;
   venueName?: string | null;
+  sportType: SportType;
 }
 
 export interface TournamentPodiumSide {
@@ -62,6 +66,7 @@ export interface TournamentFinishedMetadata {
   tournamentSlug?: string | null;
   tournamentName: string;
   categories: TournamentFinishedCategory[];
+  sportType: SportType;
 }
 
 export interface AvatarUpdatedMetadata {

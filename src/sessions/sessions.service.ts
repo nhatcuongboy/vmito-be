@@ -1570,6 +1570,7 @@ export class SessionsService {
       scheduledStartTime: session.scheduledStartTime,
       location: session.location,
       isCrawled: session.isCrawled,
+      sportType: session.sportType,
     });
 
     // Return session with courts and feeConfig
