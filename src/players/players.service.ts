@@ -395,8 +395,8 @@ export class PlayersService {
       { playerId: newPlayer.id }
     );
 
-    // Notify user if they were added to the session
-    if (newPlayer.userId) {
+    // Notify user if they were added to the session (skip if host adds themselves)
+    if (newPlayer.userId && newPlayer.userId !== session.hostId) {
       await this.notificationsService.createForUser(
         newPlayer.userId,
         'SESSION',
@@ -543,10 +543,10 @@ export class PlayersService {
       )
     );
 
-    // Notify users who were added to the session
+    // Notify users who were added to the session (skip if host adds themselves)
     await Promise.all(
       createdPlayers
-        .filter((p) => p.userId)
+        .filter((p) => p.userId && p.userId !== session.hostId)
         .map((p) =>
           this.notificationsService.createForUser(
             p.userId!,
@@ -850,10 +850,10 @@ export class PlayersService {
       );
     }
 
-    // Notify users who were directly approved (host-added)
+    // Notify users who were directly approved (host-added) - skip if host adds themselves
     if (registrationStatus === 'APPROVED') {
       for (const player of createdPlayers) {
-        if (player.userId) {
+        if (player.userId && player.userId !== session.hostId) {
           await this.notificationsService.createForUser(
             player.userId,
             'SESSION',
