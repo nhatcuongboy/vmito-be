@@ -1241,7 +1241,7 @@ export class SessionsService {
     }
 
     const createSessionDto: CreateSessionDto = {
-      name: sourceSession.name,
+      name: cloneDto.name ?? sourceSession.name,
       description: sourceSession.description || undefined,
       notes: sourceSession.notes || undefined,
       hostName: sourceSession.hostName || undefined,
