@@ -1434,7 +1434,7 @@ export class PlayersService {
     // Check if session exists
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
-      select: { name: true },
+      select: { name: true, hostId: true },
     });
 
     if (!session) {
@@ -1465,8 +1465,8 @@ export class PlayersService {
       where: { id: playerId },
     });
 
-    // Notify user if they were removed from the session
-    if (existingPlayer.userId) {
+    // Notify user if they were removed from the session (skip if host removes themselves)
+    if (existingPlayer.userId && existingPlayer.userId !== session.hostId) {
       await this.notificationsService.createForUser(
         existingPlayer.userId,
         'SESSION',
