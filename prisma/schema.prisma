@@ -33,6 +33,7 @@ model User {
   // Relations
   playerRecords      Player[]
   hostedSessions     Session[]             @relation("HostedSessions")
+  hostedClasses      Class[]               @relation("HostedClasses")
   accounts           Account[]
   sessions           AuthSession[]
   hostedTournaments  Tournament[]          @relation("HostedTournaments")
@@ -173,6 +174,7 @@ enum NotificationType {
   REGISTRATION // Registration status updates
   PAYMENT // Payment-related notifications
   CLUB // Club-related notifications
+  CLASS // Class-related notifications
   TOURNAMENT // Tournament-related notifications
   POST // Post interactions (like, comment)
   VENUE_RENTAL // Venue rental workflow updates
@@ -363,6 +365,84 @@ model Session {
   @@map("sessions")
 }
 
+// Public recurring sports class recruitment. This intentionally stays separate
+// from Session: a class is a long-lived offering, not a playable event.
+model Class {
+  id                     String        @id @default(cuid())
+  slug                   String        @unique
+  name                   String
+  description            String?       @db.Text
+  contactName            String
+  contactPhone           String
+  zaloUrl                String?
+  hostId                 String
+  sportType              SportType     @default(BADMINTON)
+  requiredLevels         Int[]         @default([])
+  startDate              DateTime?
+  endDate                DateTime?
+  capacity               Int?
+  tuitionPeriod          ClassTuitionPeriod @default(CONTACT)
+  tuitionAmount          Int?
+  tuitionNotes           String?
+  venueId                String?
+  customLocationName     String?
+  customLocationAddress  String?
+  customLocationPlaceId  String?
+  customLocationLat      Float?
+  customLocationLng      Float?
+  customLocationDistrict String?
+  customLocationCity     String?
+  coverPhoto             String?
+  coverPhotoPublicId     String?
+  images                 String[]      @default([])
+  imagePublicIds         String[]      @default([])
+  searchTerms            String?
+  status                 ClassStatus   @default(DRAFT)
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+
+  host      User            @relation("HostedClasses", fields: [hostId], references: [id], onDelete: Cascade)
+  venue     Venue?          @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  schedules ClassSchedule[]
+
+  @@index([hostId])
+  @@index([status])
+  @@index([sportType])
+  @@index([venueId])
+  @@map("classes")
+}
+
+model ClassSchedule {
+  id        String   @id @default(cuid())
+  classId   String
+  dayOfWeek Int
+  startTime String
+  endTime   String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  class Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@index([classId])
+  @@index([classId, isActive])
+  @@map("class_schedules")
+}
+
+enum ClassStatus {
+  DRAFT
+  PUBLISHED
+  PAUSED
+  CLOSED
+}
+
+enum ClassTuitionPeriod {
+  PER_SESSION
+  MONTHLY
+  COURSE
+  CONTACT
+}
+
 enum ViewTargetType {
   VENUE
   CLUB
@@ -385,6 +465,7 @@ model ViewCount {
 
 enum FavoriteType {
   SESSION
+  CLASS
   VENUE
   CLUB
   TOURNAMENT
@@ -436,6 +517,7 @@ model Venue {
   createdAt             DateTime                     @default(now())
   updatedAt             DateTime                     @updatedAt
   sessions              Session[]
+  classes               Class[]
   clubs                 Club[]
   tournaments           Tournament[]
   tournamentVenues      TournamentVenue[]

@@ -15,6 +15,7 @@ import { FavoriteType } from '@prisma/client';
 const FAVORITE_REALTIME_TYPES = new Set<FavoriteType>([
   FavoriteType.SESSION,
   FavoriteType.CLUB,
+  FavoriteType.CLASS,
   FavoriteType.TOURNAMENT,
 ]);
 
