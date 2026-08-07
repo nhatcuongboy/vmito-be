@@ -113,29 +113,35 @@ export class ClassesService {
       });
       if (!venue) throw new NotFoundException('Venue not found');
       return {
-        venueId: venue.id,
         locationText: `${venue.name} ${venue.address}`,
-        customLocationName: null,
-        customLocationAddress: null,
-        customLocationPlaceId: null,
-        customLocationLat: null,
-        customLocationLng: null,
-        customLocationDistrict: null,
-        customLocationCity: null,
+        values: {
+          venueId: venue.id,
+          customLocationName: null,
+          customLocationAddress: null,
+          customLocationPlaceId: null,
+          customLocationLat: null,
+          customLocationLng: null,
+          customLocationDistrict: null,
+          customLocationCity: null,
+        },
       };
     }
     if (dto.customLocation) {
+      // A custom location belongs only to this class. Persist its snapshot on
+      // Class and never create a Venue row from free-form user input.
       const location = dto.customLocation;
       return {
-        venueId: null,
         locationText: `${location.name} ${location.address ?? ''}`,
-        customLocationName: location.name.trim(),
-        customLocationAddress: location.address?.trim() || null,
-        customLocationPlaceId: location.placeId?.trim() || null,
-        customLocationLat: location.lat ?? null,
-        customLocationLng: location.lng ?? null,
-        customLocationDistrict: location.district?.trim() || null,
-        customLocationCity: location.city?.trim() || null,
+        values: {
+          venueId: null,
+          customLocationName: location.name.trim(),
+          customLocationAddress: location.address?.trim() || null,
+          customLocationPlaceId: location.placeId?.trim() || null,
+          customLocationLat: location.lat ?? null,
+          customLocationLng: location.lng ?? null,
+          customLocationDistrict: location.district?.trim() || null,
+          customLocationCity: location.city?.trim() || null,
+        },
       };
     }
     return undefined;
@@ -206,10 +212,10 @@ export class ClassesService {
             ? null
             : (dto.tuitionAmount ?? null),
         tuitionNotes: dto.tuitionNotes?.trim() || null,
-        ...location,
+        ...location.values,
         searchTerms,
-        coverPhoto: dto.coverPhoto ?? null,
-        coverPhotoPublicId: dto.coverPhotoPublicId ?? null,
+        coverPhoto: dto.coverPhoto?.trim() || null,
+        coverPhotoPublicId: dto.coverPhotoPublicId?.trim() || null,
         images: dto.images ?? [],
         imagePublicIds: dto.imagePublicIds ?? [],
         schedules: {
@@ -398,7 +404,10 @@ export class ClassesService {
   }
 
   async update(id: string, dto: UpdateClassDto, userId: string, role: string) {
-    const current = await this.prisma.class.findUnique({ where: { id } });
+    const current = await this.prisma.class.findUnique({
+      where: { id },
+      include: { venue: { select: { name: true, address: true } } },
+    });
     if (!current) throw new NotFoundException('Class not found');
     this.assertOwner(current, userId, role);
     this.validateInput(dto);
@@ -411,7 +420,9 @@ export class ClassesService {
     const name = dto.name?.trim() ?? current.name;
     const searchLocation =
       location?.locationText ??
-      `${current.customLocationName ?? ''} ${current.customLocationAddress ?? ''}`;
+      (current.venue
+        ? `${current.venue.name} ${current.venue.address}`
+        : `${current.customLocationName ?? ''} ${current.customLocationAddress ?? ''}`);
     const searchTerms = removeVietnameseTones(
       `${name} ${dto.description ?? current.description ?? ''} ${searchLocation} ${dto.contactName ?? current.contactName}`
     ).toLowerCase();
@@ -478,7 +489,7 @@ export class ClassesService {
         ...(dto.imagePublicIds !== undefined
           ? { imagePublicIds: dto.imagePublicIds }
           : {}),
-        ...(location ? location : {}),
+        ...(location ? location.values : {}),
         searchTerms,
         ...(dto.schedules
           ? {

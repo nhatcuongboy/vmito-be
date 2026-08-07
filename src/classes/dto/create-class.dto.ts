@@ -104,16 +104,16 @@ export class CreateClassDto {
 
   @IsOptional()
   @IsDateString()
-  startDate?: string;
+  startDate?: string | null;
 
   @IsOptional()
   @IsDateString()
-  endDate?: string;
+  endDate?: string | null;
 
   @IsOptional()
   @IsInt()
   @Min(1)
-  capacity?: number;
+  capacity?: number | null;
 
   @IsOptional()
   @IsEnum(ClassTuitionPeriod)
