@@ -7,6 +7,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { SportType } from '@prisma/client';
 import { Language } from '../../common/constants/language.enum';
 
 export class ExtractSessionRequestDto {
@@ -45,6 +46,8 @@ export interface ExtractedSessionDto {
   // the crawler ingest so false negatives can be spotted and the prompt tuned.
   nonRecruitmentReason?: string;
   name?: string;
+  // Sport detected from the post; falls back to the matched venue then BADMINTON.
+  sportType?: SportType;
   description?: string;
   notes?: string;
   location?: string;

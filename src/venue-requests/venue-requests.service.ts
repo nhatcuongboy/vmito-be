@@ -8,6 +8,7 @@ import {
   ClosureStatus,
   NotificationType,
   Prisma,
+  SportType,
   VenueRequestStatus,
   VenueRequestType,
   VenueStatus,
@@ -15,6 +16,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { VenuesService } from '../venues/venues.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { isSportType } from '../common/utils/sport.utils';
 import {
   ApproveVenueRequestDto,
   CreateVenueRequestDto,
@@ -31,6 +33,7 @@ const VENUE_REQUEST_INCLUDE = {
 
 type VenuePatchPayload = Partial<{
   name: string;
+  sportTypes: SportType[];
   address: string;
   city: string;
   district: string;
@@ -502,6 +505,13 @@ export class VenueRequestsService {
       Object.values(ClosureStatus).includes(payload.closureStatus)
     ) {
       sanitized.closureStatus = payload.closureStatus;
+    }
+
+    if (Array.isArray(payload?.sportTypes)) {
+      const sports = Array.from(
+        new Set(payload.sportTypes.filter(isSportType))
+      );
+      if (sports.length > 0) sanitized.sportTypes = sports;
     }
 
     if (Array.isArray(payload?.suggestedImages)) {

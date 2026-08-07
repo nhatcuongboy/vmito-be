@@ -12,7 +12,8 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
-import { MatchType } from '@prisma/client';
+import { ApiProperty } from '@nestjs/swagger';
+import { MatchType, SportType } from '@prisma/client';
 
 import {
   VenueDto,
@@ -26,6 +27,11 @@ export class UpdateSessionDto {
   @IsString()
   @IsOptional()
   name?: string;
+
+  @ApiProperty({ required: false, enum: SportType })
+  @IsEnum(SportType)
+  @IsOptional()
+  sportType?: SportType;
 
   @IsString()
   @IsOptional()

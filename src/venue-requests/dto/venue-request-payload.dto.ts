@@ -1,4 +1,4 @@
-import { ClosureStatus } from '@prisma/client';
+import { ClosureStatus, SportType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -28,6 +28,11 @@ export class VenueRequestPayloadDto {
   @IsString()
   @MaxLength(200)
   name?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsEnum(SportType, { each: true })
+  sportTypes?: SportType[];
 
   @IsOptional()
   @IsString()

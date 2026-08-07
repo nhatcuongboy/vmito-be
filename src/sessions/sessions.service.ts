@@ -19,11 +19,18 @@ import {
   ImageCategory,
   Prisma,
   SessionStatus,
+  SportType,
 } from '@prisma/client';
 import {
   VALID_LEVELS,
   getLevelDistance,
 } from '../common/constants/level.constants';
+import {
+  DEFAULT_SPORT_TYPE,
+  SPORT_SEARCH_TOKENS,
+  normalizeSportType,
+  resolveVenueSportTypes,
+} from '../common/utils/sport.utils';
 
 import { SessionsGateway } from './sessions.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -62,6 +69,43 @@ export class SessionsService {
     PREPARING: 1,
     FINISHED: 2,
   };
+
+  /**
+   * Resolves a session's sport. An explicitly requested sport must be offered by the
+   * venue; when the client sends none (older clients), the venue decides.
+   */
+  private async resolveSessionSportType(
+    venueId: string | null | undefined,
+    requestedSportType: SportType | undefined,
+    client: Prisma.TransactionClient | PrismaService = this.prisma
+  ): Promise<SportType> {
+    if (!venueId) return requestedSportType ?? DEFAULT_SPORT_TYPE;
+
+    const venue = await client.venue.findUnique({
+      where: { id: venueId },
+      select: { id: true, name: true, sportType: true, sportTypes: true },
+    });
+
+    if (!venue) {
+      throw new NotFoundException('Venue not found');
+    }
+
+    const supported = resolveVenueSportTypes(venue);
+
+    if (!requestedSportType) {
+      return supported.includes(DEFAULT_SPORT_TYPE)
+        ? DEFAULT_SPORT_TYPE
+        : normalizeSportType(venue.sportType);
+    }
+
+    if (!supported.includes(requestedSportType)) {
+      throw new BadRequestException(
+        `Venue "${venue.name}" does not support ${requestedSportType}`
+      );
+    }
+
+    return requestedSportType;
+  }
 
   private normalizeReferenceVideoUrl(
     value: string | null | undefined
@@ -314,6 +358,7 @@ export class SessionsService {
       startTimeTo?: string;
       city?: string;
       district?: string;
+      sportType?: SportType[];
       sessionType?: 'all' | 'regular' | 'facebook';
       favoriteOnly?: boolean;
     }
@@ -347,6 +392,10 @@ export class SessionsService {
 
     if (favoriteIds) {
       where.id = { in: favoriteIds };
+    }
+
+    if (filters?.sportType?.length) {
+      where.sportType = { in: filters.sportType };
     }
 
     if (filters?.searchQuery) {
@@ -525,6 +574,7 @@ export class SessionsService {
       city?: string;
       district?: string;
       venueId?: string;
+      sportType?: SportType[];
       minFee?: number;
       maxFee?: number;
       hasSlots?: boolean;
@@ -585,6 +635,10 @@ export class SessionsService {
 
     if (favoriteIds) {
       andConditions.push({ id: { in: favoriteIds } });
+    }
+
+    if (filters?.sportType?.length) {
+      andConditions.push({ sportType: { in: filters.sportType } });
     }
 
     // Date filter
@@ -1242,6 +1296,7 @@ export class SessionsService {
 
     const createSessionDto: CreateSessionDto = {
       name: cloneDto.name ?? sourceSession.name,
+      sportType: sourceSession.sportType,
       description: sourceSession.description || undefined,
       notes: sourceSession.notes || undefined,
       hostName: sourceSession.hostName || undefined,
@@ -1369,6 +1424,11 @@ export class SessionsService {
     const venueId = resolvedLocation.venueId;
     const finalLocation = resolvedLocation.location;
 
+    const sportType = await this.resolveSessionSportType(
+      venueId,
+      createSessionDto.sportType
+    );
+
     // Calculate scheduled times
     const scheduledStart = startTime ? new Date(startTime) : new Date();
     const scheduledEnd = endTime
@@ -1380,13 +1440,14 @@ export class SessionsService {
     // Create session
     const sessionSlug = `${generateSlug(name)}-${Math.random().toString(36).substring(2, 7)}`;
     const sessionSearchTerms = removeVietnameseTones(
-      `${name} ${finalLocation || ''} ${hostName || ''} ${resolvedLocation.venueSearchText}`
+      `${name} ${finalLocation || ''} ${hostName || ''} ${resolvedLocation.venueSearchText} ${SPORT_SEARCH_TOKENS[sportType]}`
     ).toLowerCase();
     const session = await this.prisma.session.create({
       data: {
         name,
         slug: sessionSlug,
         hostId,
+        sportType,
         numberOfCourts: finalNumberOfCourts,
         sessionDuration,
         maxPlayersPerCourt,
@@ -1509,6 +1570,7 @@ export class SessionsService {
       scheduledStartTime: session.scheduledStartTime,
       location: session.location,
       isCrawled: session.isCrawled,
+      sportType: session.sportType,
     });
 
     // Return session with courts and feeConfig
@@ -1633,16 +1695,33 @@ export class SessionsService {
     // merged between extraction and ingest, and linking a stale id would blow
     // up on the foreign key instead of degrading to a custom location.
     const matchedVenueId = extracted.venueId?.trim();
-    let verifiedVenue: { id: string; name: string } | null = null;
+    let verifiedVenue: {
+      id: string;
+      name: string;
+      sportType: SportType;
+    } | null = null;
     if (matchedVenueId) {
       const dbVenue = await this.prisma.venue.findUnique({
         where: { id: matchedVenueId },
-        select: { id: true, name: true },
+        select: { id: true, name: true, sportType: true, sportTypes: true },
       });
       if (dbVenue?.name?.trim()) {
-        verifiedVenue = { id: dbVenue.id, name: dbVenue.name.trim() };
+        verifiedVenue = {
+          id: dbVenue.id,
+          name: dbVenue.name.trim(),
+          // Prefer the sport the post is about when the venue offers it.
+          sportType: resolveVenueSportTypes(dbVenue).includes(
+            normalizeSportType(extracted.sportType)
+          )
+            ? normalizeSportType(extracted.sportType)
+            : dbVenue.sportType,
+        };
       }
     }
+
+    const sportType = extracted.sportType
+      ? normalizeSportType(extracted.sportType)
+      : (verifiedVenue?.sportType ?? DEFAULT_SPORT_TYPE);
 
     const resolvedLocation = resolveCrawledSessionLocation(
       extracted,
@@ -1681,7 +1760,13 @@ export class SessionsService {
 
     const sessionSlug = `${generateSlug(name)}-${Math.random().toString(36).substring(2, 7)}`;
     const sessionSearchTerms = removeVietnameseTones(
-      [name, finalLocation, extracted.hostName, ...resolvedLocation.searchTerms]
+      [
+        name,
+        finalLocation,
+        extracted.hostName,
+        ...resolvedLocation.searchTerms,
+        SPORT_SEARCH_TOKENS[sportType],
+      ]
         .filter(Boolean)
         .join(' ')
     ).toLowerCase();
@@ -1692,6 +1777,7 @@ export class SessionsService {
           name,
           slug: sessionSlug,
           hostId: botUserId,
+          sportType,
           venueId: resolvedLocation.venueId,
           isCrawled: true,
           externalUrl,
@@ -1813,12 +1899,21 @@ export class SessionsService {
       ? await this.resolveSessionLocation(updateSessionDto)
       : undefined;
 
+    const updatedSportType =
+      updateSessionDto.sportType ??
+      normalizeSportType(existingSession.sportType);
+    const targetVenueId = hasExplicitLocationUpdate
+      ? resolvedLocation?.venueId
+      : existingSession.venueId;
+    await this.resolveSessionSportType(targetVenueId, updatedSportType);
+
     // Recompute searchTerms if any searchable field is being updated
     const needsSearchTermsUpdate =
       updateSessionDto.name !== undefined ||
       updateSessionDto.location !== undefined ||
       updateSessionDto.hostName !== undefined ||
       updateSessionDto.venue !== undefined ||
+      updateSessionDto.sportType !== undefined ||
       hasExplicitLocationUpdate;
     let updatedSearchTerms: string | undefined;
     if (needsSearchTermsUpdate) {
@@ -1842,7 +1937,7 @@ export class SessionsService {
         if (v) venueNameAddress = `${v.name} ${v.address}`;
       }
       updatedSearchTerms = removeVietnameseTones(
-        `${updatedName} ${updatedLocation || ''} ${updatedHostName || ''} ${venueNameAddress}`
+        `${updatedName} ${updatedLocation || ''} ${updatedHostName || ''} ${venueNameAddress} ${SPORT_SEARCH_TOKENS[updatedSportType]}`
       ).toLowerCase();
     }
     const normalizedReferenceVideoUrl = this.normalizeReferenceVideoUrl(
@@ -1853,6 +1948,7 @@ export class SessionsService {
       where: { id },
       data: {
         name: updateSessionDto.name,
+        sportType: updateSessionDto.sportType,
         numberOfCourts: updateSessionDto.numberOfCourts,
         sessionDuration: updateSessionDto.sessionDuration,
         maxPlayersPerCourt: updateSessionDto.maxPlayersPerCourt,
@@ -3576,15 +3672,22 @@ export class SessionsService {
     const venueId = resolvedLocation.venueId;
     const finalLocation = resolvedLocation.location;
 
+    const sportType = await this.resolveSessionSportType(
+      venueId,
+      createSessionDto.sportType,
+      prismaClient
+    );
+
     // Create session
     const internalSearchTerms = removeVietnameseTones(
-      `${name} ${finalLocation || ''} ${hostName || ''} ${resolvedLocation.venueSearchText}`
+      `${name} ${finalLocation || ''} ${hostName || ''} ${resolvedLocation.venueSearchText} ${SPORT_SEARCH_TOKENS[sportType]}`
     ).toLowerCase();
     const session = await prismaClient.session.create({
       data: {
         name,
         slug: `${generateSlug(name)}-${Math.random().toString(36).substring(2, 7)}`,
         hostId,
+        sportType,
         numberOfCourts: finalNumberOfCourts,
         sessionDuration,
         maxPlayersPerCourt,

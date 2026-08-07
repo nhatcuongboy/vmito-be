@@ -460,6 +460,7 @@ export class TournamentsService {
       coverPhoto: created.coverPhoto,
       startDate: created.startDate,
       venueName: location?.name ?? null,
+      sportType: created.sportType,
     });
 
     const tournament = await this.prisma.tournament.findUnique({

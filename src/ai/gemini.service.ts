@@ -10,7 +10,13 @@ import {
 import { ExtractedScheduleEntry } from './dto/extract-schedule.dto';
 import { Language, DEFAULT_LANGUAGE } from '../common/constants/language.enum';
 import { PrismaService } from '../prisma/prisma.service';
+import { SportType } from '@prisma/client';
 import { removeVietnameseTones } from '../common/utils/string.utils';
+import {
+  DEFAULT_SPORT_TYPE,
+  isSportType,
+  normalizeSportType,
+} from '../common/utils/sport.utils';
 import {
   getLevelsInRange,
   isValidLevel,
@@ -49,6 +55,7 @@ type RawExtractedSession = {
   isRecruitmentPost?: boolean | null;
   nonRecruitmentReason?: string | null;
   name?: string | null;
+  sportType?: string | null;
   description?: string | null;
   notes?: string | null;
   location?: string | null;
@@ -84,6 +91,7 @@ type VenueMatch = {
   newDistrict: string | null;
   newCity: string | null;
   searchTerms: string | null;
+  sportType: SportType;
 };
 
 type VenueMatchResult = {
@@ -100,6 +108,11 @@ const SESSION_EXTRACTION_SCHEMA = {
     isRecruitmentPost: { type: GenAIType.BOOLEAN },
     nonRecruitmentReason: nullableStringSchema,
     name: nullableStringSchema,
+    sportType: {
+      type: GenAIType.STRING,
+      nullable: true,
+      enum: Object.values(SportType),
+    },
     description: nullableStringSchema,
     notes: nullableStringSchema,
     location: nullableStringSchema,
@@ -173,6 +186,7 @@ const SESSION_EXTRACTION_SCHEMA = {
     'isRecruitmentPost',
     'nonRecruitmentReason',
     'name',
+    'sportType',
     'description',
     'notes',
     'location',
@@ -195,6 +209,7 @@ const SESSION_EXTRACTION_SCHEMA = {
     'isRecruitmentPost',
     'nonRecruitmentReason',
     'name',
+    'sportType',
     'description',
     'notes',
     'location',
@@ -671,6 +686,7 @@ Only use another language if the user explicitly asks you to translate, compare 
       isRecruitmentPost: raw.isRecruitmentPost === true,
       nonRecruitmentReason: this.normalizeTextValue(raw.nonRecruitmentReason),
       name: this.normalizeTextValue(raw.name),
+      sportType: isSportType(raw.sportType) ? raw.sportType : undefined,
       description: this.normalizeTextValue(raw.description),
       notes: this.normalizeTextValue(raw.notes),
       location,
@@ -747,10 +763,12 @@ Only use another language if the user explicitly asks you to translate, compare 
   }
 
   /**
-   * Find best matching venue in database based on AI extracted venue data
+   * Find best matching venue in database based on AI extracted venue data.
+   * When the post's sport is known, only venues offering it are considered.
    */
   private async findMatchingVenue(
-    extractedVenue: ExtractedVenue
+    extractedVenue: ExtractedVenue,
+    sportType?: SportType
   ): Promise<VenueMatchResult | null> {
     if (!extractedVenue.name && !extractedVenue.address) {
       return null;
@@ -761,6 +779,7 @@ Only use another language if the user explicitly asks you to translate, compare 
       where: {
         status: 'ACTIVE',
         closureStatus: 'OPERATING',
+        ...(sportType ? { sportTypes: { has: sportType } } : {}),
       },
       select: {
         id: true,
@@ -773,6 +792,7 @@ Only use another language if the user explicitly asks you to translate, compare 
         newDistrict: true,
         newCity: true,
         searchTerms: true,
+        sportType: true,
       },
     });
 
@@ -972,6 +992,7 @@ STEP 2 — If isRecruitmentPost is true, extract every session detail that is ex
 
 Field guidance:
 - name: Session name. If the post has no title, create a short descriptive name from venue + time, but do not invent hidden facts.
+- sportType: BADMINTON when the post is about badminton ("cầu lông", "badminton", shuttlecock/cầu brands, levels like TBY/TB+), PICKLEBALL when it is about pickleball ("pickleball", "pickle", "bóng nhựa", paddle/vợt pickleball). Use null if the sport is not stated and cannot be inferred confidently — do not guess.
 - description: Public details from the post that help players understand the session.
 - notes: Operational/private notes, special rules, reminders, or fee caveats from the post.
 - location: This is the Session.location / "Địa điểm" field shown in the session form. Extract the display location exactly as well as possible. Prefer venue name plus address/area if present, for example "Sân ABC, Quận 7" or "Sân ABC, 123 Nguyễn Văn Linh, Quận 7". Do not put unrelated notes here.
@@ -1031,7 +1052,10 @@ Important rules:
       extracted.venue ||
       (extracted.location ? { name: extracted.location } : undefined);
     if (venueForMatching) {
-      const match = await this.findMatchingVenue(venueForMatching);
+      const match = await this.findMatchingVenue(
+        venueForMatching,
+        extracted.sportType
+      );
       if (match) {
         extracted.venueId = match.venue.id;
         extracted.venue = this.canonicalVenue(match.venue);
@@ -1039,8 +1063,13 @@ Important rules:
           extracted.location,
           extracted.venue
         );
+        // The venue is authoritative when the post itself didn't state a sport.
+        extracted.sportType =
+          extracted.sportType ?? normalizeSportType(match.venue.sportType);
       }
     }
+
+    extracted.sportType = extracted.sportType ?? DEFAULT_SPORT_TYPE;
 
     return extracted;
   }

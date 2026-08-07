@@ -1,5 +1,6 @@
 import { SportType } from '@prisma/client';
 import { removeVietnameseTones } from '../common/utils/string.utils';
+import { resolveVenueSportTypes } from '../common/utils/sport.utils';
 
 /**
  * Per-sport display/search prefixes. Raw venue names don't include the
@@ -22,6 +23,7 @@ export const SPORT_PREFIX: Record<
 export interface VenueSearchTermsInput {
   name: string;
   sportType?: SportType | null;
+  sportTypes?: SportType[] | null;
   address?: string | null;
   district?: string | null;
   city?: string | null;
@@ -41,10 +43,12 @@ export interface VenueSearchTermsInput {
  * depending on VenuesService (which would be a circular dependency).
  */
 export function buildVenueSearchTerms(venue: VenueSearchTermsInput): string {
-  const prefix = SPORT_PREFIX[venue.sportType ?? SportType.BADMINTON].search;
+  const prefixes = resolveVenueSportTypes(venue)
+    .map((sport) => SPORT_PREFIX[sport].search)
+    .join(' ');
   return removeVietnameseTones(
     [
-      prefix,
+      prefixes,
       venue.name,
       venue.address,
       venue.district,

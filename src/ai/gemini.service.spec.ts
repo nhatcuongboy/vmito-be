@@ -330,4 +330,83 @@ describe('GeminiService.extractSessionFromArticle', () => {
     expect(result.isRecruitmentPost).toBe(false);
     expect(result.nonRecruitmentReason).toBe('class ad');
   });
+
+  describe('sport type', () => {
+    const makeVenue = (overrides: Record<string, unknown> = {}) => ({
+      id: 'venue-1',
+      name: 'Sân ABC',
+      acronym: null,
+      address: '123 Nguyễn Văn Linh',
+      district: 'Quận 7',
+      city: 'Hồ Chí Minh',
+      newAddress: null,
+      newDistrict: null,
+      newCity: null,
+      searchTerms: 'san cau long san abc',
+      sportType: 'BADMINTON',
+      ...overrides,
+    });
+
+    it('keeps the sport extracted from the post', async () => {
+      mockAiResponse(makeRawSession({ sportType: 'PICKLEBALL' }));
+
+      const result = await service.extractSessionFromArticle(
+        'Kèo pickleball tối nay',
+        Language.VI
+      );
+
+      expect(result.sportType).toBe('PICKLEBALL');
+    });
+
+    it('only matches venues offering the extracted sport', async () => {
+      venueFindMany.mockResolvedValue([
+        makeVenue({
+          sportType: 'PICKLEBALL',
+          searchTerms: 'san pickleball abc',
+        }),
+      ]);
+      mockAiResponse(
+        makeRawSession({
+          sportType: 'PICKLEBALL',
+          venue: { name: 'Sân ABC', address: '123 Nguyễn Văn Linh' },
+        })
+      );
+
+      await service.extractSessionFromArticle('Kèo pickleball', Language.VI);
+
+      const [{ where }] = venueFindMany.mock.calls[0] as [
+        { where: Record<string, unknown> },
+      ];
+      expect(where.sportTypes).toEqual({ has: 'PICKLEBALL' });
+    });
+
+    it('falls back to the matched venue sport when the post does not state one', async () => {
+      venueFindMany.mockResolvedValue([makeVenue({ sportType: 'PICKLEBALL' })]);
+      mockAiResponse(
+        makeRawSession({
+          sportType: null,
+          venue: { name: 'Sân ABC', address: '123 Nguyễn Văn Linh' },
+        })
+      );
+
+      const result = await service.extractSessionFromArticle(
+        'Kèo tối nay sân ABC',
+        Language.VI
+      );
+
+      expect(result.venueId).toBe('venue-1');
+      expect(result.sportType).toBe('PICKLEBALL');
+    });
+
+    it('defaults to BADMINTON when neither the post nor a venue resolves the sport', async () => {
+      mockAiResponse(makeRawSession({ sportType: null }));
+
+      const result = await service.extractSessionFromArticle(
+        'Kèo tối nay',
+        Language.VI
+      );
+
+      expect(result.sportType).toBe('BADMINTON');
+    });
+  });
 });

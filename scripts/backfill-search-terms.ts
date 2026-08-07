@@ -14,42 +14,10 @@
  *
  * DATABASE_URL controls which database is targeted.
  */
-import { PrismaClient, SportType } from '@prisma/client';
-import { removeVietnameseTones } from '../src/common/utils/string.utils';
+import { PrismaClient } from '@prisma/client';
+import { buildVenueSearchTerms } from '../src/venues/venue-search-terms.util';
 
 const prisma = new PrismaClient();
-
-const SPORT_PREFIX: Record<SportType, string> = {
-  [SportType.BADMINTON]: 'san cau long',
-  [SportType.PICKLEBALL]: 'san pickleball',
-};
-
-function buildSearchTerms(venue: {
-  name: string;
-  sportType?: SportType | null;
-  address?: string | null;
-  district?: string | null;
-  city?: string | null;
-  newAddress?: string | null;
-  newDistrict?: string | null;
-  newCity?: string | null;
-}): string {
-  const prefix = SPORT_PREFIX[venue.sportType ?? SportType.BADMINTON];
-  return removeVietnameseTones(
-    [
-      prefix,
-      venue.name,
-      venue.address,
-      venue.district,
-      venue.city,
-      venue.newAddress,
-      venue.newDistrict,
-      venue.newCity,
-    ]
-      .filter(Boolean)
-      .join(' ')
-  ).toLowerCase();
-}
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -75,6 +43,7 @@ async function main() {
       slug: true,
       name: true,
       sportType: true,
+      sportTypes: true,
       address: true,
       district: true,
       city: true,
@@ -89,7 +58,7 @@ async function main() {
   let unchanged = 0;
 
   for (const venue of venues) {
-    const searchTerms = buildSearchTerms(venue);
+    const searchTerms = buildVenueSearchTerms(venue);
     if (searchTerms === venue.searchTerms) {
       unchanged++;
       continue;

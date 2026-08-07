@@ -54,7 +54,7 @@ const NUMBER_FIELDS = new Set([
   'hourlyRateWalkIn',
 ]);
 const BOOLEAN_FIELDS = new Set(['isVerified', 'hasCarParking', 'hasCanteen']);
-const LIST_FIELDS = new Set(['images', 'imagePublicIds']);
+const LIST_FIELDS = new Set(['images', 'imagePublicIds', 'sportTypes']);
 
 // Columns accepted by CreateVenueDto (src/venues/dto/create-venue.dto.ts).
 // Unlike the HTTP path, calling VenuesService.create() directly skips
@@ -66,6 +66,7 @@ const KNOWN_FIELDS = new Set([
   'placeId',
   'name',
   'sportType',
+  'sportTypes',
   'acronym',
   'description',
   'address',
@@ -192,11 +193,15 @@ function validateRow(
   if (!row.name) errors.push('missing "name"');
   if (!row.address) errors.push('missing "address"');
   const sportType = row.sportType as string | undefined;
+  const sportTypes = row.sportTypes as string[] | undefined;
   const status = row.status as string | undefined;
   const closureStatus = row.closureStatus as string | undefined;
   if (sportType && !(sportType in SportType)) {
     errors.push(`invalid sportType "${sportType}"`);
   }
+  sportTypes
+    ?.filter((sport) => !(sport in SportType))
+    .forEach((sport) => errors.push(`invalid sportTypes entry "${sport}"`));
   if (status && !(status in VenueStatus)) {
     errors.push(`invalid status "${status}"`);
   }

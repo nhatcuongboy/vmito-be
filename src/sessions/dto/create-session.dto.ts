@@ -12,7 +12,8 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
-import { CourtDirection, FeeType, MatchType } from '@prisma/client';
+import { ApiProperty } from '@nestjs/swagger';
+import { CourtDirection, FeeType, MatchType, SportType } from '@prisma/client';
 
 export class CourtConfigDto {
   @IsString()
@@ -129,6 +130,16 @@ export class FeeConfigDto {
 export class CreateSessionDto {
   @IsString()
   name: string;
+
+  @ApiProperty({
+    required: false,
+    enum: SportType,
+    default: SportType.BADMINTON,
+    description: 'Sport of the session. Must be supported by the linked venue.',
+  })
+  @IsEnum(SportType)
+  @IsOptional()
+  sportType?: SportType;
 
   @IsString()
   @IsOptional()

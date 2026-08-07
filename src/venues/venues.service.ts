@@ -37,6 +37,10 @@ import {
   buildVenueSearchTerms,
   type VenueSearchTermsInput,
 } from './venue-search-terms.util';
+import {
+  DEFAULT_SPORT_TYPE,
+  resolveVenueSportTypes,
+} from '../common/utils/sport.utils';
 import { VENUE_PUBLIC_OMIT } from './venue-public-omit.constant';
 import { VenuePricingService } from '../venue-rentals/venue-pricing.service';
 import { VenueAccessService } from './venue-access.service';
@@ -57,6 +61,40 @@ export class VenuesService {
     private pricingService: VenuePricingService,
     private venueAccess: VenueAccessService
   ) {}
+
+  /**
+   * Reconciles the primary sport with the list of supported sports so that
+   * `sportTypes` always contains `sportType`.
+   */
+  private resolveSportSelection(
+    input: { sportType?: SportType | null; sportTypes?: SportType[] | null },
+    existing?: { sportType: SportType; sportTypes: SportType[] }
+  ): { sportType: SportType; sportTypes: SportType[] } {
+    const fallback = existing
+      ? {
+          sportType: existing.sportType,
+          sportTypes: resolveVenueSportTypes(existing),
+        }
+      : { sportType: DEFAULT_SPORT_TYPE, sportTypes: [DEFAULT_SPORT_TYPE] };
+
+    if (input.sportTypes?.length) {
+      const sportTypes = Array.from(new Set(input.sportTypes));
+      const requestedPrimary = input.sportType ?? fallback.sportType;
+      const sportType = sportTypes.includes(requestedPrimary)
+        ? requestedPrimary
+        : sportTypes[0];
+      return { sportType, sportTypes };
+    }
+
+    if (input.sportType) {
+      const sportTypes = fallback.sportTypes.includes(input.sportType)
+        ? fallback.sportTypes
+        : [input.sportType];
+      return { sportType: input.sportType, sportTypes };
+    }
+
+    return fallback;
+  }
 
   /**
    * Generate a unique venue slug from the venue name.
@@ -109,6 +147,7 @@ export class VenuesService {
       hasNewAddress,
       closureStatus,
       favoriteOnly,
+      sportType,
       sortBy: rawSortBy,
       sortOrder = 'asc',
       page = 1,
@@ -139,6 +178,10 @@ export class VenuesService {
 
     if (placeId) {
       andConditions.push({ placeId });
+    }
+
+    if (sportType?.length) {
+      andConditions.push({ sportTypes: { hasSome: sportType } });
     }
 
     // Keyword search (name OR address)
@@ -975,14 +1018,16 @@ export class VenuesService {
         ? [streetAddress, newDistrict, newCity].filter(Boolean).join(', ')
         : undefined;
 
+    const sportSelection = this.resolveSportSelection(createVenueDto);
     const slug = await this.generateUniqueSlug(
       createVenueDto.name,
-      createVenueDto.sportType
+      sportSelection.sportType
     );
 
     return this.prisma.venue.create({
       data: {
         ...createVenueDto,
+        ...sportSelection,
         slug,
         district,
         city,
@@ -993,7 +1038,7 @@ export class VenuesService {
         newCity,
         searchTerms: this.buildSearchTerms({
           name: createVenueDto.name,
-          sportType: createVenueDto.sportType,
+          ...sportSelection,
           address: createVenueDto.address,
           district,
           city,
@@ -1016,7 +1061,11 @@ export class VenuesService {
         ? this.normalizeAdminUnit(venue.city)
         : venue.city;
 
-      const slug = await this.generateUniqueSlug(venue.name, venue.sportType);
+      const sportSelection = this.resolveSportSelection(venue);
+      const slug = await this.generateUniqueSlug(
+        venue.name,
+        sportSelection.sportType
+      );
 
       const { streetAddress, wardOld } =
         this.addressMapping.extractStreetAndWard(
@@ -1048,6 +1097,7 @@ export class VenuesService {
         const created = await this.prisma.venue.create({
           data: {
             ...venue,
+            ...sportSelection,
             slug,
             district,
             city,
@@ -1058,7 +1108,7 @@ export class VenuesService {
             newCity,
             searchTerms: this.buildSearchTerms({
               name: venue.name,
-              sportType: venue.sportType,
+              ...sportSelection,
               address: venue.address,
               district,
               city,
@@ -1093,6 +1143,7 @@ export class VenuesService {
       select: {
         name: true,
         sportType: true,
+        sportTypes: true,
         address: true,
         streetAddress: true,
         district: true,
@@ -1163,11 +1214,13 @@ export class VenuesService {
         ? [streetAddress, newDistrict, newCity].filter(Boolean).join(', ')
         : undefined;
 
+    const sportSelection = this.resolveSportSelection(updateVenueDto, existing);
+
     // Rebuild searchTerms from the merged (DTO over stored) values so
     // partial updates never drop existing fields from the search index.
     const searchTerms = this.buildSearchTerms({
       name: updateVenueDto.name ?? existing.name,
-      sportType: updateVenueDto.sportType ?? existing.sportType,
+      ...sportSelection,
       address: mergedAddress,
       district: district ?? existing.district,
       city: city ?? existing.city,
@@ -1180,6 +1233,7 @@ export class VenuesService {
       where: { id },
       data: {
         ...updateVenueDto,
+        ...sportSelection,
         ...(district !== undefined ? { district } : {}),
         ...(city !== undefined ? { city } : {}),
         streetAddress,
@@ -1425,6 +1479,7 @@ export class VenuesService {
         id: true,
         name: true,
         sportType: true,
+        sportTypes: true,
         address: true,
         district: true,
         city: true,

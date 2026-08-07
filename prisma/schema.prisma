@@ -290,6 +290,7 @@ model Session {
   venueId                String?
   clubId                 String?
   hostId                 String
+  sportType              SportType     @default(BADMINTON)
   numberOfCourts         Int           @default(2)
   searchTerms            String? // Normalized search string
   sessionDuration        Int           @default(120)
@@ -358,6 +359,7 @@ model Session {
 
   @@index([isCrawled])
   @@index([clubId])
+  @@index([sportType])
   @@map("sessions")
 }
 
@@ -408,6 +410,8 @@ model Venue {
   placeId               String?                      @unique // Google Place ID
   name                  String
   sportType             SportType                    @default(BADMINTON)
+  // Every sport the venue offers; always contains `sportType` (the primary sport used for slug/name/search).
+  sportTypes            SportType[]                  @default([BADMINTON])
   acronym               String? // Venue acronym
   description           String? // Venue description
   searchTerms           String? // Normalized search string
@@ -476,6 +480,7 @@ model Venue {
   @@index([city])
   @@index([district])
   @@index([lat, lng])
+  @@index([sportTypes], type: Gin)
   @@map("venues")
 }
 

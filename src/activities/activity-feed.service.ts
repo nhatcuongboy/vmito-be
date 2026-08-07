@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { ActivityType, Prisma } from '@prisma/client';
+import { ActivityType, Prisma, SportType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ActivityMetadata,
@@ -36,6 +36,7 @@ export class ActivityFeedService {
     scheduledStartTime?: Date | null;
     location?: string | null;
     isCrawled?: boolean;
+    sportType: SportType;
   }): Promise<void> {
     if (session.isCrawled) return;
     await this.safeCreate(session.hostId, ActivityType.SESSION_CREATED, {
@@ -45,6 +46,7 @@ export class ActivityFeedService {
       coverPhoto: session.coverPhoto ?? null,
       scheduledStartTime: session.scheduledStartTime?.toISOString() ?? null,
       location: session.location ?? null,
+      sportType: session.sportType,
     });
   }
 
@@ -123,6 +125,7 @@ export class ActivityFeedService {
     coverPhoto?: string | null;
     startDate?: Date | null;
     venueName?: string | null;
+    sportType: SportType;
   }): Promise<void> {
     await this.safeCreate(tournament.hostId, ActivityType.TOURNAMENT_CREATED, {
       tournamentId: tournament.id,
@@ -131,6 +134,7 @@ export class ActivityFeedService {
       coverPhoto: tournament.coverPhoto ?? null,
       startDate: tournament.startDate?.toISOString() ?? null,
       venueName: tournament.venueName ?? null,
+      sportType: tournament.sportType,
     });
   }
 
@@ -138,7 +142,13 @@ export class ActivityFeedService {
     try {
       const tournament = await this.prisma.tournament.findUnique({
         where: { id: tournamentId },
-        select: { id: true, slug: true, name: true, hostId: true },
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          hostId: true,
+          sportType: true,
+        },
       });
       if (!tournament) return;
 
@@ -169,6 +179,7 @@ export class ActivityFeedService {
           tournamentSlug: tournament.slug ?? null,
           tournamentName: tournament.name,
           categories: podiums,
+          sportType: tournament.sportType,
         }
       );
     } catch (error) {
@@ -264,6 +275,7 @@ export class ActivityFeedService {
         status: true,
         hostId: true,
         endTime: true,
+        sportType: true,
         players: { select: { userId: true } },
       },
     });
@@ -374,6 +386,7 @@ export class ActivityFeedService {
       sessionSlug: session.slug ?? null,
       sessionName: session.name,
       endTime: session.endTime?.toISOString() ?? null,
+      sportType: session.sportType,
       standings: ranked.map((s, index) => ({
         rank: index + 1,
         playerNumber: s.playerNumber,
