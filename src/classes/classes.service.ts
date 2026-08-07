@@ -147,6 +147,19 @@ export class ClassesService {
     return undefined;
   }
 
+  private socialLinksData(dto: CreateClassDto['socialLinks']) {
+    if (!dto) return null;
+    const links = Object.fromEntries(
+      (Object.entries(dto) as Array<[string, string | undefined]>).flatMap(
+        ([key, value]) => {
+          const url = value?.trim();
+          return url ? [[key, url]] : [];
+        }
+      )
+    );
+    return Object.keys(links).length ? (links as Prisma.InputJsonValue) : null;
+  }
+
   private async uniqueSlug(name: string, excludeId?: string) {
     const base = generateSlug(name) || 'lop-hoc';
     let slug = base;
@@ -200,6 +213,7 @@ export class ClassesService {
         contactName: dto.contactName?.trim() || user.name,
         contactPhone: dto.contactPhone.trim(),
         zaloUrl: dto.zaloUrl?.trim() || null,
+        socialLinks: this.socialLinksData(dto.socialLinks),
         hostId: userId,
         sportType: dto.sportType,
         requiredLevels: dto.requiredLevels ?? [],
@@ -457,6 +471,9 @@ export class ClassesService {
           : {}),
         ...(dto.zaloUrl !== undefined
           ? { zaloUrl: dto.zaloUrl?.trim() || null }
+          : {}),
+        ...(dto.socialLinks !== undefined
+          ? { socialLinks: this.socialLinksData(dto.socialLinks) }
           : {}),
         ...(dto.requiredLevels !== undefined
           ? { requiredLevels: dto.requiredLevels }

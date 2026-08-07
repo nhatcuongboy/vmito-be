@@ -79,6 +79,10 @@ describe('ClassesService location persistence', () => {
         sportType: SportType.BADMINTON,
         contactPhone: '0914810765',
         tuitionPeriod: ClassTuitionPeriod.CONTACT,
+        socialLinks: {
+          facebook: 'https://facebook.com/lop-hoc',
+          website: '',
+        },
         customLocation: {
           name: 'Nhà thi đấu nội bộ',
           address: '123 Nguyễn Văn Linh',
@@ -110,6 +114,7 @@ describe('ClassesService location persistence', () => {
       customLocationLng: 106.7,
       customLocationDistrict: 'Quận 7',
       customLocationCity: 'Hồ Chí Minh',
+      socialLinks: { facebook: 'https://facebook.com/lop-hoc' },
     });
     expect(createdData).not.toHaveProperty('locationText');
   });

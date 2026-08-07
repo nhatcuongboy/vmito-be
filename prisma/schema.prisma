@@ -375,6 +375,7 @@ model Class {
   contactName            String
   contactPhone           String
   zaloUrl                String?
+  socialLinks            Json?
   hostId                 String
   sportType              SportType     @default(BADMINTON)
   requiredLevels         Int[]         @default([])
