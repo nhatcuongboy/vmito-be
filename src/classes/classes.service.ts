@@ -147,8 +147,12 @@ export class ClassesService {
     return undefined;
   }
 
-  private socialLinksData(dto: CreateClassDto['socialLinks']) {
-    if (!dto) return null;
+  private socialLinksData(
+    dto: CreateClassDto['socialLinks']
+  ): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput {
+    // Prisma distinguishes a database JSON null from JavaScript null in write
+    // inputs. Use its explicit sentinel when clearing this nullable JSON field.
+    if (!dto) return Prisma.JsonNull;
     const links = Object.fromEntries(
       (Object.entries(dto) as Array<[string, string | undefined]>).flatMap(
         ([key, value]) => {
@@ -157,7 +161,9 @@ export class ClassesService {
         }
       )
     );
-    return Object.keys(links).length ? (links as Prisma.InputJsonValue) : null;
+    return Object.keys(links).length
+      ? (links as Prisma.InputJsonValue)
+      : Prisma.JsonNull;
   }
 
   private async uniqueSlug(name: string, excludeId?: string) {
