@@ -15,7 +15,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
-    const isProduction = process.env.NODE_ENV === 'production';
+    const exposeInternalDetails = process.env.NODE_ENV === 'development';
 
     const status =
       exception instanceof HttpException
@@ -32,15 +32,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let message: string | object;
     if (exception instanceof HttpException) {
       message = exception.getResponse();
-    } else if (isProduction) {
-      // Generic message for production - don't expose internal details
-      message = 'An unexpected error occurred';
-    } else {
-      // In development, show error message for debugging
+    } else if (exposeInternalDetails) {
+      // Only a local development environment may return internal details.
       message =
         exception instanceof Error
           ? exception.message
           : 'Internal server error';
+    } else {
+      // Staging and production are public environments: keep details in logs.
+      message = 'An unexpected error occurred';
     }
 
     response.status(status).json({

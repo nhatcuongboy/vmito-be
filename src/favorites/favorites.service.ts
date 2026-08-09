@@ -29,6 +29,7 @@ type FavoriteTarget = {
 const ENGAGEMENT_TYPES = new Set<FavoriteType>([
   FavoriteType.SESSION,
   FavoriteType.CLUB,
+  FavoriteType.CLASS,
   FavoriteType.TOURNAMENT,
   FavoriteType.VENUE,
 ]);
@@ -220,7 +221,7 @@ export class FavoritesService {
   private assertEngagementType(type: FavoriteType) {
     if (!ENGAGEMENT_TYPES.has(type)) {
       throw new BadRequestException(
-        'Favorite engagement is only available for sessions, clubs, tournaments, and venues'
+        'Favorite engagement is only available for sessions, classes, clubs, tournaments, and venues'
       );
     }
   }
@@ -246,6 +247,8 @@ export class FavoritesService {
       });
       return Boolean(membership);
     }
+
+    if (type === FavoriteType.CLASS) return false;
 
     if (type === FavoriteType.TOURNAMENT) {
       const manager = await this.prisma.tournamentManager.findUnique({
@@ -301,18 +304,22 @@ export class FavoritesService {
       const typeLabel =
         type === FavoriteType.SESSION
           ? 'session'
-          : type === FavoriteType.CLUB
-            ? 'club'
-            : 'tournament';
+          : type === FavoriteType.CLASS
+            ? 'class'
+            : type === FavoriteType.CLUB
+              ? 'club'
+              : 'tournament';
       const typeKey = typeLabel;
 
       await this.notificationsService.createForUser(
         target.ownerId,
         type === FavoriteType.SESSION
           ? NotificationType.SESSION
-          : type === FavoriteType.CLUB
-            ? NotificationType.CLUB
-            : NotificationType.TOURNAMENT,
+          : type === FavoriteType.CLASS
+            ? NotificationType.CLASS
+            : type === FavoriteType.CLUB
+              ? NotificationType.CLUB
+              : NotificationType.TOURNAMENT,
         `New like on your ${typeLabel}`,
         `${actorName} liked your ${typeLabel}.`,
         {
@@ -374,6 +381,12 @@ export class FavoritesService {
         select: { id: true, name: true, slug: true, hostId: true },
       });
       target = club ? { ...club, ownerId: club.hostId } : null;
+    } else if (type === FavoriteType.CLASS) {
+      const classItem = await this.prisma.class.findFirst({
+        where: { OR: [{ id: targetId }, { slug: targetId }] },
+        select: { id: true, name: true, slug: true, hostId: true },
+      });
+      target = classItem ? { ...classItem, ownerId: classItem.hostId } : null;
     } else if (type === FavoriteType.TOURNAMENT) {
       const tournament = await this.prisma.tournament.findFirst({
         where: { OR: [{ id: targetId }, { slug: targetId }] },
@@ -444,6 +457,26 @@ export class FavoritesService {
             },
             _count: {
               select: { members: { where: { status: 'ACTIVE' as const } } },
+            },
+          },
+        });
+      case FavoriteType.CLASS:
+        return this.prisma.class.findMany({
+          where: { id: { in: ids } },
+          include: {
+            host: { select: { id: true, name: true, image: true } },
+            venue: {
+              select: {
+                id: true,
+                name: true,
+                address: true,
+                city: true,
+                district: true,
+              },
+            },
+            schedules: {
+              where: { isActive: true },
+              orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
             },
           },
         });
