@@ -39,18 +39,90 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { ConfigService } from '@nestjs/config';
-import { SessionStatus, SportType } from '@prisma/client';
+import { FeeType, SessionStatus, SportType } from '@prisma/client';
 import { SessionAccessService } from '../common/session-access/session-access.service';
 import { isSportType } from '../common/utils/sport.utils';
 
 /** Parses a `sportType=BADMINTON,PICKLEBALL` query param. */
 const parseSportTypes = (raw?: string): SportType[] | undefined => {
   if (!raw) return undefined;
-  const values = raw
+  const tokens = raw
     .split(',')
     .map((v) => v.trim())
-    .filter(isSportType);
+    .filter(Boolean);
+  if (tokens.some((value) => !isSportType(value))) {
+    throw new BadRequestException('Invalid sportType');
+  }
+  const values = tokens.filter(isSportType);
   return values.length > 0 ? values : undefined;
+};
+
+const TIME_RANGES = ['morning', 'afternoon', 'evening', 'night'] as const;
+
+const parseCsv = <T extends string>(
+  raw: string | undefined,
+  allowed: readonly T[],
+  name: string
+): T[] | undefined => {
+  if (!raw?.trim()) return undefined;
+  const values = raw
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (values.some((value) => !allowed.includes(value as T))) {
+    throw new BadRequestException(`Invalid ${name}`);
+  }
+  return [...new Set(values)] as T[];
+};
+
+const parseNumber = (
+  raw: string | undefined,
+  name: string,
+  options: { integer?: boolean; min?: number } = {}
+): number | undefined => {
+  if (raw == null || raw.trim() === '') return undefined;
+  const value = Number(raw);
+  if (
+    !Number.isFinite(value) ||
+    (options.integer && !Number.isInteger(value)) ||
+    (options.min != null && value < options.min)
+  ) {
+    throw new BadRequestException(`Invalid ${name}`);
+  }
+  return value;
+};
+
+const parseLevels = (raw?: string): number[] | undefined => {
+  if (!raw?.trim()) return undefined;
+  const levels = raw
+    .split(',')
+    .map((value) => parseNumber(value, 'levels', { integer: true, min: 1 })!);
+  if (levels.some((level) => level > 10)) {
+    throw new BadRequestException('Invalid levels');
+  }
+  return [...new Set(levels)];
+};
+
+const parseBoolean = (
+  raw: string | undefined,
+  name: string
+): boolean | undefined => {
+  if (raw == null || raw.trim() === '') return undefined;
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  throw new BadRequestException(`Invalid ${name}`);
+};
+
+const parseEnum = <T extends string>(
+  raw: string | undefined,
+  allowed: readonly T[],
+  name: string
+): T | undefined => {
+  if (raw == null || raw.trim() === '') return undefined;
+  if (!allowed.includes(raw as T)) {
+    throw new BadRequestException(`Invalid ${name}`);
+  }
+  return raw as T;
 };
 
 @ApiTags('sessions')
@@ -147,13 +219,16 @@ export class SessionsController {
   @Get('available')
   getAvailable(
     @Query('date') date?: string,
-    @Query('level') level?: number,
+    @Query('level') levelRaw?: string,
+    @Query('levels') levelsRaw?: string,
+    @Query('timeRanges') timeRangesRaw?: string,
     @Query('city') city?: string,
     @Query('district') district?: string,
     @Query('venueId') venueId?: string,
     @Query('sportType') sportTypeRaw?: string,
     @Query('minFee') minFee?: string,
     @Query('maxFee') maxFee?: string,
+    @Query('feeType') feeTypeRaw?: string,
     @Query('hasSlots') hasSlots?: string,
     @Query('minAvailableSlots') minAvailableSlots?: string,
     @Query('searchQuery') searchQuery?: string,
@@ -170,33 +245,79 @@ export class SessionsController {
     @Query('includeEnded') includeEnded?: string,
     @CurrentUser() user?: AuthenticatedUser
   ) {
+    const level = parseNumber(levelRaw, 'level', { integer: true, min: 1 });
+    if (level != null && level > 10) {
+      throw new BadRequestException('Invalid level');
+    }
+    const levels = parseLevels(levelsRaw);
+    const timeRanges = parseCsv(timeRangesRaw, TIME_RANGES, 'timeRanges');
+    const feeType = parseEnum(feeTypeRaw, Object.values(FeeType), 'feeType');
+    const parsedMinFee = parseNumber(minFee, 'minFee', { min: 0 });
+    const parsedMaxFee = parseNumber(maxFee, 'maxFee', { min: 0 });
+    if (
+      parsedMinFee != null &&
+      parsedMaxFee != null &&
+      parsedMinFee > parsedMaxFee
+    ) {
+      throw new BadRequestException('minFee must not exceed maxFee');
+    }
+    if (date) {
+      const parsedDate = new Date(`${date}T00:00:00.000+07:00`);
+      if (
+        !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+        Number.isNaN(parsedDate.getTime()) ||
+        parsedDate.toLocaleDateString('en-CA', {
+          timeZone: 'Asia/Ho_Chi_Minh',
+        }) !== date
+      ) {
+        throw new BadRequestException('Invalid date');
+      }
+    }
+    const parsedSessionType = parseEnum(
+      sessionType,
+      ['all', 'regular', 'facebook'] as const,
+      'sessionType'
+    );
+    const parsedSortOrder = parseEnum(
+      sortOrder,
+      ['asc', 'desc'] as const,
+      'sortOrder'
+    );
+    const parsedHasSlots = parseBoolean(hasSlots, 'hasSlots');
+    const parsedSortByDistance = parseBoolean(sortByDistance, 'sortByDistance');
+    const parsedFavoriteOnly = parseBoolean(favoriteOnly, 'favoriteOnly');
+    const parsedIncludeEnded = parseBoolean(includeEnded, 'includeEnded');
+
     return this.sessionsService.findAvailable(
       {
         date,
         level,
+        levels,
+        timeRanges,
         city,
         district,
         venueId,
         sportType: parseSportTypes(sportTypeRaw),
-        minFee: minFee ? parseFloat(minFee) : undefined,
-        maxFee: maxFee ? parseFloat(maxFee) : undefined,
-        hasSlots:
-          hasSlots === 'true' ? true : hasSlots === 'false' ? false : undefined,
-        minAvailableSlots: minAvailableSlots
-          ? parseInt(minAvailableSlots, 10)
-          : undefined,
+        minFee: parsedMinFee,
+        maxFee: parsedMaxFee,
+        feeType,
+        hasSlots: parsedHasSlots,
+        minAvailableSlots: parseNumber(minAvailableSlots, 'minAvailableSlots', {
+          integer: true,
+          min: 0,
+        }),
         searchQuery,
-        lat: lat ? parseFloat(lat) : undefined,
-        lng: lng ? parseFloat(lng) : undefined,
-        sortByDistance: sortByDistance === 'true',
-        page: page ? parseInt(page, 10) : undefined,
-        limit: limit ? parseInt(limit, 10) : undefined,
+        lat: parseNumber(lat, 'lat'),
+        lng: parseNumber(lng, 'lng'),
+        sortByDistance: parsedSortByDistance,
+        page: parseNumber(page, 'page', { integer: true, min: 1 }),
+        limit: parseNumber(limit, 'limit', { integer: true, min: 1 }),
         hostId,
         sortBy,
-        sortOrder,
-        sessionType,
-        favoriteOnly: favoriteOnly === 'true',
-        includeEnded: includeEnded === 'true',
+        sortOrder: parsedSortOrder,
+        sessionType: parsedSessionType,
+        favoriteOnly: parsedFavoriteOnly,
+        includeEnded: parsedIncludeEnded,
       },
       user?.userId
     );
