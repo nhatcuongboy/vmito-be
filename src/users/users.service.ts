@@ -423,4 +423,61 @@ export class UsersService {
       select: this.userSelect,
     });
   }
+
+  /**
+   * Get count of unread posts in newsfeed for a user.
+   * Counts posts created by other users after the user's lastSeenFeedAt timestamp.
+   * Returns 0 if lastSeenFeedAt is null (user has never visited newsfeed).
+   */
+  async getUnreadFeedCount(userId: string): Promise<number> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { lastSeenFeedAt: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // If user has never seen the feed, return 0
+    if (!user.lastSeenFeedAt) {
+      return 0;
+    }
+
+    // Count posts created after lastSeenFeedAt, excluding user's own posts
+    const count = await this.prisma.post.count({
+      where: {
+        createdAt: {
+          gt: user.lastSeenFeedAt,
+        },
+        authorId: {
+          not: userId,
+        },
+      },
+    });
+
+    return count;
+  }
+
+  /**
+   * Mark newsfeed as read by updating lastSeenFeedAt to current timestamp.
+   * This resets the unread badge count to 0.
+   */
+  async markFeedAsRead(userId: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        lastSeenFeedAt: new Date(),
+      },
+    });
+  }
 }

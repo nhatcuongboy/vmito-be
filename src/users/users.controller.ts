@@ -59,6 +59,18 @@ export class UsersController {
   }
 
   /**
+   * Get count of unread posts in newsfeed.
+   * Returns the number of posts created by other users since lastSeenFeedAt.
+   */
+  @Get('unread-feed-count')
+  async getUnreadFeedCount(@CurrentUser() currentUser: { userId: string }) {
+    const count = await this.usersService.getUnreadFeedCount(
+      currentUser.userId
+    );
+    return { count };
+  }
+
+  /**
    * Get single user by ID
    */
   @Get(':id')

@@ -49,6 +49,8 @@ export enum SessionEventType {
   SESSION_OVERTIME = 'session_overtime',
   SESSION_CANCELLED = 'session_cancelled',
   SESSION_STARTED = 'session_started',
+  // Newsfeed events
+  NEW_POST_CREATED = 'new_post_created',
 }
 
 @WebSocketGateway({
@@ -372,6 +374,43 @@ export class SessionsGateway
           error
         );
       });
+  }
+
+  /**
+   * Notify all authenticated users (except the author) about a new post.
+   * Used to increment the newsfeed badge count in real-time.
+   * @param postId - The ID of the newly created post
+   * @param authorId - The ID of the post author (excluded from notification)
+   */
+  async notifyNewPostCreated(postId: string, authorId: string) {
+    // Get all connected sockets in the namespace
+    const sockets = await this.server.fetchSockets();
+
+    let notifiedCount = 0;
+
+    for (const socket of sockets) {
+      const socketUserId = (socket.data as { userId?: string }).userId;
+
+      // Skip if socket has no authenticated user or is the author
+      if (!socketUserId || socketUserId === authorId) {
+        continue;
+      }
+
+      // Emit to this user's socket
+      socket.emit(SessionEventType.NEW_POST_CREATED, {
+        postId,
+        authorId,
+        createdAt: new Date().toISOString(),
+      });
+
+      notifiedCount++;
+    }
+
+    if (notifiedCount > 0) {
+      this.logger.log(
+        `[Realtime] Notified ${notifiedCount} user(s) of new post ${postId} by author ${authorId}`
+      );
+    }
   }
 
   private getFavoriteTargetRoom(data: FavoriteTargetRoomPayload) {

@@ -191,7 +191,7 @@ export class PostsService {
   async create(userId: string, createPostDto: CreatePostDto) {
     const images = createPostDto.images ?? [];
 
-    return this.prisma.post.create({
+    const post = await this.prisma.post.create({
       data: {
         content: createPostDto.content,
         videoUrl: createPostDto.videoUrl,
@@ -218,6 +218,18 @@ export class PostsService {
         },
       },
     });
+
+    // Emit Socket.io event to notify all users (except author) about new post
+    // This will increment the newsfeed badge count in real-time
+    try {
+      await this.sessionsGateway.notifyNewPostCreated(post.id, userId);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to emit new post created event for post ${post.id}: ${String(error)}`
+      );
+    }
+
+    return post;
   }
 
   /**
