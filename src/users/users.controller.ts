@@ -71,6 +71,17 @@ export class UsersController {
   }
 
   /**
+   * Mark newsfeed as read for the current user.
+   * Updates lastSeenFeedAt so unread count resets to 0.
+   */
+  @Post('mark-feed-as-read')
+  @HttpCode(HttpStatus.OK)
+  async markFeedAsRead(@CurrentUser() currentUser: { userId: string }) {
+    await this.usersService.markFeedAsRead(currentUser.userId);
+    return { success: true };
+  }
+
+  /**
    * Get single user by ID
    */
   @Get(':id')
