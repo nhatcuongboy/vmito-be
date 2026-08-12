@@ -16,6 +16,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   CourtDirection,
   FavoriteType,
+  FeeType,
   ImageCategory,
   Prisma,
   SessionStatus,
@@ -48,6 +49,11 @@ import { ExtractedSessionDto } from '../ai/dto/extract-session.dto';
 import { FavoritesService } from '../favorites/favorites.service';
 import { ActivityFeedService } from '../activities/activity-feed.service';
 import { PointsService } from '../points/points.service';
+import {
+  filterAvailableSessions,
+  paginateAvailableSessions,
+  SessionTimeRange,
+} from './utils/available-session-filter.util';
 
 @Injectable()
 export class SessionsService {
@@ -571,12 +577,15 @@ export class SessionsService {
     filters?: {
       date?: string;
       level?: number;
+      levels?: number[];
+      timeRanges?: SessionTimeRange[];
       city?: string;
       district?: string;
       venueId?: string;
       sportType?: SportType[];
       minFee?: number;
       maxFee?: number;
+      feeType?: FeeType;
       hasSlots?: boolean;
       minAvailableSlots?: number;
       searchQuery?: string;
@@ -641,25 +650,33 @@ export class SessionsService {
       andConditions.push({ sportType: { in: filters.sportType } });
     }
 
-    // Date filter
+    // Date filter. Session discovery is defined in Vietnam time and uses the
+    // same start value as the clients: actual start, then scheduled fallback.
     if (filters?.date) {
-      const date = new Date(filters.date);
-      const startOfDay = new Date(date.setHours(0, 0, 0, 0));
-      const endOfDay = new Date(date.setHours(23, 59, 59, 999));
+      const startOfDay = new Date(`${filters.date}T00:00:00.000+07:00`);
+      const endOfDay = new Date(`${filters.date}T23:59:59.999+07:00`);
 
       andConditions.push({
-        startTime: {
-          gte: startOfDay,
-          lte: endOfDay,
-        },
+        OR: [
+          { startTime: { gte: startOfDay, lte: endOfDay } },
+          {
+            startTime: null,
+            scheduledStartTime: { gte: startOfDay, lte: endOfDay },
+          },
+        ],
       });
     }
 
     // Level filter
-    if (filters?.level) {
+    const selectedLevels = filters?.levels?.length
+      ? filters.levels
+      : filters?.level
+        ? [filters.level]
+        : undefined;
+    if (selectedLevels) {
       andConditions.push({
         OR: [
-          { requiredLevels: { has: Number(filters.level) } },
+          { requiredLevels: { hasSome: selectedLevels } },
           { requiredLevels: { equals: [] } },
         ],
       });
@@ -801,43 +818,43 @@ export class SessionsService {
       andConditions.push({ isCrawled: true });
     }
 
-    if (andConditions.length > 0) {
-      where.AND = andConditions;
+    // Fee filter. Fixed sessions match either gender; split sessions use the
+    // known per-player amount and are excluded from an explicit range until it
+    // has been calculated.
+    if (
+      filters?.feeType !== undefined ||
+      filters?.minFee !== undefined ||
+      filters?.maxFee !== undefined
+    ) {
+      const amountFilter = {
+        ...(filters.minFee !== undefined ? { gte: filters.minFee } : {}),
+        ...(filters.maxFee !== undefined ? { lte: filters.maxFee } : {}),
+      };
+      const hasAmountRange = Object.keys(amountFilter).length > 0;
+      const feeConditions: Prisma.SessionWhereInput[] = [];
+      if (!filters.feeType || filters.feeType === FeeType.FIXED) {
+        feeConditions.push({
+          feeConfig: {
+            feeType: FeeType.FIXED,
+            ...(hasAmountRange
+              ? { OR: [{ maleFee: amountFilter }, { femaleFee: amountFilter }] }
+              : {}),
+          },
+        });
+      }
+      if (!filters.feeType || filters.feeType === FeeType.SPLIT_EVENLY) {
+        feeConditions.push({
+          feeConfig: {
+            feeType: FeeType.SPLIT_EVENLY,
+            ...(hasAmountRange ? { splitPerPlayer: amountFilter } : {}),
+          },
+        });
+      }
+      andConditions.push({ OR: feeConditions });
     }
 
-    // Fee range filter
-    if (filters?.minFee !== undefined || filters?.maxFee !== undefined) {
-      where.feeConfig = {
-        ...(where.feeConfig as object),
-        OR: [
-          // Check male fee
-          ...(filters?.minFee !== undefined && filters?.maxFee !== undefined
-            ? [
-                {
-                  maleFee: {
-                    gte: filters.minFee,
-                    lte: filters.maxFee,
-                  },
-                },
-              ]
-            : filters?.minFee !== undefined
-              ? [{ maleFee: { gte: filters.minFee } }]
-              : [{ maleFee: { lte: filters.maxFee } }]),
-          // Check female fee
-          ...(filters?.minFee !== undefined && filters?.maxFee !== undefined
-            ? [
-                {
-                  femaleFee: {
-                    gte: filters.minFee,
-                    lte: filters.maxFee,
-                  },
-                },
-              ]
-            : filters?.minFee !== undefined
-              ? [{ femaleFee: { gte: filters.minFee } }]
-              : [{ femaleFee: { lte: filters.maxFee } }]),
-        ],
-      };
+    if (andConditions.length > 0) {
+      where.AND = andConditions;
     }
 
     // Search query - full text search across multiple fields
@@ -872,12 +889,15 @@ export class SessionsService {
       }
     }
 
-    // Get total count (before pagination but after Prisma filters)
-    const total = await this.prisma.session.count({ where });
     const isDistanceSort =
       filters?.sortByDistance === true &&
       filters.lat !== undefined &&
       filters.lng !== undefined;
+    const requiresPostFilter =
+      isDistanceSort ||
+      Boolean(filters?.timeRanges?.length) ||
+      filters?.hasSlots !== undefined ||
+      filters?.minAvailableSlots !== undefined;
 
     // Build orderBy - use sortBy param if provided, otherwise default to startTime asc
     const orderBy = isDistanceSort
@@ -913,37 +933,17 @@ export class SessionsService {
       orderBy,
       // Distance is calculated in memory, so database pagination here would
       // limit ranking to an arbitrary time-sorted page.
-      skip: isDistanceSort ? undefined : skip,
-      take: isDistanceSort ? undefined : limit,
+      skip: requiresPostFilter ? undefined : skip,
+      take: requiresPostFilter ? undefined : limit,
     });
 
     // Post-fetch filters (for complex calculations)
 
-    // Filter by available slots
-    if (
-      filters?.hasSlots !== undefined ||
-      filters?.minAvailableSlots !== undefined
-    ) {
-      sessions = sessions.filter((session) => {
-        const maxPlayers = session.numberOfCourts * session.maxPlayersPerCourt;
-        const approvedPlayers = session._count?.players || 0;
-        const availableSlots = maxPlayers - approvedPlayers;
-
-        if (filters.hasSlots !== undefined) {
-          // If hasSlots is true, only show sessions with available slots
-          // If hasSlots is false, show full sessions
-          const hasAvailableSlots = availableSlots > 0;
-          if (filters.hasSlots && !hasAvailableSlots) return false;
-          if (!filters.hasSlots && hasAvailableSlots) return false;
-        }
-
-        if (filters.minAvailableSlots !== undefined) {
-          if (availableSlots < filters.minAvailableSlots) return false;
-        }
-
-        return true;
-      });
-    }
+    sessions = filterAvailableSessions(sessions, {
+      timeRanges: filters?.timeRanges,
+      hasSlots: filters?.hasSlots,
+      minAvailableSlots: filters?.minAvailableSlots,
+    });
 
     // Calculate distance and sort if geospatial params provided
     type SessionWithDistance = (typeof sessions)[number] & {
@@ -954,12 +954,14 @@ export class SessionsService {
       // Calculate distance for each session using Haversine formula
       sessionsToReturn = sessions
         .map((session) => {
-          if (session.venue?.lat && session.venue?.lng) {
+          const sessionLat = session.venue?.lat ?? session.customLocationLat;
+          const sessionLng = session.venue?.lng ?? session.customLocationLng;
+          if (sessionLat != null && sessionLng != null) {
             const distance = this.calculateDistance(
               filters.lat!,
               filters.lng!,
-              session.venue.lat,
-              session.venue.lng
+              sessionLat,
+              sessionLng
             );
             return { ...session, distance };
           }
@@ -967,8 +969,10 @@ export class SessionsService {
         })
         .sort((a, b) => {
           const startTimeDifference =
-            (a.startTime?.getTime() ?? Number.MAX_SAFE_INTEGER) -
-            (b.startTime?.getTime() ?? Number.MAX_SAFE_INTEGER);
+            ((a.startTime ?? a.scheduledStartTime)?.getTime() ??
+              Number.MAX_SAFE_INTEGER) -
+            ((b.startTime ?? b.scheduledStartTime)?.getTime() ??
+              Number.MAX_SAFE_INTEGER);
           // Sort by distance (nulls last)
           if (a.distance === null && b.distance === null) {
             return startTimeDifference || a.id.localeCompare(b.id);
@@ -981,7 +985,16 @@ export class SessionsService {
             a.id.localeCompare(b.id)
           );
         });
-      sessionsToReturn = sessionsToReturn.slice(skip, skip + limit);
+    }
+
+    const postFilteredPage = requiresPostFilter
+      ? paginateAvailableSessions(sessionsToReturn, page, limit)
+      : null;
+    const total = postFilteredPage
+      ? postFilteredPage.total
+      : await this.prisma.session.count({ where });
+    if (requiresPostFilter) {
+      sessionsToReturn = postFilteredPage!.items;
     }
 
     const favoriteSet = filters?.favoriteOnly
