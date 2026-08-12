@@ -427,28 +427,27 @@ export class UsersService {
   /**
    * Get count of unread posts in newsfeed for a user.
    * Counts posts created by other users after the user's lastSeenFeedAt timestamp.
-   * Returns 0 if lastSeenFeedAt is null (user has never visited newsfeed).
+   * If lastSeenFeedAt is null (user has never visited newsfeed), initialize it to account creation time.
    */
   async getUnreadFeedCount(userId: string): Promise<number> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { lastSeenFeedAt: true },
+      select: { lastSeenFeedAt: true, createdAt: true },
     });
 
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
-    // If user has never seen the feed, return 0
-    if (!user.lastSeenFeedAt) {
-      return 0;
-    }
+    // If user has never seen the feed, use account creation time as baseline
+    // This ensures users see posts created after they joined, not all historical posts
+    const baselineTime = user.lastSeenFeedAt ?? user.createdAt;
 
-    // Count posts created after lastSeenFeedAt, excluding user's own posts
+    // Count posts created after baseline time, excluding user's own posts
     const count = await this.prisma.post.count({
       where: {
         createdAt: {
-          gt: user.lastSeenFeedAt,
+          gt: baselineTime,
         },
         authorId: {
           not: userId,
