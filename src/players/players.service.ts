@@ -2068,6 +2068,151 @@ export class PlayersService {
     return uniqueSessions;
   }
 
+  async getMyJoinRequests(userId: string, page = 1, limit = 20) {
+    if (!userId) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    const safePage = Number.isFinite(page) ? Math.max(1, page) : 1;
+    const safeLimit = Number.isFinite(limit)
+      ? Math.min(100, Math.max(1, limit))
+      : 20;
+    const ownershipWhere: Prisma.PlayerWhereInput = {
+      OR: [{ userId }, { createdByUserId: userId }],
+      registrationStatus: {
+        in: ['PENDING', 'APPROVED', 'REJECTED'],
+      },
+    };
+
+    const [requestGroups, total] = await Promise.all([
+      this.prisma.player.groupBy({
+        by: ['sessionId'],
+        where: ownershipWhere,
+        _max: { createdAt: true },
+        orderBy: { _max: { createdAt: 'desc' } },
+        skip: (safePage - 1) * safeLimit,
+        take: safeLimit,
+      }),
+      this.prisma.session.count({
+        where: { players: { some: ownershipWhere } },
+      }),
+    ]);
+
+    const sessionIds = requestGroups.map((group) => group.sessionId);
+    if (sessionIds.length === 0) {
+      return {
+        data: [],
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
+      };
+    }
+
+    const sessions = await this.prisma.session.findMany({
+      where: { id: { in: sessionIds } },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        startTime: true,
+        endTime: true,
+        status: true,
+        location: true,
+        coverPhoto: true,
+        images: true,
+        venue: {
+          select: { id: true, name: true, address: true },
+        },
+        host: {
+          select: { id: true, name: true, image: true },
+        },
+        players: {
+          where: ownershipWhere,
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            level: true,
+            playerNumber: true,
+            registrationStatus: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    const sessionById = new Map(
+      sessions.map((session) => [session.id, session])
+    );
+    const data = requestGroups.flatMap((group) => {
+      const session = sessionById.get(group.sessionId);
+      if (!session) return [];
+      const { players, ...sessionDetails } = session;
+      return [
+        {
+          session: sessionDetails,
+          players,
+          requestedAt: group._max.createdAt,
+        },
+      ];
+    });
+
+    return {
+      data,
+      total,
+      page: safePage,
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit),
+    };
+  }
+
+  async withdrawMyJoinRequest(userId: string, sessionId: string) {
+    if (!userId || !sessionId) {
+      throw new BadRequestException('User ID and session ID are required');
+    }
+
+    const pendingPlayers = await this.prisma.player.findMany({
+      where: {
+        sessionId,
+        registrationStatus: 'PENDING',
+        OR: [{ userId }, { createdByUserId: userId }],
+      },
+      select: {
+        id: true,
+        session: { select: { hostId: true } },
+      },
+    });
+
+    if (pendingPlayers.length === 0) {
+      throw new NotFoundException('No pending join request found');
+    }
+
+    const playerIds = pendingPlayers.map((player) => player.id);
+    const result = await this.prisma.player.deleteMany({
+      where: {
+        id: { in: playerIds },
+        sessionId,
+        registrationStatus: 'PENDING',
+        OR: [{ userId }, { createdByUserId: userId }],
+      },
+    });
+
+    this.sessionsGateway.notifyEvent(
+      sessionId,
+      SessionEventType.PLAYER_REMOVED,
+      { playerIds, withdrawnByUserId: userId }
+    );
+    this.sessionsGateway.notifyUser(
+      pendingPlayers[0].session.hostId,
+      SessionEventType.NOTIFICATION_RECEIVED,
+      { sessionId, playerIds, type: 'JOIN_REQUEST_WITHDRAWN' }
+    );
+
+    return { deleted: result.count };
+  }
+
   async getMyPlayersForSession(sessionId: string, userId: string) {
     if (!sessionId || !userId) {
       throw new BadRequestException('Session ID and User ID are required');

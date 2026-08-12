@@ -167,6 +167,31 @@ export class PlayersController {
     return this.playersService.getUserRegistrations(user.userId);
   }
 
+  @Get('me/join-requests')
+  @ApiOperation({
+    summary: 'Get join requests submitted by the current user',
+  })
+  getMyJoinRequests(
+    @CurrentUser() user: { userId: string },
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ) {
+    return this.playersService.getMyJoinRequests(
+      user.userId,
+      page ? parseInt(page, 10) : undefined,
+      limit ? parseInt(limit, 10) : undefined
+    );
+  }
+
+  @Delete('me/join-requests/:sessionId')
+  @ApiOperation({ summary: 'Withdraw current user pending join request' })
+  withdrawMyJoinRequest(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user: { userId: string }
+  ) {
+    return this.playersService.withdrawMyJoinRequest(user.userId, sessionId);
+  }
+
   @Post('link-account')
   async linkAccount(
     @Body() body: { playerId: string; userId: string },
