@@ -1,0 +1,2 @@
+-- Add lastSeenFeedAt column to users table for tracking when user last viewed the newsfeed
+ALTER TABLE "users" ADD COLUMN "lastSeenFeedAt" TIMESTAMP(3);

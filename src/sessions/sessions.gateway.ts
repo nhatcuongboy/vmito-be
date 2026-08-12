@@ -49,6 +49,8 @@ export enum SessionEventType {
   SESSION_OVERTIME = 'session_overtime',
   SESSION_CANCELLED = 'session_cancelled',
   SESSION_STARTED = 'session_started',
+  // Newsfeed events
+  NEW_POST_CREATED = 'new_post_created',
 }
 
 @WebSocketGateway({
@@ -372,6 +374,67 @@ export class SessionsGateway
           error
         );
       });
+  }
+
+  /**
+   * Notify all authenticated users (except the author) about a new post.
+   * Used to increment the newsfeed badge count in real-time.
+   * @param postId - The ID of the newly created post
+   * @param authorId - The ID of the post author (excluded from notification)
+   */
+  async notifyNewPostCreated(postId: string, authorId: string) {
+    this.logger.log(
+      `[Realtime] Starting notification for new post ${postId} by author ${authorId}`
+    );
+
+    // Get all connected sockets in the namespace
+    const sockets = await this.server.fetchSockets();
+    this.logger.log(
+      `[Realtime] Found ${sockets.length} total socket(s) in namespace`
+    );
+
+    let notifiedCount = 0;
+
+    for (const socket of sockets) {
+      const socketUserId = (socket.data as { userId?: string }).userId;
+
+      // Skip if socket has no authenticated user or is the author
+      if (!socketUserId) {
+        this.logger.debug(
+          `[Realtime] Skipping socket ${socket.id} - no authenticated user`
+        );
+        continue;
+      }
+
+      if (socketUserId === authorId) {
+        this.logger.debug(
+          `[Realtime] Skipping socket ${socket.id} - is the author`
+        );
+        continue;
+      }
+
+      // Emit to this user's socket
+      socket.emit(SessionEventType.NEW_POST_CREATED, {
+        postId,
+        authorId,
+        createdAt: new Date().toISOString(),
+      });
+
+      this.logger.debug(
+        `[Realtime] Notified user ${socketUserId} (socket ${socket.id}) of new post`
+      );
+      notifiedCount++;
+    }
+
+    if (notifiedCount > 0) {
+      this.logger.log(
+        `[Realtime] Notified ${notifiedCount} user(s) of new post ${postId} by author ${authorId}`
+      );
+    } else {
+      this.logger.warn(
+        `[Realtime] No users were notified of new post ${postId} - no connected sockets with authenticated users (except author)`
+      );
+    }
   }
 
   private getFavoriteTargetRoom(data: FavoriteTargetRoomPayload) {
