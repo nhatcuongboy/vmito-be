@@ -13,6 +13,7 @@ import { SessionsGateway } from '../sessions/sessions.gateway';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
+import { NewsfeedEngagementBoostService } from '../newsfeed-engagement-boost/newsfeed-engagement-boost.service';
 
 export type PostCount = {
   likes?: number;
@@ -24,12 +25,13 @@ export type NormalizablePost = {
   images?: unknown;
   _count?: PostCount | null;
   likes?: unknown;
+  engagementBoost?: { currentCount?: number } | null;
   originalPost?: NormalizablePost | null;
 };
 
 export type NormalizedPost<T extends NormalizablePost> = Omit<
   T,
-  'images' | '_count' | 'originalPost' | 'likes'
+  'images' | '_count' | 'originalPost' | 'likes' | 'engagementBoost'
 > & {
   images: unknown[];
   _count: {
@@ -40,6 +42,7 @@ export type NormalizedPost<T extends NormalizablePost> = Omit<
   originalPost: NormalizedPost<NormalizablePost> | null | undefined;
   isLiked: boolean;
   likes: undefined;
+  engagementBoost: undefined;
 };
 
 @Injectable()
@@ -50,7 +53,8 @@ export class PostsService {
     private readonly prisma: PrismaService,
     private readonly cloudinary: CloudinaryService,
     private readonly notificationsService: NotificationsService,
-    private readonly sessionsGateway: SessionsGateway
+    private readonly sessionsGateway: SessionsGateway,
+    private readonly engagementBoostService: NewsfeedEngagementBoostService
   ) {}
 
   private async notifyPostInteraction(
@@ -110,13 +114,15 @@ export class PostsService {
     postId: string,
     actorId: string,
     isLiked: boolean,
-    likeCount: number
+    likeCount: number,
+    source: 'user' | 'engagement_boost' = 'user'
   ) {
     try {
       this.sessionsGateway.notifyPostLikeUpdate(postId, {
         actorId,
         isLiked,
         likeCount,
+        source,
       });
     } catch (error) {
       this.logger.warn(
@@ -169,6 +175,7 @@ export class PostsService {
   ): NormalizedPost<T> {
     const likes = Array.isArray(post.likes) ? post.likes : [];
     const count = post._count ?? {};
+    const engagementBoostCount = post.engagementBoost?.currentCount ?? 0;
     const originalPost: NormalizedPost<NormalizablePost> | null | undefined =
       post.originalPost
         ? this.normalizePost(post.originalPost)
@@ -178,18 +185,20 @@ export class PostsService {
       ...post,
       images: Array.isArray(post.images) ? post.images : [],
       _count: {
-        likes: count.likes ?? 0,
+        likes: (count.likes ?? 0) + engagementBoostCount,
         comments: count.comments ?? 0,
         shares: count.shares ?? 0,
       },
       originalPost,
       isLiked: userId ? likes.length > 0 : false,
       likes: undefined,
+      engagementBoost: undefined,
     };
   }
 
   async create(userId: string, createPostDto: CreatePostDto) {
     const images = createPostDto.images ?? [];
+    const engagementBoost = await this.engagementBoostService.buildCreateData();
 
     const post = await this.prisma.post.create({
       data: {
@@ -197,6 +206,9 @@ export class PostsService {
         videoUrl: createPostDto.videoUrl,
         location: createPostDto.location,
         authorId: userId,
+        engagementBoost: engagementBoost
+          ? { create: engagementBoost }
+          : undefined,
         images:
           images.length > 0
             ? {
@@ -216,6 +228,7 @@ export class PostsService {
         _count: {
           select: { likes: true, comments: true, shares: true },
         },
+        engagementBoost: { select: { currentCount: true } },
       },
     });
 
@@ -229,7 +242,7 @@ export class PostsService {
       );
     }
 
-    return post;
+    return this.normalizePost(post, userId);
   }
 
   /**
@@ -264,11 +277,13 @@ export class PostsService {
               _count: {
                 select: { likes: true, comments: true, shares: true },
               },
+              engagementBoost: { select: { currentCount: true } },
             },
           },
           _count: {
             select: { likes: true, comments: true, shares: true },
           },
+          engagementBoost: { select: { currentCount: true } },
           likes: userId ? { where: { userId } } : false,
         },
       }),
@@ -320,11 +335,13 @@ export class PostsService {
               _count: {
                 select: { likes: true, comments: true, shares: true },
               },
+              engagementBoost: { select: { currentCount: true } },
             },
           },
           _count: {
             select: { likes: true, comments: true, shares: true },
           },
+          engagementBoost: { select: { currentCount: true } },
           likes: viewerId ? { where: { userId: viewerId } } : false,
         },
       }),
@@ -357,11 +374,13 @@ export class PostsService {
             _count: {
               select: { likes: true, comments: true, shares: true },
             },
+            engagementBoost: { select: { currentCount: true } },
           },
         },
         _count: {
           select: { likes: true, comments: true, shares: true },
         },
+        engagementBoost: { select: { currentCount: true } },
         likes: userId ? { where: { userId } } : false,
       },
     });
@@ -385,7 +404,7 @@ export class PostsService {
       throw new ForbiddenException('Activity posts cannot be edited');
     }
 
-    return this.prisma.post.update({
+    const updatedPost = await this.prisma.post.update({
       where: { id },
       data: updatePostDto,
       include: {
@@ -396,8 +415,11 @@ export class PostsService {
         _count: {
           select: { likes: true, comments: true, shares: true },
         },
+        engagementBoost: { select: { currentCount: true } },
+        likes: { where: { userId } },
       },
     });
+    return this.normalizePost(updatedPost, userId);
   }
 
   async remove(id: string, userId: string) {
@@ -510,9 +532,13 @@ export class PostsService {
     if (existingLike) {
       // Unlike
       await this.prisma.postLike.delete({ where: { id: existingLike.id } });
-      const likeCount = await this.prisma.postLike.count({
+      const realLikeCount = await this.prisma.postLike.count({
         where: { postId },
       });
+      const likeCount = await this.engagementBoostService.getDisplayedLikeCount(
+        postId,
+        realLikeCount
+      );
       this.notifyPostLikeUpdate(postId, userId, false, likeCount);
       return { liked: false, likeCount };
     } else {
@@ -520,9 +546,13 @@ export class PostsService {
       await this.prisma.postLike.create({
         data: { postId, userId },
       });
-      const likeCount = await this.prisma.postLike.count({
+      const realLikeCount = await this.prisma.postLike.count({
         where: { postId },
       });
+      const likeCount = await this.engagementBoostService.getDisplayedLikeCount(
+        postId,
+        realLikeCount
+      );
       this.notifyPostLikeUpdate(postId, userId, true, likeCount);
 
       if (post.authorId !== userId) {
@@ -670,12 +700,17 @@ export class PostsService {
       data: { postId, userId },
     });
 
+    const engagementBoost = await this.engagementBoostService.buildCreateData();
+
     // Create new post as repost
     const sharedPost = await this.prisma.post.create({
       data: {
         content: '', // Empty content for pure repost
         authorId: userId,
         originalPostId: postId,
+        engagementBoost: engagementBoost
+          ? { create: engagementBoost }
+          : undefined,
       },
       include: {
         author: {
@@ -691,11 +726,13 @@ export class PostsService {
             _count: {
               select: { likes: true, comments: true, shares: true },
             },
+            engagementBoost: { select: { currentCount: true } },
           },
         },
         _count: {
           select: { likes: true, comments: true, shares: true },
         },
+        engagementBoost: { select: { currentCount: true } },
       },
     });
 

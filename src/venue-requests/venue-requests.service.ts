@@ -21,6 +21,7 @@ import {
   ApproveVenueRequestDto,
   CreateVenueRequestDto,
   QueryVenueRequestsDto,
+  UpdateVenueRequestDto,
 } from './dto';
 import { VenueRequestPayloadDto } from './dto/venue-request-payload.dto';
 
@@ -137,6 +138,27 @@ export class VenueRequestsService {
     return request;
   }
 
+  async update(id: string, dto: UpdateVenueRequestDto) {
+    const request = await this.getPendingRequest(id);
+
+    if (request.type !== VenueRequestType.CREATE) {
+      throw new BadRequestException(
+        'Only new venue requests can be edited by an admin'
+      );
+    }
+
+    const payload = this.sanitizePayload(dto.payload);
+    this.validateCreatePayload(payload);
+
+    return this.prisma.venueRequest.update({
+      where: { id },
+      data: {
+        payload: payload as Prisma.InputJsonObject,
+      },
+      include: VENUE_REQUEST_INCLUDE,
+    });
+  }
+
   async approve(
     id: string,
     adminUserId: string,
@@ -159,7 +181,7 @@ export class VenueRequestsService {
       ]
         .filter(Boolean)
         .join(', ');
-      const fallbackAddress = payload.street || composedAddress;
+      const fallbackAddress = composedAddress || payload.street || '';
       const createdVenue = await this.venuesService.create({
         ...createPayload,
         name: payload.name!,

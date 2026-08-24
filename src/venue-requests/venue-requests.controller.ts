@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -17,6 +18,7 @@ import {
   CreateVenueRequestDto,
   QueryVenueRequestsDto,
   RejectVenueRequestDto,
+  UpdateVenueRequestDto,
 } from './dto';
 import { VenueRequestsService } from './venue-requests.service';
 
@@ -55,6 +57,13 @@ export class VenueRequestsController {
   @Roles(Role.ADMIN)
   findOneAdmin(@Param('id') id: string) {
     return this.venueRequestsService.findOneAdmin(id);
+  }
+
+  @Patch(':id')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  update(@Param('id') id: string, @Body() dto: UpdateVenueRequestDto) {
+    return this.venueRequestsService.update(id, dto);
   }
 
   @Post(':id/approve')

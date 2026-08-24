@@ -12,6 +12,7 @@ import {
   TournamentFinishedCategory,
   TournamentPodiumSide,
 } from './activity-metadata.types';
+import { NewsfeedEngagementBoostService } from '../newsfeed-engagement-boost/newsfeed-engagement-boost.service';
 
 /**
  * Creates auto-generated "activity" posts on the newsfeed when domain
@@ -25,7 +26,10 @@ import {
 export class ActivityFeedService {
   private readonly logger = new Logger(ActivityFeedService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly engagementBoostService: NewsfeedEngagementBoostService
+  ) {}
 
   async postSessionCreated(session: {
     id: string;
@@ -488,11 +492,13 @@ export class ActivityFeedService {
     }
   }
 
-  private createActivityPost(
+  private async createActivityPost(
     authorId: string,
     activityType: ActivityType,
     metadata: ActivityMetadata
   ) {
+    const engagementBoost = await this.engagementBoostService.buildCreateData();
+
     return this.prisma.post.create({
       data: {
         content: '',
@@ -500,6 +506,9 @@ export class ActivityFeedService {
         type: 'ACTIVITY',
         activityType,
         metadata: metadata as unknown as Prisma.InputJsonValue,
+        engagementBoost: engagementBoost
+          ? { create: engagementBoost }
+          : undefined,
       },
     });
   }

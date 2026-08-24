@@ -75,6 +75,78 @@ describe('VenueRequestsService', () => {
     });
   });
 
+  it('updates a pending CREATE payload and replaces the saved draft', async () => {
+    venueRequestFindUnique.mockResolvedValue({
+      id: 'request-1',
+      type: VenueRequestType.CREATE,
+      status: VenueRequestStatus.PENDING,
+      payload: { name: 'Sân cũ' },
+    });
+
+    await service.update('request-1', {
+      payload: {
+        name: '  Sân mới  ',
+        street: '  123 Nguyễn Văn Trỗi  ',
+        newDistrict: '  Cầu Kiệu  ',
+        newCity: '  TP Hồ Chí Minh  ',
+        numberOfCourts: 8,
+      },
+    });
+
+    expect(venueRequestUpdate).toHaveBeenCalledWith({
+      where: { id: 'request-1' },
+      data: {
+        payload: {
+          name: 'Sân mới',
+          street: '123 Nguyễn Văn Trỗi',
+          newDistrict: 'Cầu Kiệu',
+          newCity: 'TP Hồ Chí Minh',
+          numberOfCourts: 8,
+        },
+      },
+      include: expect.anything(),
+    });
+  });
+
+  it('rejects editing a non-CREATE request', async () => {
+    venueRequestFindUnique.mockResolvedValue({
+      id: 'request-1',
+      type: VenueRequestType.UPDATE,
+      status: VenueRequestStatus.PENDING,
+      payload: { name: 'Sân hiện có' },
+    });
+
+    await expect(
+      service.update('request-1', {
+        payload: {
+          name: 'Sân mới',
+          street: '123 Nguyễn Văn Trỗi',
+          newDistrict: 'Cầu Kiệu',
+          newCity: 'TP Hồ Chí Minh',
+        },
+      })
+    ).rejects.toThrow('Only new venue requests can be edited by an admin');
+    expect(venueRequestUpdate).not.toHaveBeenCalled();
+  });
+
+  it('rejects an edited CREATE payload without required venue fields', async () => {
+    venueRequestFindUnique.mockResolvedValue({
+      id: 'request-1',
+      type: VenueRequestType.CREATE,
+      status: VenueRequestStatus.PENDING,
+      payload: { name: 'Sân cũ' },
+    });
+
+    await expect(
+      service.update('request-1', {
+        payload: { name: 'Sân thiếu địa chỉ' },
+      })
+    ).rejects.toThrow(
+      'Missing required venue fields: address/street, city/newCity, district/newDistrict'
+    );
+    expect(venueRequestUpdate).not.toHaveBeenCalled();
+  });
+
   it('approves CREATE using new fields, composing a fallback address (never forwarding newAddress — VenuesService derives it), leaving legacy city/district null', async () => {
     venueRequestFindUnique.mockResolvedValue({
       id: 'request-1',
