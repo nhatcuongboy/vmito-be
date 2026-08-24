@@ -1044,6 +1044,8 @@ export class PlayersService {
             id: true,
             name: true,
             startTime: true,
+            hostName: true,
+            host: { select: { id: true, name: true } },
             venue: { select: { name: true } },
           },
         },
