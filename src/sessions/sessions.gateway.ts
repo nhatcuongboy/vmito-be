@@ -275,8 +275,9 @@ export class SessionsGateway
     postId: string,
     payload: {
       likeCount: number;
-      actorId: string;
+      actorId: string | null;
       isLiked: boolean;
+      source?: 'user' | 'engagement_boost';
     }
   ) {
     const roomName = this.getPostRoom(postId);

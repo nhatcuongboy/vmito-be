@@ -6,6 +6,7 @@ import { CloudinaryModule } from '../cloudinary/cloudinary.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ActivitiesModule } from '../activities/activities.module';
 import { SessionsGatewayModule } from '../sessions/sessions-gateway.module';
+import { NewsfeedEngagementBoostModule } from '../newsfeed-engagement-boost/newsfeed-engagement-boost.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { SessionsGatewayModule } from '../sessions/sessions-gateway.module';
     NotificationsModule,
     ActivitiesModule,
     SessionsGatewayModule,
+    NewsfeedEngagementBoostModule,
   ],
   controllers: [PostsController],
   providers: [PostsService],
