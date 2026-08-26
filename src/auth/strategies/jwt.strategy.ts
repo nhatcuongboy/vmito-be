@@ -10,6 +10,7 @@ export interface JwtPayload {
   role: string;
   iat?: number;
   exp?: number;
+  webViewSessionId?: string;
 }
 
 @Injectable()
@@ -28,6 +29,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload) {
+    if (payload.webViewSessionId) {
+      const session = await this.prisma.webViewSession.findUnique({
+        where: { id: payload.webViewSessionId },
+        select: { expiresAt: true, revokedAt: true },
+      });
+      if (!session || session.revokedAt || session.expiresAt <= new Date()) {
+        throw new UnauthorizedException('Web view session expired');
+      }
+    }
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {

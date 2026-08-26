@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Post,
   Put,
+  Param,
   Query,
   Req,
   Res,
@@ -28,6 +29,7 @@ import { AdminResetPasswordDto } from './dto/admin-reset-password.dto';
 import { AppleSignInDto } from './dto/apple-sign-in.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { GoogleOneTapDto } from './dto/google-one-tap.dto';
+import { ExchangeWebViewSessionDto } from './dto/exchange-webview-session.dto';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { FacebookAuthGuard } from './guards/facebook-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -94,6 +96,29 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async refresh(@Body() refreshTokenDto: RefreshTokenDto) {
     return this.authService.refreshTokens(refreshTokenDto.refreshToken);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('webview-sessions')
+  async createWebViewSession(@CurrentUser() user: { userId: string }) {
+    return this.authService.createWebViewSession(user.userId);
+  }
+
+  @Public()
+  @Post('webview-sessions/exchange')
+  @HttpCode(HttpStatus.OK)
+  async exchangeWebViewSession(@Body() dto: ExchangeWebViewSessionDto) {
+    return this.authService.exchangeWebViewSession(dto.code);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('webview-sessions/:id/revoke')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async revokeWebViewSession(
+    @CurrentUser() user: { userId: string },
+    @Param('id') id: string
+  ) {
+    await this.authService.revokeWebViewSession(id, user.userId);
   }
 
   /**

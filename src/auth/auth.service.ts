@@ -44,6 +44,8 @@ const getErrorMessage = (key: string, locale?: string): string => {
 const PASSWORD_RESET_IDENTIFIER_PREFIX = 'password-reset:';
 const PASSWORD_RESET_SUCCESS_MESSAGE =
   'If this email is valid, password reset instructions will be sent.';
+const WEB_VIEW_CODE_TTL_MS = 60 * 1000;
+const WEB_VIEW_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 
 export function maskEmail(email: string): string {
   if (!email || !email.includes('@')) return email;
@@ -857,19 +859,26 @@ export class AuthService {
   /**
    * Generate JWT token for a user (used for OAuth flows)
    */
-  async generateTokenForUser(user: {
-    id: string;
-    email: string;
-    role: string;
-  }) {
+  async generateTokenForUser(
+    user: {
+      id: string;
+      email: string;
+      role: string;
+    },
+    webViewSessionId?: string
+  ) {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
+      ...(webViewSessionId ? { webViewSessionId } : {}),
     };
 
     const accessToken = this.jwtService.sign(payload);
-    const refreshToken = await this.generateRefreshToken(user.id);
+    const refreshToken = await this.generateRefreshToken(
+      user.id,
+      webViewSessionId
+    );
 
     return {
       accessToken,
@@ -887,7 +896,10 @@ export class AuthService {
   /**
    * Generate a secure refresh token and store it in the database
    */
-  async generateRefreshToken(userId: string): Promise<string> {
+  async generateRefreshToken(
+    userId: string,
+    webViewSessionId?: string
+  ): Promise<string> {
     const token = crypto.randomBytes(40).toString('hex');
     const expiresInDays =
       parseInt(
@@ -902,6 +914,7 @@ export class AuthService {
       data: {
         token,
         userId,
+        webViewSessionId,
         expiresAt,
       },
     });
@@ -927,6 +940,16 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token revoked');
     }
 
+    if (refreshToken.webViewSessionId) {
+      const session = await this.prisma.webViewSession.findUnique({
+        where: { id: refreshToken.webViewSessionId },
+        select: { expiresAt: true, revokedAt: true },
+      });
+      if (!session || session.revokedAt || session.expiresAt <= new Date()) {
+        throw new UnauthorizedException('Web view session expired');
+      }
+    }
+
     if (refreshToken.expiresAt < new Date()) {
       throw new UnauthorizedException('Refresh token expired');
     }
@@ -942,10 +965,16 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
+      ...(refreshToken.webViewSessionId
+        ? { webViewSessionId: refreshToken.webViewSessionId }
+        : {}),
     };
 
     const accessToken = this.jwtService.sign(payload);
-    const newRefreshToken = await this.generateRefreshToken(user.id);
+    const newRefreshToken = await this.generateRefreshToken(
+      user.id,
+      refreshToken.webViewSessionId ?? undefined
+    );
 
     return {
       accessToken,
@@ -953,5 +982,62 @@ export class AuthService {
       tokenType: 'Bearer',
       expiresIn: this.configService.get<string>('auth.jwt.expiresIn') || '15m',
     };
+  }
+
+  async createWebViewSession(userId: string) {
+    const code = crypto.randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + WEB_VIEW_CODE_TTL_MS);
+    const session = await this.prisma.webViewSession.create({
+      data: {
+        userId,
+        codeHash: crypto.createHash('sha256').update(code).digest('hex'),
+        expiresAt,
+      },
+      select: { id: true, expiresAt: true },
+    });
+    return { ...session, code };
+  }
+
+  async exchangeWebViewSession(code: string) {
+    const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+    const now = new Date();
+    const session = await this.prisma.$transaction(async (tx) => {
+      const candidate = await tx.webViewSession.findUnique({
+        where: { codeHash },
+        include: { user: true },
+      });
+      if (
+        !candidate ||
+        candidate.consumedAt ||
+        candidate.revokedAt ||
+        candidate.expiresAt <= now
+      ) {
+        throw new UnauthorizedException('Invalid or expired web view code');
+      }
+      const consumed = await tx.webViewSession.updateMany({
+        where: {
+          id: candidate.id,
+          consumedAt: null,
+          revokedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: {
+          consumedAt: now,
+          expiresAt: new Date(now.getTime() + WEB_VIEW_SESSION_TTL_MS),
+        },
+      });
+      if (consumed.count != 1) {
+        throw new UnauthorizedException('Invalid or expired web view code');
+      }
+      return candidate;
+    });
+    return this.generateTokenForUser(session.user, session.id);
+  }
+
+  async revokeWebViewSession(sessionId: string, userId: string) {
+    await this.prisma.webViewSession.updateMany({
+      where: { id: sessionId, userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
   }
 }
