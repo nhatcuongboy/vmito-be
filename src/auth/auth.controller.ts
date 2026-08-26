@@ -107,6 +107,7 @@ export class AuthController {
   @Public()
   @Post('webview-sessions/exchange')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async exchangeWebViewSession(@Body() dto: ExchangeWebViewSessionDto) {
     return this.authService.exchangeWebViewSession(dto.code);
   }

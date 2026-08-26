@@ -986,10 +986,10 @@ export class VenuesService {
 
   private async createVenueRecord(createVenueDto: CreateVenueDto) {
     const district = createVenueDto.district
-      ? this.normalizeAdminUnit(createVenueDto.district)
+      ? createVenueDto.district.trim()
       : createVenueDto.district;
     const city = createVenueDto.city
-      ? this.normalizeAdminUnit(createVenueDto.city)
+      ? createVenueDto.city.trim()
       : createVenueDto.city;
 
     const { streetAddress, wardOld } = this.addressMapping.extractStreetAndWard(
@@ -1054,12 +1054,8 @@ export class VenuesService {
     // For bulk creation, generate slugs individually to ensure uniqueness
     const results: Awaited<ReturnType<typeof this.prisma.venue.create>>[] = [];
     for (const venue of createBulkVenueDto.venues) {
-      const district = venue.district
-        ? this.normalizeAdminUnit(venue.district)
-        : venue.district;
-      const city = venue.city
-        ? this.normalizeAdminUnit(venue.city)
-        : venue.city;
+      const district = venue.district ? venue.district.trim() : venue.district;
+      const city = venue.city ? venue.city.trim() : venue.city;
 
       const sportSelection = this.resolveSportSelection(venue);
       const slug = await this.generateUniqueSlug(
@@ -1132,10 +1128,10 @@ export class VenuesService {
 
   async update(id: string, updateVenueDto: UpdateVenueDto) {
     const district = updateVenueDto.district
-      ? this.normalizeAdminUnit(updateVenueDto.district)
+      ? updateVenueDto.district.trim()
       : updateVenueDto.district;
     const city = updateVenueDto.city
-      ? this.normalizeAdminUnit(updateVenueDto.city)
+      ? updateVenueDto.city.trim()
       : updateVenueDto.city;
 
     const existing = await this.prisma.venue.findUnique({
@@ -1504,11 +1500,7 @@ export class VenuesService {
     };
   }
 
-  /**
-   * Strips Vietnamese administrative unit prefixes (Quận, Huyện, Thị xã,
-   * Thành phố) from a location name so values are stored/queried consistently
-   * without the prefix (e.g. "Quận Bình Thạnh" → "Bình Thạnh").
-   */
+  /** Strips administrative prefixes for search matching without changing stored values. */
   private normalizeAdminUnit(value: string): string {
     return value.replace(/^(Quận|Huyện|Thị xã|Thành phố)\s+/i, '').trim();
   }
