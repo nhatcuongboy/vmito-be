@@ -50,6 +50,7 @@ model User {
   ratingsGiven       Rating[]              @relation("RatingsGiven")
   ratingsReceived    Rating[]              @relation("RatingsReceived")
   notifications      Notification[]
+  notificationDevices NotificationDevice[]
 
   // Payment reminders
   paymentRemindersCreated  PaymentReminder[] @relation("PaymentReminderCreator")
@@ -200,6 +201,25 @@ model Notification {
   @@index([userId])
   @@index([createdAt])
   @@map("notifications")
+}
+
+model NotificationDevice {
+  id         String   @id @default(cuid())
+  userId     String
+  token      String   @unique
+  platform   String
+  appVersion String?
+  locale     String?
+  deviceId   String?
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, deviceId])
+  @@map("notification_devices")
 }
 
 model Account {

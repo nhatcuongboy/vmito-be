@@ -10,7 +10,9 @@ import {
   BroadcastNotificationDto,
   QueryAdminNotificationsDto,
   QueryNotificationsDto,
+  RegisterNotificationDeviceDto,
 } from './dto';
+import { PushNotificationsService } from './push-notifications.service';
 
 @Injectable()
 export class NotificationsService {
@@ -18,7 +20,8 @@ export class NotificationsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly sessionsGateway: SessionsGateway
+    private readonly sessionsGateway: SessionsGateway,
+    private readonly pushNotifications: PushNotificationsService
   ) {}
 
   /**
@@ -41,6 +44,7 @@ export class NotificationsService {
       SessionEventType.NOTIFICATION_RECEIVED,
       notification
     );
+    await this.pushNotifications.send(notification);
 
     return notification;
   }
@@ -71,6 +75,7 @@ export class NotificationsService {
       SessionEventType.NOTIFICATION_RECEIVED,
       notification
     );
+    await this.pushNotifications.send(notification);
 
     return notification;
   }
@@ -205,6 +210,47 @@ export class NotificationsService {
     return { count };
   }
 
+  async registerDevice(userId: string, dto: RegisterNotificationDeviceDto) {
+    if (dto.deviceId) {
+      await this.prisma.notificationDevice.deleteMany({
+        where: {
+          userId,
+          deviceId: dto.deviceId,
+          token: { not: dto.token },
+        },
+      });
+    }
+
+    await this.prisma.notificationDevice.upsert({
+      where: { token: dto.token },
+      create: {
+        userId,
+        token: dto.token,
+        platform: dto.platform,
+        appVersion: dto.appVersion,
+        locale: dto.locale,
+        deviceId: dto.deviceId,
+      },
+      update: {
+        userId,
+        platform: dto.platform,
+        appVersion: dto.appVersion,
+        locale: dto.locale,
+        deviceId: dto.deviceId,
+        lastSeenAt: new Date(),
+      },
+    });
+
+    return { registered: true };
+  }
+
+  async unregisterDevice(userId: string, token: string) {
+    const result = await this.prisma.notificationDevice.deleteMany({
+      where: { userId, token },
+    });
+    return { removed: result.count > 0 };
+  }
+
   /**
    * Mark a notification as read
    */
@@ -326,6 +372,8 @@ export class NotificationsService {
       );
       sentCount++;
     }
+
+    await this.pushNotifications.sendMany(notifications);
 
     const duration = Date.now() - startTime;
     this.logger.log(
