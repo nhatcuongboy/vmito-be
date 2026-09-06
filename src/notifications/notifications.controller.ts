@@ -14,6 +14,7 @@ import {
   BroadcastNotificationDto,
   QueryAdminNotificationsDto,
   QueryNotificationsDto,
+  RegisterNotificationDeviceDto,
 } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
@@ -51,6 +52,24 @@ export class NotificationsController {
   @Get('unread-count')
   async getUnreadCount(@CurrentUser() user: AuthenticatedUser) {
     return this.notificationsService.getUnreadCount(user.userId);
+  }
+
+  /** Register or refresh the current mobile installation's FCM token. */
+  @Post('devices')
+  async registerDevice(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: RegisterNotificationDeviceDto
+  ) {
+    return this.notificationsService.registerDevice(user.userId, dto);
+  }
+
+  /** Remove an FCM token on logout or when push is disabled. */
+  @Delete('devices/:token')
+  async unregisterDevice(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('token') token: string
+  ) {
+    return this.notificationsService.unregisterDevice(user.userId, token);
   }
 
   /**

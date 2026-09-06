@@ -8,6 +8,7 @@ import { ScheduleService } from './services/schedule.service';
 import { TournamentsGateway } from './realtime/tournaments.gateway';
 import { FavoritesService } from '../favorites/favorites.service';
 import { ActivityFeedService } from '../activities/activity-feed.service';
+import { PointsService } from '../points/points.service';
 
 /**
  * Venue-sync invariant coverage: a non-null tournament.venueId always has a
@@ -38,6 +39,10 @@ describe('TournamentsService venue sync', () => {
         update: jest.fn(),
         updateMany: jest.fn(),
         delete: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      category: {
+        count: jest.fn().mockResolvedValue(0),
       },
       tournamentCourt: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -71,6 +76,10 @@ describe('TournamentsService venue sync', () => {
             postTournamentCreated: jest.fn(),
             postTournamentFinished: jest.fn(),
           },
+        },
+        {
+          provide: PointsService,
+          useValue: { awardTournamentPlacements: jest.fn() },
         },
       ],
     }).compile();
@@ -109,7 +118,9 @@ describe('TournamentsService venue sync', () => {
             sportType: { in: ['BADMINTON'] },
             startDate: { lte: new Date('2026-07-24T23:59:59.999Z') },
             endDate: { gte: new Date('2026-07-17T00:00:00.000Z') },
-            AND: [expect.any(Object), expect.any(Object)],
+            AND: expect.arrayContaining([
+              expect.objectContaining({ OR: expect.any(Array) }),
+            ]),
           }),
           orderBy: { startDate: 'asc' },
         })
@@ -136,6 +147,22 @@ describe('TournamentsService venue sync', () => {
       expect(prisma.tournament.findMany).not.toHaveBeenCalled();
     });
 
+    it('excludes expired PREPARING rows from public discovery as a cron fallback', async () => {
+      await service.findAll({ publishedOnly: true, status: ['PREPARING'] });
+
+      const where = prisma.tournament.findMany.mock.calls[0][0].where;
+      expect(where.AND).toEqual(
+        expect.arrayContaining([
+          {
+            OR: [
+              { status: { not: 'PREPARING' } },
+              { endDate: { gte: expect.any(Date) } },
+            ],
+          },
+        ])
+      );
+    });
+
     it('rejects a date range whose start is after its end', async () => {
       await expect(
         service.findAll({
@@ -151,8 +178,8 @@ describe('TournamentsService venue sync', () => {
   describe('create', () => {
     const baseDto = {
       name: 'Test Cup',
-      startDate: '2026-08-01',
-      endDate: '2026-08-02',
+      startDate: '2099-08-01',
+      endDate: '2099-08-02',
     };
 
     beforeEach(() => {
@@ -259,6 +286,21 @@ describe('TournamentsService venue sync', () => {
 
       expect(prisma.tournamentVenue.create).not.toHaveBeenCalled();
     });
+
+    it('rejects creating a tournament whose start date is in the past', async () => {
+      await expect(
+        service.create(
+          {
+            name: 'Old Cup',
+            startDate: '2000-01-01',
+            endDate: '2000-01-02',
+          } as any,
+          'host-1'
+        )
+      ).rejects.toThrow('Start date cannot be in the past');
+
+      expect(prisma.tournament.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('update', () => {
@@ -321,6 +363,113 @@ describe('TournamentsService venue sync', () => {
         service.update('t1', { venueId: 'nope' } as any, 'host-1')
       ).rejects.toThrow(NotFoundException);
       expect(prisma.tournament.update).not.toHaveBeenCalled();
+    });
+
+    it('allows a single-day tournament', async () => {
+      prisma.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        hostId: 'host-1',
+        isPublished: false,
+        status: 'PREPARING',
+        startDate: new Date('2026-09-01T00:00:00.000Z'),
+        endDate: new Date('2026-09-02T00:00:00.000Z'),
+      });
+
+      await service.update(
+        't1',
+        {
+          startDate: '2026-09-30T00:00:00.000Z',
+          endDate: '2026-09-30T00:00:00.000Z',
+        } as any,
+        'host-1'
+      );
+
+      expect(prisma.tournament.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            startDate: new Date('2026-09-30T00:00:00.000Z'),
+            endDate: new Date('2026-09-30T00:00:00.000Z'),
+          }),
+        })
+      );
+    });
+
+    it('rejects an end date before the start date', async () => {
+      prisma.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        hostId: 'host-1',
+        isPublished: false,
+        status: 'PREPARING',
+        startDate: new Date('2026-09-01T00:00:00.000Z'),
+        endDate: new Date('2026-09-02T00:00:00.000Z'),
+      });
+
+      await expect(
+        service.update(
+          't1',
+          {
+            startDate: '2026-09-30T00:00:00.000Z',
+            endDate: '2026-09-29T00:00:00.000Z',
+          } as any,
+          'host-1'
+        )
+      ).rejects.toThrow('End date must not be before start date');
+
+      expect(prisma.tournament.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects changing the start date to a past Vietnam date', async () => {
+      prisma.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        hostId: 'host-1',
+        isPublished: false,
+        status: 'PREPARING',
+        startDate: new Date('2099-09-01T00:00:00.000Z'),
+        endDate: new Date('2099-09-02T00:00:00.000Z'),
+      });
+
+      await expect(
+        service.update(
+          't1',
+          { startDate: '2000-01-01T00:00:00.000Z' } as any,
+          'host-1'
+        )
+      ).rejects.toThrow('Start date cannot be in the past');
+    });
+
+    it('rejects starting an expired tournament', async () => {
+      prisma.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        hostId: 'host-1',
+        isPublished: true,
+        status: 'PREPARING',
+        startDate: new Date('2000-01-01T00:00:00.000Z'),
+        endDate: new Date('2000-01-02T00:00:00.000Z'),
+      });
+
+      await expect(
+        service.update('t1', { status: 'IN_PROGRESS' } as any, 'host-1')
+      ).rejects.toThrow(
+        'Update the tournament dates before starting or restoring it'
+      );
+    });
+
+    it('requires a category before publishing', async () => {
+      prisma.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        hostId: 'host-1',
+        venueId: 'v1',
+        isPublished: false,
+        status: 'PREPARING',
+        startDate: new Date('2099-01-01T00:00:00.000Z'),
+        endDate: new Date('2099-01-02T00:00:00.000Z'),
+      });
+
+      await expect(
+        service.update('t1', { isPublished: true } as any, 'host-1')
+      ).rejects.toThrow(
+        'Add at least one category before publishing the tournament'
+      );
     });
   });
 
@@ -607,8 +756,8 @@ describe('TournamentsService venue sync', () => {
   describe('duplicateTournament', () => {
     const dto = {
       name: 'Copy Cup',
-      startDate: '2026-09-01',
-      endDate: '2026-09-02',
+      startDate: '2099-09-01',
+      endDate: '2099-09-02',
       copy: { format: true, schedule: false, teams: false, venues: true },
     };
 
