@@ -1042,8 +1042,8 @@ export class TournamentsService {
       const finalStartDate =
         updateData.startDate ?? existingTournament.startDate;
       const finalEndDate = updateData.endDate ?? existingTournament.endDate;
-      if (finalStartDate >= finalEndDate) {
-        throw new BadRequestException('End date must be after start date');
+      if (finalStartDate > finalEndDate) {
+        throw new BadRequestException('End date must not be before start date');
       }
     }
 

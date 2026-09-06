@@ -8,6 +8,7 @@ import { ScheduleService } from './services/schedule.service';
 import { TournamentsGateway } from './realtime/tournaments.gateway';
 import { FavoritesService } from '../favorites/favorites.service';
 import { ActivityFeedService } from '../activities/activity-feed.service';
+import { PointsService } from '../points/points.service';
 
 /**
  * Venue-sync invariant coverage: a non-null tournament.venueId always has a
@@ -71,6 +72,10 @@ describe('TournamentsService venue sync', () => {
             postTournamentCreated: jest.fn(),
             postTournamentFinished: jest.fn(),
           },
+        },
+        {
+          provide: PointsService,
+          useValue: { awardTournamentPlacements: jest.fn() },
         },
       ],
     }).compile();
@@ -320,6 +325,59 @@ describe('TournamentsService venue sync', () => {
       await expect(
         service.update('t1', { venueId: 'nope' } as any, 'host-1')
       ).rejects.toThrow(NotFoundException);
+      expect(prisma.tournament.update).not.toHaveBeenCalled();
+    });
+
+    it('allows a single-day tournament', async () => {
+      prisma.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        hostId: 'host-1',
+        isPublished: false,
+        status: 'PREPARING',
+        startDate: new Date('2026-09-01T00:00:00.000Z'),
+        endDate: new Date('2026-09-02T00:00:00.000Z'),
+      });
+
+      await service.update(
+        't1',
+        {
+          startDate: '2026-09-30T00:00:00.000Z',
+          endDate: '2026-09-30T00:00:00.000Z',
+        } as any,
+        'host-1'
+      );
+
+      expect(prisma.tournament.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            startDate: new Date('2026-09-30T00:00:00.000Z'),
+            endDate: new Date('2026-09-30T00:00:00.000Z'),
+          }),
+        })
+      );
+    });
+
+    it('rejects an end date before the start date', async () => {
+      prisma.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        hostId: 'host-1',
+        isPublished: false,
+        status: 'PREPARING',
+        startDate: new Date('2026-09-01T00:00:00.000Z'),
+        endDate: new Date('2026-09-02T00:00:00.000Z'),
+      });
+
+      await expect(
+        service.update(
+          't1',
+          {
+            startDate: '2026-09-30T00:00:00.000Z',
+            endDate: '2026-09-29T00:00:00.000Z',
+          } as any,
+          'host-1'
+        )
+      ).rejects.toThrow('End date must not be before start date');
+
       expect(prisma.tournament.update).not.toHaveBeenCalled();
     });
   });
