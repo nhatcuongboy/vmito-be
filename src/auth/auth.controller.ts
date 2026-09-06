@@ -43,6 +43,9 @@ interface GoogleUser {
   name: string;
   role: string;
   image?: string;
+  locale?: string;
+  returnUrl?: string;
+  mobile?: boolean;
 }
 
 interface FacebookUser {
@@ -51,6 +54,9 @@ interface FacebookUser {
   name: string;
   role: string;
   image?: string;
+  locale?: string;
+  returnUrl?: string;
+  mobile?: boolean;
 }
 
 interface IZaloCallbackUser {
@@ -225,10 +231,7 @@ export class AuthController {
   @Public()
   @Get('google/callback')
   @UseGuards(GoogleAuthGuard)
-  async googleCallback(
-    @Req() req: { user: GoogleUser & { locale?: string; returnUrl?: string } },
-    @Res() res: Response
-  ) {
+  async googleCallback(@Req() req: { user: GoogleUser }, @Res() res: Response) {
     const user = req.user;
 
     // Generate JWT token for the user
@@ -244,7 +247,10 @@ export class AuthController {
     const locale = user.locale || 'en';
     const returnUrl = user.returnUrl;
 
-    let callbackUrl = `${frontendUrl}/${locale}/auth/callback?token=${tokenData.accessToken}&refreshToken=${tokenData.refreshToken}&userId=${user.id}&email=${encodeURIComponent(user.email)}&name=${encodeURIComponent(user.name || '')}&role=${user.role}${user.image ? `&image=${encodeURIComponent(user.image)}` : ''}`;
+    const callbackBase = user.mobile
+      ? 'vmito://auth/callback'
+      : `${frontendUrl}/${locale}/auth/callback`;
+    let callbackUrl = `${callbackBase}?token=${tokenData.accessToken}&refreshToken=${tokenData.refreshToken}&userId=${user.id}&email=${encodeURIComponent(user.email)}&name=${encodeURIComponent(user.name || '')}&role=${user.role}${user.image ? `&image=${encodeURIComponent(user.image)}` : ''}`;
 
     // Add returnUrl if present
     if (returnUrl) {
@@ -293,7 +299,7 @@ export class AuthController {
   @UseGuards(FacebookAuthGuard)
   async facebookCallback(
     @Req()
-    req: { user: FacebookUser & { locale?: string; returnUrl?: string } },
+    req: { user: FacebookUser },
     @Res() res: Response
   ) {
     const user = req.user;
@@ -311,7 +317,10 @@ export class AuthController {
     const locale = user.locale || 'en';
     const returnUrl = user.returnUrl;
 
-    let callbackUrl = `${frontendUrl}/${locale}/auth/callback?token=${tokenData.accessToken}&refreshToken=${tokenData.refreshToken}&userId=${user.id}&email=${encodeURIComponent(user.email)}&name=${encodeURIComponent(user.name || '')}&role=${user.role}${user.image ? `&image=${encodeURIComponent(user.image)}` : ''}`;
+    const callbackBase = user.mobile
+      ? 'vmito://auth/callback'
+      : `${frontendUrl}/${locale}/auth/callback`;
+    let callbackUrl = `${callbackBase}?token=${tokenData.accessToken}&refreshToken=${tokenData.refreshToken}&userId=${user.id}&email=${encodeURIComponent(user.email)}&name=${encodeURIComponent(user.name || '')}&role=${user.role}${user.image ? `&image=${encodeURIComponent(user.image)}` : ''}`;
 
     // Add returnUrl if present
     if (returnUrl) {

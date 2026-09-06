@@ -13,11 +13,13 @@ interface FacebookUser {
   image?: string;
   locale?: string;
   returnUrl?: string;
+  mobile?: boolean;
 }
 
 interface StateData {
   locale?: string;
   returnUrl?: string;
+  mobile?: boolean;
 }
 
 @Injectable()
@@ -64,6 +66,7 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
     // 2. JSON string: {"locale":"en","returnUrl":"/browse/sessions?sessionId=xxx"}
     let locale = 'en';
     let returnUrl: string | undefined;
+    let mobile = false;
     const stateParam = req.query.state as string;
     if (stateParam) {
       try {
@@ -71,6 +74,7 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
         const stateData = JSON.parse(stateParam) as StateData;
         locale = stateData.locale || 'en';
         returnUrl = stateData.returnUrl;
+        mobile = stateData.mobile === true;
       } catch {
         // If not JSON, treat as simple locale string
         locale = stateParam;
@@ -86,7 +90,7 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
       });
 
       // Add locale and returnUrl to user object for use in callback
-      done(null, { ...user, locale, returnUrl } as FacebookUser);
+      done(null, { ...user, locale, returnUrl, mobile } as FacebookUser);
     } catch (error) {
       done(error as Error, undefined);
     }
