@@ -43,6 +43,11 @@ import {
 import { FavoritesService } from '../favorites/favorites.service';
 import { ActivityFeedService } from '../activities/activity-feed.service';
 import { PointsService } from '../points/points.service';
+import {
+  getVietnamTodayDate,
+  isTournamentDateExpired,
+  isTournamentStartDateInPast,
+} from './tournament-date';
 
 @Injectable()
 export class TournamentsService {
@@ -154,6 +159,18 @@ export class TournamentsService {
       if (favoriteIds.length === 0) return [];
     }
 
+    const andConditions: Prisma.TournamentWhereInput[] = [];
+    if (query.publishedOnly) {
+      // Cron is the durable state transition; this condition keeps public
+      // discovery correct during deploy gaps or if a scheduler run fails.
+      andConditions.push({
+        OR: [
+          { status: { not: TournamentStatus.PREPARING } },
+          { endDate: { gte: getVietnamTodayDate() } },
+        ],
+      });
+    }
+
     const where: Prisma.TournamentWhereInput = {
       ...(favoriteIds ? { id: { in: favoriteIds } } : {}),
       ...(query.publishedOnly ? { isPublished: true } : {}),
@@ -243,7 +260,8 @@ export class TournamentsService {
         buildLocationCondition(districts, 'district', 'newDistrict')
       );
     }
-    if (locationConditions.length) where.AND = locationConditions;
+    andConditions.push(...locationConditions);
+    if (andConditions.length) where.AND = andConditions;
 
     const sortBy = query.sortBy ?? 'createdAt';
     const sortOrder = query.sortOrder ?? 'desc';
@@ -388,6 +406,9 @@ export class TournamentsService {
     if (start > end) {
       throw new BadRequestException('End date must not be before start date');
     }
+    if (isTournamentStartDateInPast(start)) {
+      throw new BadRequestException('Start date cannot be in the past');
+    }
 
     // Resolve the primary venue. Never create a Venue record here — either
     // link an existing one (by id or placeId) or fall back to an inline
@@ -531,6 +552,9 @@ export class TournamentsService {
     }
     if (start > end) {
       throw new BadRequestException('End date must not be before start date');
+    }
+    if (isTournamentStartDateInPast(start)) {
+      throw new BadRequestException('Start date cannot be in the past');
     }
 
     const source = await this.prisma.tournament.findUnique({
@@ -1045,6 +1069,38 @@ export class TournamentsService {
       if (finalStartDate > finalEndDate) {
         throw new BadRequestException('End date must not be before start date');
       }
+      if (
+        updateData.startDate &&
+        isTournamentStartDateInPast(updateData.startDate)
+      ) {
+        throw new BadRequestException('Start date cannot be in the past');
+      }
+    }
+
+    const finalEndDate = updateData.endDate ?? existingTournament.endDate;
+
+    if (updateData.isPublished === true && !existingTournament.isPublished) {
+      if (isTournamentDateExpired(finalEndDate)) {
+        throw new BadRequestException(
+          'An expired tournament cannot be published'
+        );
+      }
+      await this.assertTournamentReadyToPublish(
+        id,
+        Boolean(existingTournament.venueId)
+      );
+    }
+
+    const isStarting =
+      existingTournament.status === TournamentStatus.PREPARING &&
+      updateData.status === TournamentStatus.IN_PROGRESS;
+    const isRestoring =
+      existingTournament.status === TournamentStatus.CANCELLED &&
+      updateData.status === TournamentStatus.PREPARING;
+    if ((isStarting || isRestoring) && isTournamentDateExpired(finalEndDate)) {
+      throw new BadRequestException(
+        'Update the tournament dates before starting or restoring it'
+      );
     }
 
     // Require complete team rosters when publishing the tournament. Incomplete
@@ -1689,6 +1745,26 @@ export class TournamentsService {
     if (incomplete) {
       throw new BadRequestException(
         'Team roster is incomplete. Add all required members before publishing the tournament.'
+      );
+    }
+  }
+
+  private async assertTournamentReadyToPublish(
+    tournamentId: string,
+    hasLegacyVenue: boolean
+  ) {
+    const [categoryCount, venueCount] = await Promise.all([
+      this.prisma.category.count({ where: { tournamentId } }),
+      this.prisma.tournamentVenue.count({ where: { tournamentId } }),
+    ]);
+    if (categoryCount === 0) {
+      throw new BadRequestException(
+        'Add at least one category before publishing the tournament'
+      );
+    }
+    if (!hasLegacyVenue && venueCount === 0) {
+      throw new BadRequestException(
+        'Add a venue before publishing the tournament'
       );
     }
   }

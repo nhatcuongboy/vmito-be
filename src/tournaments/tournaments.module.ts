@@ -16,6 +16,7 @@ import { TournamentsGatewayModule } from './realtime/tournaments-gateway.module'
 import { FavoritesModule } from '../favorites/favorites.module';
 import { ActivitiesModule } from '../activities/activities.module';
 import { PointsModule } from '../points/points.module';
+import { TournamentSchedulerService } from './tournament-scheduler.service';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { PointsModule } from '../points/points.module';
     ScheduleValidationService,
     ScheduleAlgorithmService,
     TournamentMatchGenerationService,
+    TournamentSchedulerService,
   ],
   exports: [TournamentsService, ScheduleModule],
 })
