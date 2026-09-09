@@ -377,6 +377,49 @@ export class SessionsGateway
       });
   }
 
+  /** Best-effort realtime delivery for a shared notification campaign. */
+  notifyAllAuthenticatedUsers(
+    eventType: SessionEventType,
+    payload: {
+      id: string;
+      type: string;
+      title: string;
+      message: string;
+      data?: unknown;
+      createdAt: Date;
+    }
+  ) {
+    void this.server
+      .fetchSockets()
+      .then((sockets) => {
+        let socketCount = 0;
+        for (const socket of sockets) {
+          const userId = (socket.data as { userId?: string }).userId;
+          if (!userId) continue;
+          socket.emit(eventType, {
+            id: payload.id,
+            userId,
+            type: payload.type,
+            title: payload.title,
+            message: payload.message,
+            data: payload.data ?? null,
+            isRead: false,
+            createdAt: payload.createdAt,
+          });
+          socketCount++;
+        }
+        this.logger.log(
+          `[Realtime] Broadcast ${payload.id} delivered to ${socketCount} socket(s)`
+        );
+      })
+      .catch((error) => {
+        this.logger.error(
+          `[Realtime] Failed to deliver broadcast ${payload.id}`,
+          error
+        );
+      });
+  }
+
   /**
    * Notify all authenticated users (except the author) about a new post.
    * Used to increment the newsfeed badge count in real-time.

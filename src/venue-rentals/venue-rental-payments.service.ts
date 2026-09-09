@@ -403,7 +403,8 @@ export class VenueRentalPaymentsService {
       request.venueId,
       'Có giao dịch thuê sân mới',
       'Người thuê đã gửi chứng từ thanh toán.',
-      id
+      id,
+      `payment:${payment.id}:submitted`
     );
     return payment;
   }
@@ -476,7 +477,8 @@ export class VenueRentalPaymentsService {
       result.confirmed
         ? 'Lịch thuê sân của bạn đã được xác nhận.'
         : 'Quản lý sân đã ghi nhận thanh toán tiền mặt.',
-      id
+      id,
+      `payment:${result.payment.id}:cash-approved`
     );
     return result.payment;
   }
@@ -566,7 +568,8 @@ export class VenueRentalPaymentsService {
       result.confirmed
         ? 'Lịch thuê sân của bạn đã được xác nhận.'
         : 'Giao dịch thuê sân của bạn đã được duyệt.',
-      id
+      id,
+      `payment:${paymentId}:approved`
     );
     return result.payment;
   }
@@ -625,7 +628,8 @@ export class VenueRentalPaymentsService {
       request.requesterId,
       'Chứng từ thanh toán bị từ chối',
       dto.reason.trim(),
-      id
+      id,
+      `payment:${paymentId}:rejected`
     );
     return payment;
   }
@@ -689,7 +693,8 @@ export class VenueRentalPaymentsService {
       request.requesterId,
       'Hoàn tiền thuê sân đã hoàn tất',
       'Quản lý sân đã xác nhận hoàn tiền cho bạn.',
-      id
+      id,
+      `refund:${refundId}:completed`
     );
     return refund;
   }
@@ -831,14 +836,16 @@ export class VenueRentalPaymentsService {
           request.requesterId,
           'Yêu cầu thuê sân đã hết hạn đặt cọc',
           'Lịch giữ sân đã được giải phóng vì chưa đủ tiền cọc.',
-          request.id
+          request.id,
+          `request:${request.id}:deposit-expired`
         );
         if (outcome.refund) {
           await this.notifyManagers(
             request.venueId,
             'Có khoản hoàn tiền thuê sân cần xử lý',
             'Booking hết hạn đặt cọc có khoản tiền cần hoàn.',
-            request.id
+            request.id,
+            `request:${request.id}:deposit-expired-refund`
           );
         }
       }
@@ -864,7 +871,8 @@ export class VenueRentalPaymentsService {
           request.requesterId,
           'Sắp hết hạn đặt cọc thuê sân',
           'Vui lòng hoàn tất đặt cọc trong 5 phút tới.',
-          request.id
+          request.id,
+          `request:${request.id}:deposit-reminder`
         );
       }
     }
@@ -905,13 +913,15 @@ export class VenueRentalPaymentsService {
           request.requesterId,
           'Thanh toán thuê sân đã quá hạn',
           'Vui lòng thanh toán phần còn lại cho lịch thuê sân.',
-          request.id
+          request.id,
+          `request:${request.id}:balance-overdue`
         ),
         this.notifyManagers(
           request.venueId,
           'Booking thuê sân quá hạn thanh toán',
           'Một booking đã quá hạn thanh toán phần còn lại.',
-          request.id
+          request.id,
+          `request:${request.id}:balance-overdue`
         ),
       ]);
     }
@@ -1105,22 +1115,30 @@ export class VenueRentalPaymentsService {
     venueId: string,
     title: string,
     message: string,
-    rentalRequestId: string
+    rentalRequestId: string,
+    eventKey?: string
   ) {
     const managers = await this.prisma.venueManager.findMany({
       where: { venueId },
       select: { userId: true },
     });
-    await Promise.allSettled(
-      managers.map((manager) =>
-        this.notifications.createForUser(
-          manager.userId,
-          NotificationType.VENUE_RENTAL,
-          title,
-          message,
-          { rentalRequestId, venueId, manage: true, route: 'rental-payment' }
-        )
-      )
+    await this.notifications.createManyForUsers(
+      managers.map((manager) => manager.userId),
+      NotificationType.VENUE_RENTAL,
+      title,
+      message,
+      {
+        rentalRequestId,
+        venueId,
+        manage: true,
+        route: 'rental-payment',
+        eventKey,
+      },
+      eventKey
+        ? {
+            dedupeKey: (userId) => `venue-rental:${eventKey}:manager:${userId}`,
+          }
+        : undefined
     );
   }
 
@@ -1128,7 +1146,8 @@ export class VenueRentalPaymentsService {
     userId: string | null,
     title: string,
     message: string,
-    rentalRequestId: string
+    rentalRequestId: string,
+    eventKey?: string
   ) {
     if (!userId) return Promise.resolve(null);
     return this.notifications.createForUser(
@@ -1136,7 +1155,13 @@ export class VenueRentalPaymentsService {
       NotificationType.VENUE_RENTAL,
       title,
       message,
-      { rentalRequestId, route: 'rental-payment' }
+      { rentalRequestId, route: 'rental-payment', eventKey },
+      eventKey
+        ? {
+            dedupeKey: `venue-rental:${eventKey}:requester:${userId}`,
+            conflictMode: 'ONCE',
+          }
+        : undefined
     );
   }
 

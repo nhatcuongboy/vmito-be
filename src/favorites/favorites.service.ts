@@ -332,6 +332,10 @@ export class FavoritesService {
           [`${typeKey}Id`]: target.id,
           [`${typeKey}Slug`]: target.slug,
           [`${typeKey}Name`]: target.name,
+        },
+        {
+          dedupeKey: `favorite:${type}:${target.id}:actor:${actorId}`,
+          conflictMode: 'ONCE',
         }
       );
     } catch (error) {

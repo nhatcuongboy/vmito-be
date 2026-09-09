@@ -58,16 +58,22 @@ export class SessionSchedulerService {
         },
       });
 
+      let sentCount = 0;
       for (const session of sessions) {
         this.logger.log(
           `[StartReminder] Sending 15-min reminder for session "${session.name}" (${session.id}) to host ${session.hostId}`
         );
 
         // Mark reminder as sent
-        await this.prisma.session.update({
-          where: { id: session.id },
+        const claimed = await this.prisma.session.updateMany({
+          where: {
+            id: session.id,
+            status: 'PREPARING',
+            startReminderSentAt: null,
+          },
           data: { startReminderSentAt: now },
         });
+        if (!claimed.count) continue;
 
         // Create in-app notification for host only
         await this.notificationsService.createForUser(
@@ -79,6 +85,10 @@ export class SessionSchedulerService {
             sessionId: session.id,
             sessionName: session.name,
             action: 'start_reminder',
+          },
+          {
+            dedupeKey: `session:${session.id}:start-reminder`,
+            conflictMode: 'ONCE',
           }
         );
 
@@ -88,12 +98,11 @@ export class SessionSchedulerService {
           SessionEventType.SESSION_START_REMINDER,
           { sessionId: session.id, sessionName: session.name }
         );
+        sentCount++;
       }
 
-      if (sessions.length > 0) {
-        this.logger.log(
-          `[StartReminder] Sent ${sessions.length} start reminder(s)`
-        );
+      if (sentCount > 0) {
+        this.logger.log(`[StartReminder] Sent ${sentCount} start reminder(s)`);
       }
     } catch (error) {
       this.logger.error('[StartReminder] Error sending start reminders', error);
@@ -150,25 +159,33 @@ export class SessionSchedulerService {
             sessionId: session.id,
             sessionName: session.name,
             action: 'auto_started',
+          },
+          {
+            dedupeKey: `session:${session.id}:auto-started:host`,
+            conflictMode: 'ONCE',
           }
         );
 
         // Notify all approved players (skip host to avoid duplicate notification)
-        for (const player of session.players) {
-          if (player.userId && player.userId !== session.hostId) {
-            await this.notificationsService.createForUser(
-              player.userId,
-              'SESSION',
-              'Session has started',
-              `"${session.name}" has started. Head to the court!`,
-              {
-                sessionId: session.id,
-                sessionName: session.name,
-                action: 'session_auto_started',
-              }
-            );
+        await this.notificationsService.createManyForUsers(
+          session.players
+            .filter(
+              (player) => player.userId && player.userId !== session.hostId
+            )
+            .map((player) => player.userId!),
+          'SESSION',
+          'Session has started',
+          `"${session.name}" has started. Head to the court!`,
+          {
+            sessionId: session.id,
+            sessionName: session.name,
+            action: 'session_auto_started',
+          },
+          {
+            dedupeKey: (userId) =>
+              `session:${session.id}:auto-started:user:${userId}`,
           }
-        }
+        );
 
         // Emit socket event to session room
         this.sessionsGateway.notifyEvent(
@@ -207,16 +224,22 @@ export class SessionSchedulerService {
         },
       });
 
+      let sentCount = 0;
       for (const session of sessions) {
         this.logger.log(
           `[EndWarning] Sending end warning for session "${session.name}" (${session.id})`
         );
 
         // Mark warning as sent
-        await this.prisma.session.update({
-          where: { id: session.id },
+        const claimed = await this.prisma.session.updateMany({
+          where: {
+            id: session.id,
+            status: 'IN_PROGRESS',
+            endWarningSentAt: null,
+          },
           data: { endWarningSentAt: now },
         });
+        if (!claimed.count) continue;
 
         // Create in-app notification for host
         await this.notificationsService.createForUser(
@@ -228,6 +251,10 @@ export class SessionSchedulerService {
             sessionId: session.id,
             sessionName: session.name,
             action: 'end_warning',
+          },
+          {
+            dedupeKey: `session:${session.id}:end-warning`,
+            conflictMode: 'ONCE',
           }
         );
 
@@ -237,10 +264,11 @@ export class SessionSchedulerService {
           SessionEventType.SESSION_END_WARNING,
           { sessionId: session.id, sessionName: session.name }
         );
+        sentCount++;
       }
 
-      if (sessions.length > 0) {
-        this.logger.log(`[EndWarning] Sent ${sessions.length} end warning(s)`);
+      if (sentCount > 0) {
+        this.logger.log(`[EndWarning] Sent ${sentCount} end warning(s)`);
       }
     } catch (error) {
       this.logger.error('[EndWarning] Error sending end warnings', error);
@@ -283,6 +311,10 @@ export class SessionSchedulerService {
               sessionId: session.id,
               sessionName: session.name,
               action: 'auto_finalized',
+            },
+            {
+              dedupeKey: `session:${session.id}:auto-finalized`,
+              conflictMode: 'ONCE',
             }
           );
         } catch (error) {
@@ -332,10 +364,11 @@ export class SessionSchedulerService {
         );
 
         try {
-          await this.prisma.session.update({
-            where: { id: session.id },
+          const claimed = await this.prisma.session.updateMany({
+            where: { id: session.id, status: 'PREPARING' },
             data: { status: 'CANCELLED', cancelledAt: now },
           });
+          if (!claimed.count) continue;
 
           // Notify host
           await this.notificationsService.createForUser(
@@ -347,25 +380,33 @@ export class SessionSchedulerService {
               sessionId: session.id,
               sessionName: session.name,
               action: 'auto_cancelled',
+            },
+            {
+              dedupeKey: `session:${session.id}:auto-cancelled:host`,
+              conflictMode: 'ONCE',
             }
           );
 
           // Notify all approved players (skip host to avoid duplicate)
-          for (const player of session.players) {
-            if (player.userId && player.userId !== session.hostId) {
-              await this.notificationsService.createForUser(
-                player.userId,
-                'SESSION',
-                'Session cancelled',
-                `"${session.name}" has been cancelled.`,
-                {
-                  sessionId: session.id,
-                  sessionName: session.name,
-                  action: 'session_cancelled',
-                }
-              );
+          await this.notificationsService.createManyForUsers(
+            session.players
+              .filter(
+                (player) => player.userId && player.userId !== session.hostId
+              )
+              .map((player) => player.userId!),
+            'SESSION',
+            'Session cancelled',
+            `"${session.name}" has been cancelled.`,
+            {
+              sessionId: session.id,
+              sessionName: session.name,
+              action: 'session_cancelled',
+            },
+            {
+              dedupeKey: (userId) =>
+                `session:${session.id}:cancelled:user:${userId}`,
             }
-          }
+          );
 
           // Notify session room
           this.sessionsGateway.notifyEvent(

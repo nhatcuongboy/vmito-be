@@ -34,23 +34,26 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relations
-  playerRecords      Player[]
-  hostedSessions     Session[]             @relation("HostedSessions")
-  hostedClasses      Class[]               @relation("HostedClasses")
-  accounts           Account[]
-  sessions           AuthSession[]
-  hostedTournaments  Tournament[]          @relation("HostedTournaments")
-  managedTournaments TournamentManager[]   @relation("ManagedTournaments")
-  tournamentPlayers  TournamentPlayer[]    @relation("TournamentPlayers")
-  refreshTokens      RefreshToken[]
-  webViewSessions    WebViewSession[]
-  paymentSettings    HostPaymentSettings[]
-  hostPayments       PaymentRecord[]       @relation("HostPayments")
-  registeredPayments PaymentRecord[]       @relation("RegisteredPayments")
-  ratingsGiven       Rating[]              @relation("RatingsGiven")
-  ratingsReceived    Rating[]              @relation("RatingsReceived")
-  notifications      Notification[]
-  notificationDevices NotificationDevice[]
+  playerRecords          Player[]
+  hostedSessions         Session[]                        @relation("HostedSessions")
+  hostedClasses          Class[]                          @relation("HostedClasses")
+  accounts               Account[]
+  sessions               AuthSession[]
+  hostedTournaments      Tournament[]                     @relation("HostedTournaments")
+  managedTournaments     TournamentManager[]              @relation("ManagedTournaments")
+  tournamentPlayers      TournamentPlayer[]               @relation("TournamentPlayers")
+  refreshTokens          RefreshToken[]
+  webViewSessions        WebViewSession[]
+  paymentSettings        HostPaymentSettings[]
+  hostPayments           PaymentRecord[]                  @relation("HostPayments")
+  registeredPayments     PaymentRecord[]                  @relation("RegisteredPayments")
+  ratingsGiven           Rating[]                         @relation("RatingsGiven")
+  ratingsReceived        Rating[]                         @relation("RatingsReceived")
+  notifications          Notification[]
+  notificationDevices    NotificationDevice[]
+  broadcastsCreated      BroadcastNotification[]          @relation("BroadcastCreator")
+  broadcastStates        BroadcastNotificationUserState[]
+  notificationInboxState NotificationInboxState?
 
   // Payment reminders
   paymentRemindersCreated  PaymentReminder[] @relation("PaymentReminderCreator")
@@ -100,6 +103,7 @@ model User {
   pointTransactions PointTransaction[] @relation("UserPointTransactions")
   pointsStates      UserPointsState[]  @relation("UserPointsStates")
 
+  @@index([createdAt])
   @@map("users")
 }
 
@@ -187,20 +191,102 @@ enum NotificationType {
 }
 
 model Notification {
-  id        String           @id @default(cuid())
-  userId    String
-  type      NotificationType
-  title     String
-  message   String
-  data      Json? // Additional data (sessionId, playerId, etc.)
-  isRead    Boolean          @default(false)
-  createdAt DateTime         @default(now())
+  id              String           @id @default(cuid())
+  userId          String
+  type            NotificationType
+  title           String
+  message         String
+  data            Json? // Additional data (sessionId, playerId, etc.)
+  isRead          Boolean          @default(false)
+  dedupeKey       String?          @unique
+  occurrenceCount Int              @default(1)
+  createdAt       DateTime         @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([userId, createdAt(sort: Desc)])
   @@index([createdAt])
   @@map("notifications")
+}
+
+model BroadcastNotification {
+  id               String           @id @default(cuid())
+  type             NotificationType @default(SYSTEM)
+  title            String
+  message          String
+  data             Json?
+  createdById      String?
+  dedupeKey        String?          @unique
+  audienceCutoffAt DateTime
+  audienceCount    Int
+  deletedAt        DateTime?
+  createdAt        DateTime         @default(now())
+
+  createdBy   User?                             @relation("BroadcastCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  userStates  BroadcastNotificationUserState[]
+  dispatchJob BroadcastNotificationDispatchJob?
+
+  @@index([createdAt(sort: Desc)])
+  @@index([deletedAt, createdAt(sort: Desc)])
+  @@map("broadcast_notifications")
+}
+
+model BroadcastNotificationUserState {
+  id          String    @id @default(cuid())
+  broadcastId String
+  userId      String
+  readAt      DateTime?
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  broadcast BroadcastNotification @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([broadcastId, userId])
+  @@index([userId])
+  @@index([broadcastId, readAt])
+  @@map("broadcast_notification_user_states")
+}
+
+model NotificationInboxState {
+  userId                    String    @id
+  broadcastReadThroughAt    DateTime?
+  broadcastDeletedThroughAt DateTime?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([broadcastReadThroughAt])
+  @@map("notification_inbox_states")
+}
+
+enum NotificationDispatchStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model BroadcastNotificationDispatchJob {
+  id          String                     @id @default(cuid())
+  broadcastId String                     @unique
+  status      NotificationDispatchStatus @default(PENDING)
+  cursor      String?
+  attempts    Int                        @default(0)
+  availableAt DateTime                   @default(now())
+  lockedAt    DateTime?
+  completedAt DateTime?
+  lastError   String?
+  createdAt   DateTime                   @default(now())
+  updatedAt   DateTime                   @updatedAt
+
+  broadcast BroadcastNotification @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+
+  @@index([status, availableAt])
+  @@map("broadcast_notification_dispatch_jobs")
 }
 
 model NotificationDevice {
@@ -253,15 +339,15 @@ model AuthSession {
 }
 
 model RefreshToken {
-  id        String   @id @default(cuid())
-  token     String   @unique
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String          @id @default(cuid())
+  token            String          @unique
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   webViewSessionId String?
   webViewSession   WebViewSession? @relation(fields: [webViewSessionId], references: [id], onDelete: SetNull)
-  expiresAt DateTime
-  revoked   Boolean  @default(false)
-  createdAt DateTime @default(now())
+  expiresAt        DateTime
+  revoked          Boolean         @default(false)
+  createdAt        DateTime        @default(now())
 
   @@index([userId])
   @@index([webViewSessionId])
@@ -271,14 +357,14 @@ model RefreshToken {
 /// A short-lived, one-time bridge from a native authenticated session to an
 /// isolated in-app browser session. The secret itself is never persisted.
 model WebViewSession {
-  id        String   @id @default(cuid())
-  codeHash  String   @unique
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt DateTime
-  consumedAt DateTime?
-  revokedAt DateTime?
-  createdAt DateTime @default(now())
+  id            String         @id @default(cuid())
+  codeHash      String         @unique
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  revokedAt     DateTime?
+  createdAt     DateTime       @default(now())
   refreshTokens RefreshToken[]
 
   @@index([userId, expiresAt])
@@ -412,17 +498,17 @@ model Session {
 // Public recurring sports class recruitment. This intentionally stays separate
 // from Session: a class is a long-lived offering, not a playable event.
 model Class {
-  id                     String        @id @default(cuid())
-  slug                   String        @unique
+  id                     String             @id @default(cuid())
+  slug                   String             @unique
   name                   String
-  description            String?       @db.Text
+  description            String?            @db.Text
   contactName            String
   contactPhone           String
   zaloUrl                String?
   socialLinks            Json?
   hostId                 String
-  sportType              SportType     @default(BADMINTON)
-  requiredLevels         Int[]         @default([])
+  sportType              SportType          @default(BADMINTON)
+  requiredLevels         Int[]              @default([])
   startDate              DateTime?
   endDate                DateTime?
   capacity               Int?
@@ -439,12 +525,12 @@ model Class {
   customLocationCity     String?
   coverPhoto             String?
   coverPhotoPublicId     String?
-  images                 String[]      @default([])
-  imagePublicIds         String[]      @default([])
+  images                 String[]           @default([])
+  imagePublicIds         String[]           @default([])
   searchTerms            String?
-  status                 ClassStatus   @default(DRAFT)
-  createdAt              DateTime      @default(now())
-  updatedAt              DateTime      @updatedAt
+  status                 ClassStatus        @default(DRAFT)
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
 
   host      User            @relation("HostedClasses", fields: [hostId], references: [id], onDelete: Cascade)
   venue     Venue?          @relation(fields: [venueId], references: [id], onDelete: SetNull)

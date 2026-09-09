@@ -402,7 +402,16 @@ export class PlayersService {
         'SESSION',
         'Bạn đã được thêm vào kèo',
         session.name || 'Badminton Session',
-        { sessionId, sessionName: session.name, action: 'player_added' }
+        {
+          sessionId,
+          sessionName: session.name,
+          playerId: newPlayer.id,
+          action: 'player_added',
+        },
+        {
+          dedupeKey: `session:${sessionId}:player:${newPlayer.id}:added`,
+          conflictMode: 'ONCE',
+        }
       );
     }
 
@@ -544,18 +553,29 @@ export class PlayersService {
     );
 
     // Notify users who were added to the session (skip if host adds themselves)
-    await Promise.all(
-      createdPlayers
-        .filter((p) => p.userId && p.userId !== session.hostId)
-        .map((p) =>
-          this.notificationsService.createForUser(
-            p.userId!,
-            'SESSION',
-            'Bạn đã được thêm vào kèo',
-            session.name || 'Badminton Session',
-            { sessionId, sessionName: session.name, action: 'player_added' }
-          )
-        )
+    const addedPlayerByUserId = new Map(
+      createdPlayers.flatMap((player) =>
+        player.userId && player.userId !== session.hostId
+          ? [[player.userId, player] as const]
+          : []
+      )
+    );
+    await this.notificationsService.createManyForUsers(
+      [...addedPlayerByUserId.keys()],
+      'SESSION',
+      'Bạn đã được thêm vào kèo',
+      session.name || 'Badminton Session',
+      { sessionId, sessionName: session.name, action: 'player_added' },
+      {
+        dedupeKey: (userId) =>
+          `session:${sessionId}:player:${addedPlayerByUserId.get(userId)!.id}:added`,
+        dataForUser: (userId) => ({
+          sessionId,
+          sessionName: session.name,
+          playerId: addedPlayerByUserId.get(userId)!.id,
+          action: 'player_added',
+        }),
+      }
     );
 
     return {
@@ -859,7 +879,16 @@ export class PlayersService {
             'SESSION',
             'Bạn đã được thêm vào kèo',
             session.name || 'Badminton Session',
-            { sessionId, sessionName: session.name, action: 'player_added' }
+            {
+              sessionId,
+              sessionName: session.name,
+              playerId: player.id,
+              action: 'player_added',
+            },
+            {
+              dedupeKey: `session:${sessionId}:player:${player.id}:added`,
+              conflictMode: 'ONCE',
+            }
           );
         }
       }
@@ -1474,7 +1503,16 @@ export class PlayersService {
         'SESSION',
         'Bạn đã bị xóa khỏi kèo',
         session.name || 'Badminton Session',
-        { sessionId, sessionName: session.name, action: 'player_removed' }
+        {
+          sessionId,
+          sessionName: session.name,
+          playerId: existingPlayer.id,
+          action: 'player_removed',
+        },
+        {
+          dedupeKey: `session:${sessionId}:player:${existingPlayer.id}:removed`,
+          conflictMode: 'ONCE',
+        }
       );
     }
 

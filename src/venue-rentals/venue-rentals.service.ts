@@ -283,7 +283,8 @@ export class VenueRentalsService {
       request.venueId,
       'Yêu cầu thuê sân mới',
       'Có một yêu cầu thuê sân mới cần xử lý.',
-      request.id
+      request.id,
+      `request:${request.id}:created`
     );
     return this.getRequest(request.id);
   }
@@ -389,7 +390,8 @@ export class VenueRentalsService {
       dto.requesterId || null,
       'Lịch thuê sân đã được tạo',
       'Quản lý sân đã tạo và xác nhận lịch thuê cho bạn.',
-      request.id
+      request.id,
+      `request:${request.id}:manual-created`
     );
     return this.getRequest(request.id);
   }
@@ -588,7 +590,8 @@ export class VenueRentalsService {
       approvedRequest.status === VenueRentalStatus.AWAITING_DEPOSIT
         ? 'Vui lòng hoàn tất đặt cọc trước thời hạn để giữ sân.'
         : 'Sân đã xác nhận lịch thuê của bạn.',
-      id
+      id,
+      `request:${id}:approved`
     );
     return approvedRequest;
   }
@@ -639,7 +642,8 @@ export class VenueRentalsService {
       source.requesterId,
       'Yêu cầu thuê sân bị từ chối',
       reason.trim(),
-      id
+      id,
+      `request:${id}:rejected`
     );
     return this.getRequest(id);
   }
@@ -718,7 +722,8 @@ export class VenueRentalsService {
       source.requesterId,
       'Sân đề xuất lịch thuê mới',
       'Vui lòng xem và phản hồi đề xuất mới.',
-      id
+      id,
+      `proposal:${proposal.id}:created`
     );
     return proposal;
   }
@@ -828,7 +833,8 @@ export class VenueRentalsService {
       source.venueId,
       'Đề xuất thuê sân đã được chấp nhận',
       'Người thuê đã chấp nhận lịch đề xuất.',
-      id
+      id,
+      `proposal:${proposalId}:accepted`
     );
     const acceptedRequest = await this.getRequest(id);
     if (acceptedRequest.status === VenueRentalStatus.AWAITING_DEPOSIT) {
@@ -836,7 +842,8 @@ export class VenueRentalsService {
         source.requesterId,
         'Lịch thuê sân đang chờ đặt cọc',
         'Vui lòng hoàn tất đặt cọc trước thời hạn để giữ sân.',
-        id
+        id,
+        `proposal:${proposalId}:awaiting-deposit`
       );
     }
     return acceptedRequest;
@@ -879,7 +886,8 @@ export class VenueRentalsService {
       source.venueId,
       'Đề xuất thuê sân bị từ chối',
       'Người thuê đã từ chối lịch đề xuất.',
-      id
+      id,
+      `proposal:${proposalId}:declined`
     );
     return this.getRequest(id);
   }
@@ -956,7 +964,8 @@ export class VenueRentalsService {
         source.venueId,
         'Có khoản hoàn tiền thuê sân cần xử lý',
         'Booking đã hủy có khoản hoàn tiền đang chờ xử lý.',
-        id
+        id,
+        `request:${id}:refund-required`
       );
     }
     if (isRequester) {
@@ -964,14 +973,16 @@ export class VenueRentalsService {
         source.venueId,
         'Yêu cầu thuê sân đã bị hủy',
         'Người thuê đã hủy yêu cầu.',
-        id
+        id,
+        `request:${id}:cancelled-by-requester`
       );
     } else {
       await this.notifyRequester(
         source.requesterId,
         'Lịch thuê sân đã bị hủy',
         reason?.trim() || 'Quản lý sân đã hủy lịch thuê.',
-        id
+        id,
+        `request:${id}:cancelled-by-manager`
       );
     }
     return this.getRequest(id);
@@ -1055,7 +1066,8 @@ export class VenueRentalsService {
         proposal.request.requesterId,
         'Đề xuất thuê sân đã hết hạn',
         'Bạn có thể chờ quản lý gửi đề xuất mới.',
-        proposal.request.id
+        proposal.request.id,
+        `proposal:${proposal.id}:expired`
       );
     }
 
@@ -1325,22 +1337,24 @@ export class VenueRentalsService {
     venueId: string,
     title: string,
     message: string,
-    rentalRequestId: string
+    rentalRequestId: string,
+    eventKey?: string
   ) {
     const managers = await this.prisma.venueManager.findMany({
       where: { venueId },
       select: { userId: true },
     });
-    await Promise.allSettled(
-      managers.map((manager) =>
-        this.notifications.createForUser(
-          manager.userId,
-          NotificationType.VENUE_RENTAL,
-          title,
-          message,
-          { rentalRequestId, venueId, manage: true }
-        )
-      )
+    await this.notifications.createManyForUsers(
+      managers.map((manager) => manager.userId),
+      NotificationType.VENUE_RENTAL,
+      title,
+      message,
+      { rentalRequestId, venueId, manage: true, eventKey },
+      eventKey
+        ? {
+            dedupeKey: (userId) => `venue-rental:${eventKey}:manager:${userId}`,
+          }
+        : undefined
     );
   }
 
@@ -1348,7 +1362,8 @@ export class VenueRentalsService {
     userId: string | null,
     title: string,
     message: string,
-    rentalRequestId: string
+    rentalRequestId: string,
+    eventKey?: string
   ) {
     if (!userId) return Promise.resolve(null);
     return this.notifications.createForUser(
@@ -1356,7 +1371,13 @@ export class VenueRentalsService {
       NotificationType.VENUE_RENTAL,
       title,
       message,
-      { rentalRequestId }
+      { rentalRequestId, eventKey },
+      eventKey
+        ? {
+            dedupeKey: `venue-rental:${eventKey}:requester:${userId}`,
+            conflictMode: 'ONCE',
+          }
+        : undefined
     );
   }
 

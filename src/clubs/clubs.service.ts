@@ -1156,6 +1156,10 @@ export class ClubsService {
         clubSlug: club.slug,
         clubName: club.name,
         action: 'club_creation_approved',
+      },
+      {
+        dedupeKey: `club:${club.id}:creation-approved`,
+        conflictMode: 'ONCE',
       }
     );
 
@@ -2198,16 +2202,16 @@ export class ClubsService {
       select: { userId: true },
     });
 
-    await Promise.all(
-      members.map((member) =>
-        this.notificationsService.createForUser(
-          member.userId,
-          NotificationType.CLUB,
-          announcement.title,
-          announcement.content,
-          { clubId, announcementId: announcement.id }
-        )
-      )
+    await this.notificationsService.createManyForUsers(
+      members.map((member) => member.userId),
+      NotificationType.CLUB,
+      announcement.title,
+      announcement.content,
+      { clubId, announcementId: announcement.id },
+      {
+        dedupeKey: (recipientId) =>
+          `club-announcement:${announcement.id}:user:${recipientId}`,
+      }
     );
 
     return announcement;
@@ -2452,6 +2456,10 @@ export class ClubsService {
         clubSlug: club.slug,
         clubName: club.name,
         action: 'club_approved',
+      },
+      {
+        dedupeKey: `club:${club.id}:approved`,
+        conflictMode: 'ONCE',
       }
     );
 
@@ -2487,6 +2495,10 @@ export class ClubsService {
         clubName: club.name,
         rejectionReason: reason,
         action: 'club_rejected',
+      },
+      {
+        dedupeKey: `club:${club.id}:rejected`,
+        conflictMode: 'ONCE',
       }
     );
 
@@ -2522,9 +2534,7 @@ export class ClubsService {
 
     // Prevent un-dissolving
     if (club?.operationalStatus === ClubOperationalStatus.DISSOLVED) {
-      throw new BadRequestException(
-        'A dissolved club cannot be reactivated'
-      );
+      throw new BadRequestException('A dissolved club cannot be reactivated');
     }
 
     return this.prisma.club.update({
