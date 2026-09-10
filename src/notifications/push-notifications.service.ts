@@ -11,10 +11,11 @@ import {
 import { getMessaging, Message, Messaging } from 'firebase-admin/messaging';
 import { PrismaService } from '../prisma/prisma.service';
 
-type PushNotification = Pick<
+export type PushContent = Pick<
   Notification,
-  'id' | 'userId' | 'type' | 'title' | 'message' | 'data'
+  'id' | 'type' | 'title' | 'message' | 'data'
 >;
+type PushNotification = PushContent & Pick<Notification, 'userId'>;
 
 const INVALID_TOKEN_CODES = new Set([
   'messaging/registration-token-not-registered',
@@ -58,36 +59,55 @@ export class PushNotificationsService {
         messages.push(this.buildMessage(device.token, notification));
         tokens.push(device.token);
       }
-
-      const invalidTokens = new Set<string>();
-      for (let offset = 0; offset < messages.length; offset += 500) {
-        const response = await this.messaging.sendEach(
-          messages.slice(offset, offset + 500)
-        );
-        response.responses.forEach((result, index) => {
-          if (
-            !result.success &&
-            result.error?.code &&
-            INVALID_TOKEN_CODES.has(result.error.code)
-          ) {
-            invalidTokens.add(tokens[offset + index]);
-          }
-        });
-      }
-
-      if (invalidTokens.size > 0) {
-        await this.prisma.notificationDevice.deleteMany({
-          where: { token: { in: [...invalidTokens] } },
-        });
-        this.logger.log(`Removed ${invalidTokens.size} invalid FCM token(s)`);
-      }
+      await this.sendMessages(messages, tokens);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`FCM delivery failed: ${message}`);
     }
   }
 
-  private buildMessage(token: string, notification: PushNotification): Message {
+  /** Deliver one shared campaign payload to an already paged token batch. */
+  async sendBroadcast(
+    notification: PushContent,
+    tokens: string[]
+  ): Promise<void> {
+    if (!this.messaging || tokens.length === 0) return;
+    const messages = tokens.map((token) =>
+      this.buildMessage(token, notification)
+    );
+    await this.sendMessages(messages, tokens);
+  }
+
+  private async sendMessages(messages: Message[], tokens: string[]) {
+    const invalidTokens = new Set<string>();
+    let transientFailureCount = 0;
+    for (let offset = 0; offset < messages.length; offset += 500) {
+      const response = await this.messaging!.sendEach(
+        messages.slice(offset, offset + 500)
+      );
+      response.responses.forEach((result, index) => {
+        if (result.success) return;
+        if (result.error?.code && INVALID_TOKEN_CODES.has(result.error.code)) {
+          invalidTokens.add(tokens[offset + index]);
+          return;
+        }
+        transientFailureCount++;
+      });
+    }
+    if (invalidTokens.size > 0) {
+      await this.prisma.notificationDevice.deleteMany({
+        where: { token: { in: [...invalidTokens] } },
+      });
+      this.logger.log(`Removed ${invalidTokens.size} invalid FCM token(s)`);
+    }
+    if (transientFailureCount > 0) {
+      throw new Error(
+        `FCM failed to deliver ${transientFailureCount} message(s)`
+      );
+    }
+  }
+
+  private buildMessage(token: string, notification: PushContent): Message {
     const customData = this.serializeData(notification.data);
     const isCourtCall =
       customData.action === 'court_call' || customData.courtNumber != null;
@@ -105,6 +125,7 @@ export class PushNotificationsService {
       },
       android: {
         priority: 'high',
+        collapseKey: notification.id,
         notification: {
           channelId: isCourtCall ? 'court_calls' : 'vmito_notifications',
           sound: 'default',
@@ -114,6 +135,7 @@ export class PushNotificationsService {
         headers: {
           'apns-priority': '10',
           'apns-push-type': 'alert',
+          'apns-collapse-id': notification.id,
         },
         payload: {
           aps: {

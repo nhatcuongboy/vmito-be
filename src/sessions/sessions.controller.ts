@@ -228,6 +228,8 @@ export class SessionsController {
     @Query('sportType') sportTypeRaw?: string,
     @Query('minFee') minFee?: string,
     @Query('maxFee') maxFee?: string,
+    @Query('minCourts') minCourtsRaw?: string,
+    @Query('maxCourts') maxCourtsRaw?: string,
     @Query('feeType') feeTypeRaw?: string,
     @Query('hasSlots') hasSlots?: string,
     @Query('minAvailableSlots') minAvailableSlots?: string,
@@ -260,6 +262,21 @@ export class SessionsController {
       parsedMinFee > parsedMaxFee
     ) {
       throw new BadRequestException('minFee must not exceed maxFee');
+    }
+    const parsedMinCourts = parseNumber(minCourtsRaw, 'minCourts', {
+      integer: true,
+      min: 1,
+    });
+    const parsedMaxCourts = parseNumber(maxCourtsRaw, 'maxCourts', {
+      integer: true,
+      min: 1,
+    });
+    if (
+      parsedMinCourts != null &&
+      parsedMaxCourts != null &&
+      parsedMinCourts > parsedMaxCourts
+    ) {
+      throw new BadRequestException('minCourts must not exceed maxCourts');
     }
     if (date) {
       const parsedDate = new Date(`${date}T00:00:00.000+07:00`);
@@ -300,6 +317,8 @@ export class SessionsController {
         sportType: parseSportTypes(sportTypeRaw),
         minFee: parsedMinFee,
         maxFee: parsedMaxFee,
+        minCourts: parsedMinCourts,
+        maxCourts: parsedMaxCourts,
         feeType,
         hasSlots: parsedHasSlots,
         minAvailableSlots: parseNumber(minAvailableSlots, 'minAvailableSlots', {

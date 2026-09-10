@@ -381,7 +381,11 @@ export class PointsService {
             'SYSTEM',
             'Rank up!',
             `Congratulations! You reached the ${tier} tier with ${totalPoints} ranking points.`,
-            { action: 'tier_up', sport, tier, totalPoints }
+            { action: 'tier_up', sport, tier, totalPoints },
+            {
+              dedupeKey: `tier-up:${userId}:${sport}:${tier}`,
+              conflictMode: 'ONCE',
+            }
           );
         }
       }

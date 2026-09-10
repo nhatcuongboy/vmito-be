@@ -7,12 +7,14 @@ import {
   Param,
   Query,
   Body,
+  Headers,
   UseGuards,
 } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import {
   BroadcastNotificationDto,
   QueryAdminNotificationsDto,
+  QueryBroadcastNotificationsDto,
   QueryNotificationsDto,
   RegisterNotificationDeviceDto,
 } from './dto';
@@ -25,6 +27,13 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 @UseGuards(JwtAuthGuard)
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
+
+  /** List shared admin broadcast campaigns without expanding recipients. */
+  @Get('admin/broadcasts')
+  @UseGuards(AdminGuard)
+  async findBroadcastsForAdmin(@Query() query: QueryBroadcastNotificationsDto) {
+    return this.notificationsService.findBroadcastsForAdmin(query);
+  }
 
   /**
    * Get all notifications across the system (Admin only)
@@ -100,6 +109,13 @@ export class NotificationsController {
     return this.notificationsService.deleteAsAdmin(id);
   }
 
+  /** Soft-delete a shared broadcast for its entire audience. */
+  @Delete('admin/broadcasts/:id')
+  @UseGuards(AdminGuard)
+  async deleteBroadcastAsAdmin(@Param('id') id: string) {
+    return this.notificationsService.deleteBroadcastAsAdmin(id);
+  }
+
   /**
    * Delete all notifications for the current user
    */
@@ -124,7 +140,15 @@ export class NotificationsController {
    */
   @Post('broadcast')
   @UseGuards(AdminGuard)
-  async broadcast(@Body() dto: BroadcastNotificationDto) {
-    return this.notificationsService.broadcastToAll(dto);
+  async broadcast(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Body() dto: BroadcastNotificationDto
+  ) {
+    return this.notificationsService.broadcastToAll(
+      user.userId,
+      dto,
+      idempotencyKey
+    );
   }
 }

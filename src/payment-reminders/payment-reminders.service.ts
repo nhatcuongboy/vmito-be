@@ -74,6 +74,25 @@ export class PaymentRemindersService {
     }
   }
 
+  private pendingNotificationDedupeKey(reminder: {
+    id: string;
+    type: PaymentReminderType;
+    creatorId: string;
+    recipientId: string;
+    payments?: Array<{ payment: { id: string } }>;
+  }) {
+    if (reminder.type === PaymentReminderType.SINGLE_PAYMENT) {
+      const paymentId = reminder.payments?.[0]?.payment.id;
+      return paymentId
+        ? `payment-reminder:single:${paymentId}:pending`
+        : `payment-reminder:${reminder.id}:pending`;
+    }
+    if (reminder.type === PaymentReminderType.AGGREGATE) {
+      return `payment-reminder:aggregate:${reminder.creatorId}:${reminder.recipientId}:pending`;
+    }
+    return `payment-reminder:${reminder.id}:pending`;
+  }
+
   async createSingle(hostUserId: string, dto: CreateSingleReminderDto) {
     const payment = await this.prisma.paymentRecord.findUnique({
       where: { id: dto.paymentId },
@@ -85,13 +104,17 @@ export class PaymentRemindersService {
 
     if (!payment) throw new NotFoundException('Payment record not found');
     if (payment.session.hostId !== hostUserId) {
-      throw new ForbiddenException('Only the session host can send this reminder');
+      throw new ForbiddenException(
+        'Only the session host can send this reminder'
+      );
     }
     if (payment.status !== PaymentStatus.PENDING) {
       throw new BadRequestException('Can only remind about a PENDING payment');
     }
     if (!payment.player.userId) {
-      throw new BadRequestException('Cannot remind a guest player without an account');
+      throw new BadRequestException(
+        'Cannot remind a guest player without an account'
+      );
     }
 
     const existing = await this.prisma.paymentReminder.findFirst({
@@ -131,7 +154,11 @@ export class PaymentRemindersService {
       NotificationType.PAYMENT,
       'Nhắc nhở thanh toán',
       `Bạn có một khoản thanh toán ${formatVnd(reminder.amount)} đang chờ xử lý.`,
-      { reminderId: reminder.id, route: 'reminders' }
+      { reminderId: reminder.id, route: 'reminders' },
+      {
+        dedupeKey: this.pendingNotificationDedupeKey(reminder),
+        conflictMode: 'COALESCE',
+      }
     );
 
     return reminder;
@@ -202,7 +229,11 @@ export class PaymentRemindersService {
       NotificationType.PAYMENT,
       'Nhắc nhở thanh toán',
       `Bạn có ${pendingPayments.length} khoản thanh toán chưa hoàn tất, tổng cộng ${formatVnd(totalAmount)}.`,
-      { reminderId: reminder.id, route: 'reminders' }
+      { reminderId: reminder.id, route: 'reminders' },
+      {
+        dedupeKey: this.pendingNotificationDedupeKey(reminder),
+        conflictMode: 'COALESCE',
+      }
     );
 
     return reminder;
@@ -231,7 +262,11 @@ export class PaymentRemindersService {
       NotificationType.PAYMENT,
       'Nhắc nhở thanh toán',
       `Bạn có một lời nhắc thanh toán ${formatVnd(dto.amount)}: ${dto.note}`,
-      { reminderId: reminder.id, route: 'reminders' }
+      { reminderId: reminder.id, route: 'reminders' },
+      {
+        dedupeKey: this.pendingNotificationDedupeKey(reminder),
+        conflictMode: 'COALESCE',
+      }
     );
 
     return reminder;
@@ -241,7 +276,9 @@ export class PaymentRemindersService {
     const reminder = await this.getOwnedReminder(reminderId, userId, 'creator');
 
     if (reminder.status !== PaymentReminderStatus.PENDING) {
-      throw new BadRequestException('Can only re-send a reminder that is still PENDING');
+      throw new BadRequestException(
+        'Can only re-send a reminder that is still PENDING'
+      );
     }
 
     let amount = reminder.amount;
@@ -268,7 +305,11 @@ export class PaymentRemindersService {
 
     await this.prisma.paymentReminder.update({
       where: { id: reminderId },
-      data: { amount, reminderCount: { increment: 1 }, lastRemindedAt: new Date() },
+      data: {
+        amount,
+        reminderCount: { increment: 1 },
+        lastRemindedAt: new Date(),
+      },
     });
 
     await this.notifications.createForUser(
@@ -276,7 +317,11 @@ export class PaymentRemindersService {
       NotificationType.PAYMENT,
       'Nhắc nhở thanh toán',
       `Nhắc lại: bạn có một khoản thanh toán ${formatVnd(amount)} đang chờ xử lý.`,
-      { reminderId, route: 'reminders' }
+      { reminderId, route: 'reminders' },
+      {
+        dedupeKey: this.pendingNotificationDedupeKey(reminder),
+        conflictMode: 'COALESCE',
+      }
     );
 
     return this.prisma.paymentReminder.findUnique({
@@ -286,7 +331,12 @@ export class PaymentRemindersService {
   }
 
   async markCollected(reminderId: string, userId: string, role?: string) {
-    const reminder = await this.getOwnedReminder(reminderId, userId, 'creator', role);
+    const reminder = await this.getOwnedReminder(
+      reminderId,
+      userId,
+      'creator',
+      role
+    );
 
     if (reminder.status === PaymentReminderStatus.RESOLVED) {
       throw new BadRequestException('Reminder is already resolved');
@@ -295,12 +345,17 @@ export class PaymentRemindersService {
     if (reminder.type === PaymentReminderType.CUSTOM) {
       await this.prisma.paymentReminder.update({
         where: { id: reminderId },
-        data: { status: PaymentReminderStatus.RESOLVED, resolvedAt: new Date() },
+        data: {
+          status: PaymentReminderStatus.RESOLVED,
+          resolvedAt: new Date(),
+        },
       });
     } else {
       const paymentIds = reminder.payments.map((p) => p.payment.id);
       await Promise.allSettled(
-        paymentIds.map((id) => this.paymentsService.approve(id, {}, userId, role))
+        paymentIds.map((id) =>
+          this.paymentsService.approve(id, {}, userId, role)
+        )
       );
     }
 
@@ -309,7 +364,11 @@ export class PaymentRemindersService {
       NotificationType.PAYMENT,
       'Đã xác nhận thu tiền',
       `Khoản thanh toán ${formatVnd(reminder.amount)} đã được xác nhận là đã thu.`,
-      { reminderId, route: 'reminders' }
+      { reminderId, route: 'reminders' },
+      {
+        dedupeKey: `payment-reminder:${reminderId}:collected`,
+        conflictMode: 'ONCE',
+      }
     );
 
     return this.prisma.paymentReminder.findUnique({
@@ -319,7 +378,11 @@ export class PaymentRemindersService {
   }
 
   async markPaid(reminderId: string, userId: string, dto: MarkReminderPaidDto) {
-    const reminder = await this.getOwnedReminder(reminderId, userId, 'recipient');
+    const reminder = await this.getOwnedReminder(
+      reminderId,
+      userId,
+      'recipient'
+    );
 
     if (reminder.status !== PaymentReminderStatus.PENDING) {
       throw new BadRequestException('Can only mark as paid while PENDING');
@@ -347,7 +410,11 @@ export class PaymentRemindersService {
       NotificationType.PAYMENT,
       'Đã gửi minh chứng thanh toán',
       `Người dùng đã gửi minh chứng đã trả cho khoản ${formatVnd(reminder.amount)}, vui lòng xác nhận.`,
-      { reminderId, route: 'reminders' }
+      { reminderId, route: 'reminders' },
+      {
+        dedupeKey: `payment-reminder:${reminderId}:proof-submitted`,
+        conflictMode: 'COALESCE',
+      }
     );
 
     return this.prisma.paymentReminder.findUnique({
@@ -362,7 +429,12 @@ export class PaymentRemindersService {
     role: string | undefined,
     dto: RejectReminderDto
   ) {
-    const reminder = await this.getOwnedReminder(reminderId, userId, 'creator', role);
+    const reminder = await this.getOwnedReminder(
+      reminderId,
+      userId,
+      'creator',
+      role
+    );
 
     if (reminder.status !== PaymentReminderStatus.AWAITING_CONFIRMATION) {
       throw new BadRequestException(
@@ -386,7 +458,12 @@ export class PaymentRemindersService {
       const paymentIds = reminder.payments.map((p) => p.payment.id);
       await Promise.allSettled(
         paymentIds.map((id) =>
-          this.paymentsService.reject(id, { hostNotes: dto.hostNotes }, userId, role)
+          this.paymentsService.reject(
+            id,
+            { hostNotes: dto.hostNotes },
+            userId,
+            role
+          )
         )
       );
       await this.prisma.paymentReminder.update({
@@ -402,7 +479,11 @@ export class PaymentRemindersService {
       dto.hostNotes
         ? `Minh chứng đã trả bị từ chối: ${dto.hostNotes}. Vui lòng gửi lại.`
         : 'Minh chứng đã trả bị từ chối, vui lòng gửi lại.',
-      { reminderId, route: 'reminders' }
+      { reminderId, route: 'reminders' },
+      {
+        dedupeKey: `payment-reminder:${reminderId}:proof-rejected`,
+        conflictMode: 'COALESCE',
+      }
     );
 
     return this.prisma.paymentReminder.findUnique({

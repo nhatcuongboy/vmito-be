@@ -585,6 +585,8 @@ export class SessionsService {
       sportType?: SportType[];
       minFee?: number;
       maxFee?: number;
+      minCourts?: number;
+      maxCourts?: number;
       feeType?: FeeType;
       hasSlots?: boolean;
       minAvailableSlots?: number;
@@ -851,6 +853,15 @@ export class SessionsService {
         });
       }
       andConditions.push({ OR: feeConditions });
+    }
+
+    if (filters?.minCourts !== undefined || filters?.maxCourts !== undefined) {
+      andConditions.push({
+        numberOfCourts: {
+          ...(filters.minCourts !== undefined ? { gte: filters.minCourts } : {}),
+          ...(filters.maxCourts !== undefined ? { lte: filters.maxCourts } : {}),
+        },
+      });
     }
 
     if (andConditions.length > 0) {
@@ -2063,7 +2074,6 @@ export class SessionsService {
         },
       },
     });
-
     // Handle court sync when courts array is explicitly provided.
     // Uses id-based matching to safely create, update, and delete courts
     // without conflicts from custom court numbers.
@@ -2300,30 +2310,40 @@ export class SessionsService {
       );
     }
 
-    const session = await this.prisma.session.update({
-      where: { id },
+    const changed = await this.prisma.session.updateMany({
+      where: { id, status: 'PREPARING' },
       data: {
         status: SessionStatus.CANCELLED,
         cancelledAt: new Date(),
       },
     });
+    if (!changed.count) {
+      throw new BadRequestException(
+        'Only sessions in PREPARING status can be cancelled'
+      );
+    }
+    const session = await this.prisma.session.findUniqueOrThrow({
+      where: { id },
+    });
 
     // Notify each approved player that the session was cancelled
-    for (const player of existingSession.players) {
-      if (player.userId) {
-        await this.notificationsService.createForUser(
-          player.userId,
-          'SESSION',
-          'Session cancelled',
-          `"${existingSession.name}" has been cancelled.`,
-          {
-            sessionId: id,
-            sessionName: existingSession.name,
-            action: 'session_cancelled',
-          }
-        );
+    await this.notificationsService.createManyForUsers(
+      existingSession.players.flatMap((player) =>
+        player.userId ? [player.userId] : []
+      ),
+      'SESSION',
+      'Session cancelled',
+      `"${existingSession.name}" has been cancelled.`,
+      {
+        sessionId: id,
+        sessionName: existingSession.name,
+        action: 'session_cancelled',
+      },
+      {
+        dedupeKey: (recipientId) =>
+          `session:${id}:cancelled:user:${recipientId}`,
       }
-    }
+    );
 
     // Notify session room
     this.sessionsGateway.notifySessionUpdate(id);
@@ -2426,8 +2446,8 @@ export class SessionsService {
       );
     const gracePeriodEnd = new Date(endTime.getTime() + 30 * 60 * 1000);
 
-    const session = await this.prisma.session.update({
-      where: { id },
+    const changed = await this.prisma.session.updateMany({
+      where: { id, status: 'PREPARING', autoStartedAt: null },
       data: {
         status: 'IN_PROGRESS',
         startTime,
@@ -2438,6 +2458,12 @@ export class SessionsService {
         // Reset end-warning flag for the new cycle
         endWarningSentAt: null,
       },
+    });
+    if (!changed.count) {
+      throw new BadRequestException('Session has already been started');
+    }
+    const session = await this.prisma.session.findUniqueOrThrow({
+      where: { id },
     });
 
     this.sessionsGateway.notifySessionUpdate(id);
@@ -2555,6 +2581,20 @@ export class SessionsService {
     // Use transaction to ensure all operations succeed together
     const transactionResult = await this.prisma.$transaction(
       async (tx) => {
+        await tx.$queryRawUnsafe(
+          'SELECT pg_advisory_xact_lock(hashtext($1))::text AS lock_result',
+          `session-end:${id}`
+        );
+        const current = await tx.session.findUnique({
+          where: { id },
+          select: { status: true },
+        });
+        if (current?.status !== 'IN_PROGRESS') {
+          throw new BadRequestException(
+            'Only in-progress sessions can be ended'
+          );
+        }
+
         // End all in-progress matches
         await tx.match.updateMany({
           where: {

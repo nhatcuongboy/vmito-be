@@ -384,6 +384,10 @@ export class VenueRequestsService {
           requestId: request.id,
           venueId,
           venueName,
+        },
+        {
+          dedupeKey: `venue-request:${request.id}:approved`,
+          conflictMode: 'ONCE',
         }
       );
     } catch (err: unknown) {
@@ -419,6 +423,10 @@ export class VenueRequestsService {
           venueName,
           adminNote,
           rejectionReason: adminNote,
+        },
+        {
+          dedupeKey: `venue-request:${request.id}:rejected`,
+          conflictMode: 'ONCE',
         }
       );
     } catch (err: unknown) {

@@ -80,6 +80,13 @@ export class PostsService {
           actorAvatar,
           action,
           ...extraData,
+        },
+        {
+          dedupeKey:
+            action === 'post_liked'
+              ? `post:${post.id}:like:${actorId}`
+              : `post:${post.id}:comment:${extraData.commentId}`,
+          conflictMode: 'ONCE',
         }
       );
     } catch (error) {

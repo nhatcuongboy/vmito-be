@@ -111,7 +111,11 @@ describe('FavoritesService', () => {
         action: 'session_favorited',
         actorId: 'user-1',
         sessionId: 's1',
-      })
+      }),
+      {
+        dedupeKey: 'favorite:SESSION:s1:actor:user-1',
+        conflictMode: 'ONCE',
+      }
     );
     expect(sessionsGateway.notifyFavoriteUpdate).toHaveBeenCalledWith(
       FavoriteType.SESSION,
