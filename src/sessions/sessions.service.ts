@@ -585,6 +585,8 @@ export class SessionsService {
       sportType?: SportType[];
       minFee?: number;
       maxFee?: number;
+      minCourts?: number;
+      maxCourts?: number;
       feeType?: FeeType;
       hasSlots?: boolean;
       minAvailableSlots?: number;
@@ -851,6 +853,15 @@ export class SessionsService {
         });
       }
       andConditions.push({ OR: feeConditions });
+    }
+
+    if (filters?.minCourts !== undefined || filters?.maxCourts !== undefined) {
+      andConditions.push({
+        numberOfCourts: {
+          ...(filters.minCourts !== undefined ? { gte: filters.minCourts } : {}),
+          ...(filters.maxCourts !== undefined ? { lte: filters.maxCourts } : {}),
+        },
+      });
     }
 
     if (andConditions.length > 0) {

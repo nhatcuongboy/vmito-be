@@ -108,4 +108,27 @@ describe('SessionsService available filters', () => {
       OR: [{ feeConfig: { feeType: FeeType.SPLIT_EVENLY } }],
     });
   });
+
+  it('filters exact court count when minCourts equals maxCourts', async () => {
+    const { findMany, service } = createService();
+
+    await service.findAvailable({ minCourts: 2, maxCourts: 2 });
+
+    const where = findMany.mock.calls[0][0].where!;
+    expect(where.AND).toContainEqual({
+      numberOfCourts: { gte: 2, lte: 2 },
+    });
+  });
+
+  it('filters at-least court count when only minCourts is specified', async () => {
+    const { findMany, service } = createService();
+
+    await service.findAvailable({ minCourts: 4 });
+
+    const where = findMany.mock.calls[0][0].where!;
+    expect(where.AND).toContainEqual({
+      numberOfCourts: { gte: 4 },
+    });
+  });
 });
+
