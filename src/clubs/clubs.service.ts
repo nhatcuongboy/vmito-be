@@ -36,6 +36,19 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { VALID_LEVELS } from '../common/constants/level.constants';
 import { FavoritesService } from '../favorites/favorites.service';
 import { ActivityFeedService } from '../activities/activity-feed.service';
+import { ClubActivityPeriodValue } from './dto/browse-clubs.dto';
+
+// Club schedules store "HH:mm" strings; lexicographic compare == chronological
+// because they're zero-padded 24h. "Evening" runs to end-of-day — clubs have
+// no separate "night" bucket, unlike sessions' four-way time-range filter.
+const CLUB_PERIOD_WINDOWS: Record<
+  ClubActivityPeriodValue,
+  { start: string; end: string }
+> = {
+  morning: { start: '05:00', end: '12:00' },
+  afternoon: { start: '12:00', end: '18:00' },
+  evening: { start: '18:00', end: '23:59' },
+};
 
 @Injectable()
 export class ClubsService {
@@ -158,6 +171,9 @@ export class ClubsService {
       page = 1,
       limit = 10,
       favoriteOnly,
+      levels,
+      activeDays,
+      activePeriods,
     } = query;
     const skip = (page - 1) * limit;
     const isDistanceSort =
@@ -214,9 +230,63 @@ export class ClubsService {
     }
 
     if (district) {
+      // The app sends comma-separated wards (multi-select area picker); a
+      // single web value is just a one-element list. `contains`, not
+      // `equals`, mirrors sessions/classes' district matching.
+      const districtList = district
+        .split(',')
+        .map((d) => d.trim())
+        .filter(Boolean);
+      if (districtList.length > 0) {
+        andConditions.push({
+          OR: districtList.map((d) => ({
+            OR: [
+              { defaultVenue: { district: { contains: d, mode: 'insensitive' } } },
+              {
+                defaultVenue: { newDistrict: { contains: d, mode: 'insensitive' } },
+              },
+            ],
+          })),
+        });
+      }
+    }
+
+    if (levels && levels.length > 0) {
+      // An empty `requiredLevels` means "open to all levels" (see
+      // schema.prisma), so it should still surface under any level filter —
+      // diverges from sessions/classes, which use a bare `hasSome`.
       andConditions.push({
-        defaultVenue: { district: { equals: district, mode: 'insensitive' } },
+        OR: [
+          { requiredLevels: { hasSome: levels } },
+          { requiredLevels: { isEmpty: true } },
+        ],
       });
+    }
+
+    if (
+      (activeDays && activeDays.length > 0) ||
+      (activePeriods && activePeriods.length > 0)
+    ) {
+      const scheduleWhere: Prisma.ClubScheduleWhereInput = {
+        isActive: true,
+      };
+      if (activeDays && activeDays.length > 0) {
+        scheduleWhere.dayOfWeek = { in: activeDays };
+      }
+      if (activePeriods && activePeriods.length > 0) {
+        // Overlap, not containment: a club active 17:00–19:00 should match
+        // both "Chiều" and "Tối" — the club genuinely runs during part of
+        // each window, whereas `classes` (which containment-matches a
+        // single lesson) would hide it from both.
+        scheduleWhere.OR = activePeriods.map((period) => {
+          const window = CLUB_PERIOD_WINDOWS[period];
+          return {
+            startTime: { lt: window.end },
+            endTime: { gt: window.start },
+          };
+        });
+      }
+      andConditions.push({ schedules: { some: scheduleWhere } });
     }
 
     const where: Prisma.ClubWhereInput = { AND: andConditions };
