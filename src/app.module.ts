@@ -44,6 +44,7 @@ import { VenueRentalsModule } from './venue-rentals/venue-rentals.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { ClassesModule } from './classes/classes.module';
+import { WelcomePopupsModule } from './welcome-popups/welcome-popups.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { UserOrIpThrottlerGuard } from './common/guards/user-or-ip-throttler.guard';
 import configuration from './config';
@@ -99,6 +100,7 @@ import configuration from './config';
     DashboardModule,
     FeatureFlagsModule,
     ClassesModule,
+    WelcomePopupsModule,
   ],
   controllers: [AppController],
   providers: [
