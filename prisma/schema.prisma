@@ -2584,3 +2584,26 @@ model FeatureFlag {
 
   @@map("feature_flags")
 }
+
+// Admin-configurable announcement popup shown to end users on page load.
+// Frontend dismissal is keyed by id + updatedAt, so editing content here
+// makes it reappear for users who already dismissed the previous version.
+model WelcomePopup {
+  id            String    @id @default(cuid())
+  title         String
+  description   String    @db.Text
+  imageUrl      String?
+  imagePublicId String?
+  ctaLabel      String?
+  ctaUrl        String?
+  isActive      Boolean   @default(true)
+  displayOrder  Int       @default(0) // higher shows first
+  startDate     DateTime?
+  endDate       DateTime?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([isActive, displayOrder])
+  @@map("welcome_popups")
+}
