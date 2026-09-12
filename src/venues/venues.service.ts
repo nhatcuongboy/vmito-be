@@ -148,6 +148,8 @@ export class VenuesService {
       closureStatus,
       favoriteOnly,
       sportType,
+      minCourts,
+      maxCourts,
       sortBy: rawSortBy,
       sortOrder = 'asc',
       page = 1,
@@ -287,6 +289,15 @@ export class VenuesService {
 
     if (favoriteIds) {
       andConditions.push({ id: { in: favoriteIds } });
+    }
+
+    if (minCourts !== undefined || maxCourts !== undefined) {
+      andConditions.push({
+        numberOfCourts: {
+          ...(minCourts !== undefined ? { gte: minCourts } : {}),
+          ...(maxCourts !== undefined ? { lte: maxCourts } : {}),
+        },
+      });
     }
 
     const where: Prisma.VenueWhereInput =
