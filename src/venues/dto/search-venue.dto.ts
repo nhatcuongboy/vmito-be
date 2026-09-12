@@ -110,6 +110,26 @@ export class SearchVenueDto {
 
   @ApiProperty({
     required: false,
+    description: 'Minimum number of courts (inclusive)',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  minCourts?: number;
+
+  @ApiProperty({
+    required: false,
+    description: 'Maximum number of courts (inclusive)',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  maxCourts?: number;
+
+  @ApiProperty({
+    required: false,
     description: "Show only the caller's favorited venues",
   })
   @IsOptional()
