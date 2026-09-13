@@ -1346,6 +1346,17 @@ export class PlayersService {
       );
     }
 
+    // Leaving WAITING for INACTIVE ends this wait stint — bank it into
+    // totalWaitTime now, same as a match start does, since nothing else
+    // will once waitingSince is cleared below.
+    const waitTimeMinutes =
+      existingPlayer.status === 'WAITING' && existingPlayer.waitingSince
+        ? Math.floor(
+            (Date.now() - new Date(existingPlayer.waitingSince).getTime()) /
+              60000
+          )
+        : 0;
+
     // Update player status
     const updatedPlayer = await this.prisma.player.update({
       where: { id: playerId },
@@ -1353,6 +1364,12 @@ export class PlayersService {
         status: newStatus,
         // Set waitingSince when returning to WAITING, clear when going inactive
         waitingSince: newStatus === 'WAITING' ? new Date() : null,
+        ...(waitTimeMinutes > 0
+          ? {
+              currentWaitTime: 0,
+              totalWaitTime: { increment: waitTimeMinutes },
+            }
+          : {}),
       },
     });
 

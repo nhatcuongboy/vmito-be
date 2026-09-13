@@ -975,8 +975,11 @@ export class CourtsService {
         sessionId: court.sessionId,
         status: 'WAITING',
       },
+      // `currentWaitTime` is a stored counter that no longer advances on its
+      // own (see wait-time.utils.ts) — order by `waitingSince` instead, or
+      // this matchmaking pick stops being longest-wait-first.
       orderBy: {
-        currentWaitTime: 'desc',
+        waitingSince: 'asc',
       },
       take: topCount || undefined,
     });

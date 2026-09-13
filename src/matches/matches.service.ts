@@ -544,16 +544,30 @@ export class MatchesService {
           },
         });
 
-        await tx.player.updateMany({
-          where: {
-            id: { in: playerIds },
-          },
-          data: {
-            status: 'PLAYING',
-            currentCourtId: courtId,
-            currentWaitTime: 0,
-          },
+        // Per-player, not updateMany: totalWaitTime's increment differs per
+        // player, and waitingSince must be cleared so a later wait doesn't
+        // inherit this stint's start time (see courts.service.ts's own
+        // match-start, which this mirrors).
+        const playerUpdatePromises = players.map((player) => {
+          const waitTimeMinutes = player.waitingSince
+            ? Math.floor(
+                (Date.now() - new Date(player.waitingSince).getTime()) / 60000
+              )
+            : 0;
+
+          return tx.player.update({
+            where: { id: player.id },
+            data: {
+              status: 'PLAYING',
+              currentCourtId: courtId,
+              currentWaitTime: 0,
+              waitingSince: null,
+              totalWaitTime: { increment: waitTimeMinutes },
+            },
+          });
         });
+
+        await Promise.all(playerUpdatePromises);
 
         return newMatch;
       },
