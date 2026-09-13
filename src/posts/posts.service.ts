@@ -399,6 +399,42 @@ export class PostsService {
     return this.normalizePost(post, userId);
   }
 
+  async reportPost(postId: string, reporterId: string, reason?: string) {
+    const post = await this.prisma.post.findUnique({ where: { id: postId } });
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+    if (post.authorId === reporterId) {
+      throw new ForbiddenException('You cannot report your own post');
+    }
+
+    const trimmedReason = reason?.trim();
+    const report = await this.prisma.postReport.upsert({
+      where: {
+        postId_reporterId: {
+          postId,
+          reporterId,
+        },
+      },
+      update:
+        trimmedReason && trimmedReason.length > 0 ? { reason: trimmedReason } : {},
+      create: {
+        postId,
+        reporterId,
+        reason: trimmedReason && trimmedReason.length > 0 ? trimmedReason : null,
+      },
+    });
+
+    return {
+      id: report.id,
+      postId: report.postId,
+      reporterId: report.reporterId,
+      reason: report.reason,
+      createdAt: report.createdAt,
+      message: 'Post reported successfully',
+    };
+  }
+
   async update(id: string, userId: string, updatePostDto: UpdatePostDto) {
     const post = await this.prisma.post.findUnique({ where: { id } });
     if (!post) {

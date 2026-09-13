@@ -95,6 +95,7 @@ model User {
   postLikes    PostLike[]    @relation("UserPostLikes")
   postComments PostComment[] @relation("UserPostComments")
   postShares   PostShare[]   @relation("UserPostShares")
+  postReports  PostReport[]  @relation("UserPostReports")
 
   // Favorite relations
   favorites Favorite[] @relation("UserFavorites")
@@ -2384,6 +2385,7 @@ model Post {
   likes           PostLike[]
   comments        PostComment[]
   shares          PostShare[]
+  reports         PostReport[]
   engagementBoost PostEngagementBoost?
 
   // For repost/share
@@ -2471,6 +2473,21 @@ model PostShare {
   @@index([postId])
   @@index([userId])
   @@map("post_shares")
+}
+
+model PostReport {
+  id         String   @id @default(cuid())
+  postId     String
+  post       Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reporterId String
+  reporter   User     @relation("UserPostReports", fields: [reporterId], references: [id], onDelete: Cascade)
+  reason     String?  @db.Text
+  createdAt  DateTime @default(now())
+
+  @@unique([postId, reporterId])
+  @@index([postId])
+  @@index([reporterId])
+  @@map("post_reports")
 }
 
 // ===========================================
