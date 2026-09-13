@@ -6,6 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { calculateWaitTime } from '../common/wait-time.utils';
 import {
   CreateSessionDto,
   SessionLocationType,
@@ -1147,6 +1148,7 @@ export class SessionsService {
             desire: true,
             currentWaitTime: true,
             totalWaitTime: true,
+            waitingSince: true,
             matchesPlayed: true,
             status: true,
             currentCourtId: true,
@@ -1252,6 +1254,13 @@ export class SessionsService {
     const allPlayers = session.players.map((p) => ({
       ...p,
       // registrationStatus is already in the select
+      // The stored counter only used to advance via a per-minute heartbeat
+      // clients called while a page was open (see wait-time.utils.ts); derive
+      // it from waitingSince instead so it's correct with no client polling.
+      // Falls back to the stored value for rows predating that column.
+      currentWaitTime: p.waitingSince
+        ? calculateWaitTime(p.waitingSince)
+        : p.currentWaitTime,
     }));
 
     const approvedPlayers = allPlayers.filter(
@@ -2611,8 +2620,16 @@ export class SessionsService {
         const playerUpdatePromises = sessionData.players.map(async (player) => {
           let updatedTotalWaitTime = player.totalWaitTime;
 
-          if (player.status === 'WAITING' && player.currentWaitTime > 0) {
-            updatedTotalWaitTime += player.currentWaitTime;
+          // `currentWaitTime` is a stored counter that no longer advances on
+          // its own (see wait-time.utils.ts) — derive the final stint from
+          // `waitingSince`, same as the match-start flush in
+          // courts.service.ts, rather than trusting the stale column.
+          if (player.status === 'WAITING') {
+            updatedTotalWaitTime += player.waitingSince
+              ? Math.floor(
+                  (Date.now() - new Date(player.waitingSince).getTime()) / 60000
+                )
+              : player.currentWaitTime;
           }
 
           return tx.player.update({
@@ -2736,7 +2753,7 @@ export class SessionsService {
           },
           orderBy: [
             { status: 'desc' },
-            { currentWaitTime: 'desc' },
+            { waitingSince: 'asc' },
             { playerNumber: 'asc' },
           ],
         },
@@ -2985,7 +3002,7 @@ export class SessionsService {
         status: 'WAITING',
       },
       orderBy: {
-        currentWaitTime: 'desc',
+        waitingSince: 'asc',
       },
     });
 
@@ -3051,17 +3068,30 @@ export class SessionsService {
             },
           });
 
-          // 4. Update player statuses
-          await tx.player.updateMany({
-            where: {
-              id: { in: playerIds },
-            },
-            data: {
-              status: 'PLAYING',
-              currentCourtId: court.id,
-              currentWaitTime: 0,
-            },
+          // 4. Update player statuses. Per-player, not updateMany:
+          // totalWaitTime's increment differs per player, and waitingSince
+          // must be cleared so a later wait doesn't inherit this stint's
+          // start time (mirrors courts.service.ts's own match-start).
+          const playerUpdatePromises = players.map((player) => {
+            const waitTimeMinutes = player.waitingSince
+              ? Math.floor(
+                  (Date.now() - new Date(player.waitingSince).getTime()) / 60000
+                )
+              : 0;
+
+            return tx.player.update({
+              where: { id: player.id },
+              data: {
+                status: 'PLAYING',
+                currentCourtId: court.id,
+                currentWaitTime: 0,
+                waitingSince: null,
+                totalWaitTime: { increment: waitTimeMinutes },
+              },
+            });
           });
+
+          await Promise.all(playerUpdatePromises);
 
           return newMatch;
         },
@@ -3097,7 +3127,7 @@ export class SessionsService {
         status: 'WAITING',
         confirmedByPlayer: true,
       },
-      orderBy: [{ currentWaitTime: 'desc' }, { playerNumber: 'asc' }],
+      orderBy: [{ waitingSince: 'asc' }, { playerNumber: 'asc' }],
       select: {
         id: true,
         playerNumber: true,
@@ -3107,6 +3137,7 @@ export class SessionsService {
         currentWaitTime: true,
         totalWaitTime: true,
         matchesPlayed: true,
+        waitingSince: true,
         user: {
           select: {
             image: true,
@@ -3115,7 +3146,12 @@ export class SessionsService {
       },
     });
 
-    return waitingPlayers;
+    return waitingPlayers.map((p) => ({
+      ...p,
+      currentWaitTime: p.waitingSince
+        ? calculateWaitTime(p.waitingSince)
+        : p.currentWaitTime,
+    }));
   }
 
   async updateWaitTimes(
@@ -3186,7 +3222,7 @@ export class SessionsService {
           sessionId: id,
           id: { in: playerIds },
         },
-        orderBy: [{ currentWaitTime: 'desc' }, { playerNumber: 'asc' }],
+        orderBy: [{ waitingSince: 'asc' }, { playerNumber: 'asc' }],
       });
     } else {
       // Regular wait time update for all waiting players
@@ -3211,7 +3247,7 @@ export class SessionsService {
           sessionId: id,
           status: 'WAITING',
         },
-        orderBy: [{ currentWaitTime: 'desc' }, { playerNumber: 'asc' }],
+        orderBy: [{ waitingSince: 'asc' }, { playerNumber: 'asc' }],
       });
     }
 
