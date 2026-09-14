@@ -81,6 +81,27 @@ export class UsersController {
     return { success: true };
   }
 
+  @Get('blocked')
+  async getBlockedUsers(@CurrentUser() currentUser: { userId: string }) {
+    return this.usersService.listBlockedUsers(currentUser.userId);
+  }
+
+  @Post('blocked/:id')
+  async blockUser(
+    @Param('id') id: string,
+    @CurrentUser() currentUser: { userId: string }
+  ) {
+    return this.usersService.blockUser(currentUser.userId, id);
+  }
+
+  @Delete('blocked/:id')
+  async unblockUser(
+    @Param('id') id: string,
+    @CurrentUser() currentUser: { userId: string }
+  ) {
+    return this.usersService.unblockUser(currentUser.userId, id);
+  }
+
   /**
    * Get single user by ID
    */

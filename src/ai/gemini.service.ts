@@ -30,6 +30,11 @@ const DEFAULT_MAX_PLAYERS_PER_COURT = 8;
 const VENUE_MATCH_THRESHOLD = 60;
 const GEMINI_MAX_RETRIES = 3;
 const GEMINI_INITIAL_DELAY_MS = 1000;
+// In the Facebook groups we crawl, "social" is the established shorthand for
+// a pickleball social-play session. Keep this as a deterministic post-process
+// so the crawler does not depend on the model recognizing that local usage.
+const PICKLEBALL_SOCIAL_PATTERN =
+  /(?:^|[^\p{L}\p{N}_])social(?:$|[^\p{L}\p{N}_])/iu;
 
 // No placeId and no venueId: identifiers are never accepted from model output.
 // A Google placeId or a Vmito venue id invented by the model looks perfectly
@@ -992,7 +997,7 @@ STEP 2 — If isRecruitmentPost is true, extract every session detail that is ex
 
 Field guidance:
 - name: Session name. If the post has no title, create a short descriptive name from venue + time, but do not invent hidden facts.
-- sportType: BADMINTON when the post is about badminton ("cầu lông", "badminton", shuttlecock/cầu brands, levels like TBY/TB+), PICKLEBALL when it is about pickleball ("pickleball", "pickle", "bóng nhựa", paddle/vợt pickleball). Use null if the sport is not stated and cannot be inferred confidently — do not guess.
+- sportType: BADMINTON when the post is about badminton ("cầu lông", "badminton", shuttlecock/cầu brands, levels like TBY/TB+), PICKLEBALL when it is about pickleball ("pickleball", "pickle", "bóng nhựa", paddle/vợt pickleball, or "social" — used in the crawled groups as shorthand for a pickleball social-play session). Use null if the sport is not stated and cannot be inferred confidently — do not guess.
 - description: Public details from the post that help players understand the session.
 - notes: Operational/private notes, special rules, reminders, or fee caveats from the post.
 - location: This is the Session.location / "Địa điểm" field shown in the session form. Extract the display location exactly as well as possible. Prefer venue name plus address/area if present, for example "Sân ABC, Quận 7" or "Sân ABC, 123 Nguyễn Văn Linh, Quận 7". Do not put unrelated notes here.
@@ -1042,6 +1047,13 @@ Important rules:
     }
 
     const extracted = this.normalizeExtractedSession(rawExtracted);
+
+    // "Social" posts from the configured Facebook groups are pickleball
+    // recruitment posts. Apply this before venue matching so only pickleball
+    // venues are considered, even if the model returned null or BADMINTON.
+    if (PICKLEBALL_SOCIAL_PATTERN.test(articleContent)) {
+      extracted.sportType = SportType.PICKLEBALL;
+    }
 
     // The backend is the single source of truth for venue resolution. Two
     // mutually exclusive outcomes leave this block:

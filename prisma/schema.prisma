@@ -97,6 +97,10 @@ model User {
   postShares   PostShare[]   @relation("UserPostShares")
   postReports  PostReport[]  @relation("UserPostReports")
 
+  // User moderation
+  blockedUsers  UserBlock[] @relation("BlockedUsers")
+  blockedByUsers UserBlock[] @relation("BlockedByUsers")
+
   // Favorite relations
   favorites Favorite[] @relation("UserFavorites")
 
@@ -2488,6 +2492,21 @@ model PostReport {
   @@index([postId])
   @@index([reporterId])
   @@map("post_reports")
+}
+
+model UserBlock {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  blocker User @relation("BlockedByUsers", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("BlockedUsers", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId, createdAt(sort: Desc)])
+  @@index([blockedId])
+  @@map("user_blocks")
 }
 
 // ===========================================
