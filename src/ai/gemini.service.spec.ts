@@ -358,6 +358,17 @@ describe('GeminiService.extractSessionFromArticle', () => {
       expect(result.sportType).toBe('PICKLEBALL');
     });
 
+    it('treats a standalone "social" keyword as PICKLEBALL for crawled posts', async () => {
+      mockAiResponse(makeRawSession({ sportType: 'BADMINTON' }));
+
+      const result = await service.extractSessionFromArticle(
+        'Tuyển social tối nay lúc 19h',
+        Language.VI
+      );
+
+      expect(result.sportType).toBe('PICKLEBALL');
+    });
+
     it('only matches venues offering the extracted sport', async () => {
       venueFindMany.mockResolvedValue([
         makeVenue({
