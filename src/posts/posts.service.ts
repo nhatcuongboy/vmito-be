@@ -257,13 +257,25 @@ export class PostsService {
    * filter here, e.g.:
    *   { OR: [{ visibility: 'PUBLIC' }, { authorId: { in: friendIds }, visibility: 'FRIENDS' }] }
    */
-  private buildFeedWhere(_viewerId?: string): Prisma.PostWhereInput {
-    return { visibility: 'PUBLIC' };
+  private async buildFeedWhere(viewerId?: string): Promise<Prisma.PostWhereInput> {
+    const blockedIds = viewerId
+      ? await this.prisma.userBlock.findMany({
+          where: { blockerId: viewerId },
+          select: { blockedId: true },
+        })
+      : [];
+
+    return {
+      visibility: 'PUBLIC',
+      ...(blockedIds.length > 0
+        ? { authorId: { notIn: blockedIds.map((entry) => entry.blockedId) } }
+        : {}),
+    };
   }
 
   async findAll(page = 1, limit = 10, userId?: string) {
     const skip = (page - 1) * limit;
-    const where = this.buildFeedWhere(userId);
+    const where = await this.buildFeedWhere(userId);
     const [posts, total] = await Promise.all([
       this.prisma.post.findMany({
         skip,
@@ -317,6 +329,29 @@ export class PostsService {
     viewerId?: string
   ) {
     const skip = (page - 1) * limit;
+
+    if (viewerId && viewerId !== authorId) {
+      const blocked = await this.prisma.userBlock.findUnique({
+        where: {
+          blockerId_blockedId: {
+            blockerId: viewerId,
+            blockedId: authorId,
+          },
+        },
+        select: { id: true },
+      });
+
+      if (blocked) {
+        return {
+          posts: [],
+          total: 0,
+          page,
+          limit,
+          hasMore: false,
+        };
+      }
+    }
+
     const where: Prisma.PostWhereInput = {
       authorId,
       ...(viewerId === authorId ? {} : { visibility: 'PUBLIC' }),
@@ -394,6 +429,22 @@ export class PostsService {
 
     if (!post) {
       throw new NotFoundException('Post not found');
+    }
+
+    if (userId && userId !== post.authorId) {
+      const blocked = await this.prisma.userBlock.findUnique({
+        where: {
+          blockerId_blockedId: {
+            blockerId: userId,
+            blockedId: post.authorId,
+          },
+        },
+        select: { id: true },
+      });
+
+      if (blocked) {
+        throw new NotFoundException('Post not found');
+      }
     }
 
     return this.normalizePost(post, userId);
