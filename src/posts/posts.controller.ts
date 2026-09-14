@@ -108,6 +108,15 @@ export class PostsController {
     return this.postsService.findOne(id, req?.user?.userId);
   }
 
+  @Post(':id/report')
+  reportPost(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+    @Body() body?: { reason?: string }
+  ) {
+    return this.postsService.reportPost(id, req.user.userId, body?.reason);
+  }
+
   @Patch(':id')
   update(
     @Param('id') id: string,
