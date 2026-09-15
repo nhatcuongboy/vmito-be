@@ -201,6 +201,45 @@ describe('NotificationsService', () => {
     );
   });
 
+  it('broadcasts to all users and includes link in data when provided', async () => {
+    const createdAt = new Date('2026-09-01T00:00:00.000Z');
+    const campaign = {
+      id: 'broadcast-2',
+      type: NotificationType.SYSTEM,
+      title: 'Tournament Starting',
+      message: 'Join now',
+      data: { link: 'https://vmito.com/tournaments/123' },
+      createdAt,
+    };
+    prisma.user.count.mockResolvedValueOnce(5_000);
+    prisma.broadcastNotification.create.mockResolvedValueOnce(campaign);
+
+    await expect(
+      service.broadcastToAll(
+        'admin-1',
+        {
+          title: campaign.title,
+          message: campaign.message,
+          link: '  https://vmito.com/tournaments/123  ',
+        },
+        'request-2'
+      )
+    ).resolves.toEqual({
+      message: 'Notification broadcast to 5000 users',
+      count: 5_000,
+    });
+
+    expect(prisma.broadcastNotification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          title: campaign.title,
+          message: campaign.message,
+          data: { link: 'https://vmito.com/tournaments/123' },
+        }),
+      })
+    );
+  });
+
   it('stores sparse per-user read state for a shared broadcast', async () => {
     const createdAt = new Date('2026-09-01T00:00:00.000Z');
     prisma.notification.findFirst.mockResolvedValueOnce(null);

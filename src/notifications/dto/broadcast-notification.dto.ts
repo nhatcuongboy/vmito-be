@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class BroadcastNotificationDto {
   @IsString()
@@ -10,4 +10,10 @@ export class BroadcastNotificationDto {
   @IsNotEmpty()
   @MaxLength(1000)
   message: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  link?: string;
 }
+

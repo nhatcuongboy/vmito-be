@@ -548,11 +548,15 @@ export class NotificationsService {
       : undefined;
     let broadcast: BroadcastNotification;
     try {
+      const notificationData = dto.link?.trim()
+        ? { link: dto.link.trim() }
+        : undefined;
       broadcast = await this.prisma.broadcastNotification.create({
         data: {
           type: NotificationType.SYSTEM,
           title: dto.title,
           message: dto.message,
+          data: notificationData,
           createdById: adminUserId,
           dedupeKey,
           audienceCutoffAt,
