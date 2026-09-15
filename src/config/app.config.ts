@@ -9,4 +9,8 @@ export default () => ({
       credentials: true,
     },
   },
+  newsfeed: {
+    sessionCreatedEnabled:
+      process.env.NEWSFEED_SESSION_CREATED_ENABLED === 'true',
+  },
 });
