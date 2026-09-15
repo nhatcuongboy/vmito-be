@@ -1594,17 +1594,19 @@ export class SessionsService {
       });
     }
 
-    await this.activityFeedService.postSessionCreated({
-      id: session.id,
-      slug: session.slug,
-      name: session.name,
-      hostId,
-      coverPhoto: session.coverPhoto,
-      scheduledStartTime: session.scheduledStartTime,
-      location: session.location,
-      isCrawled: session.isCrawled,
-      sportType: session.sportType,
-    });
+    if (this.configService.get<boolean>('newsfeed.sessionCreatedEnabled')) {
+      await this.activityFeedService.postSessionCreated({
+        id: session.id,
+        slug: session.slug,
+        name: session.name,
+        hostId,
+        coverPhoto: session.coverPhoto,
+        scheduledStartTime: session.scheduledStartTime,
+        location: session.location,
+        isCrawled: session.isCrawled,
+        sportType: session.sportType,
+      });
+    }
 
     // Return session with courts and feeConfig
     return this.prisma.session.findUnique({
