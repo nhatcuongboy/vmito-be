@@ -141,7 +141,7 @@ export class PointsService {
     });
     let totalPoints = 0;
     for (const row of rows) {
-      totalPoints += row._sum.points ?? 0;
+      totalPoints += row._sum?.points ?? 0;
     }
     const tier = tierForPoints(totalPoints);
     await this.prisma.guestProfilePointsState.upsert({

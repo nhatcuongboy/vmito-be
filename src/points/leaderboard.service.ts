@@ -48,6 +48,7 @@ export class LeaderboardService {
 
     const where: Prisma.PointTransactionWhereInput = {
       sport,
+      userId: { not: null },
       reason: { in: reasonsForBoard(board) },
       ...(range.start
         ? { occurredAt: { gte: range.start, lt: range.end ?? undefined } }
@@ -70,7 +71,9 @@ export class LeaderboardService {
       }),
     ]);
 
-    const userIds = rows.map((r) => r.userId);
+    const userIds = rows
+      .map((r) => r.userId)
+      .filter((id): id is string => typeof id === 'string');
     const [users, states, matchStats] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: userIds } },
@@ -86,7 +89,7 @@ export class LeaderboardService {
           userId: { in: userIds },
           reason: { in: MATCH_REASONS },
         },
-        _count: true,
+        _count: { _all: true },
       }),
     ]);
 
@@ -94,8 +97,8 @@ export class LeaderboardService {
     const stateByUser = new Map(states.map((s) => [s.userId, s]));
     const countFor = (userId: string, reasons: PointReason[]) =>
       matchStats
-        .filter((s) => s.userId === userId && reasons.includes(s.reason))
-        .reduce((sum, s) => sum + s._count, 0);
+        .filter((s) => s.userId === userId && s.reason && reasons.includes(s.reason))
+        .reduce((sum, s) => sum + (s._count?._all ?? 0), 0);
 
     return {
       sport,
@@ -109,27 +112,29 @@ export class LeaderboardService {
       limit,
       total: allUsers.length,
       totalPages: Math.ceil(allUsers.length / limit) || 1,
-      entries: rows.map((row, index) => {
-        const user = userById.get(row.userId);
-        const state = stateByUser.get(row.userId);
-        return {
-          rank: (page - 1) * limit + index + 1,
-          points: row._sum.points ?? 0,
-          user: {
-            id: row.userId,
-            name: user?.name ?? 'Unknown',
-            image: user?.image ?? null,
-            level: user?.level ?? null,
-          },
-          tier: state?.tier ?? 'BRONZE',
-          // All-time total on this board, so the client can explain why the
-          // tier badge does not track the period points shown next to it.
-          totalPoints:
-            (board === 'host' ? state?.hostPoints : state?.totalPoints) ?? 0,
-          matchesWon: countFor(row.userId, WIN_REASONS),
-          matchesPlayed: countFor(row.userId, MATCH_REASONS),
-        };
-      }),
+      entries: rows
+        .filter((row): row is typeof row & { userId: string } => typeof row.userId === 'string')
+        .map((row, index) => {
+          const user = userById.get(row.userId);
+          const state = stateByUser.get(row.userId);
+          return {
+            rank: (page - 1) * limit + index + 1,
+            points: row._sum.points ?? 0,
+            user: {
+              id: row.userId,
+              name: user?.name ?? 'Unknown',
+              image: user?.image ?? null,
+              level: user?.level ?? null,
+            },
+            tier: state?.tier ?? 'BRONZE',
+            // All-time total on this board, so the client can explain why the
+            // tier badge does not track the period points shown next to it.
+            totalPoints:
+              (board === 'host' ? state?.hostPoints : state?.totalPoints) ?? 0,
+            matchesWon: countFor(row.userId, WIN_REASONS),
+            matchesPlayed: countFor(row.userId, MATCH_REASONS),
+          };
+        }),
     };
   }
 

@@ -8,6 +8,7 @@ describe('VenueRentalsService capacity calculation', () => {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
     {} as never
   );
   type RentalCapacity = {
@@ -101,7 +102,8 @@ describe('VenueRentalsService workflow', () => {
     {} as never,
     access as never,
     notifications as never,
-    courts as never
+    courts as never,
+    {} as never
   );
 
   beforeEach(() => jest.clearAllMocks());

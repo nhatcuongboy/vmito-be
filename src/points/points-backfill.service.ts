@@ -201,6 +201,7 @@ export class PointsBackfillService {
   private async rebuildStates(): Promise<number> {
     const totals = await this.prisma.pointTransaction.groupBy({
       by: ['userId', 'sport', 'reason'],
+      where: { userId: { not: null } },
       _sum: { points: true },
     });
 
@@ -214,6 +215,7 @@ export class PointsBackfillService {
       }
     >();
     for (const row of totals) {
+      if (!row.userId) continue;
       const key = `${row.userId}:${row.sport}`;
       const state = byUser.get(key) ?? {
         userId: row.userId,
