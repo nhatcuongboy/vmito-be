@@ -482,6 +482,10 @@ model Session {
   // Contact settings
   allowZaloContact Boolean @default(false) // Allow players to contact host via Zalo
 
+  // Internal session settings (Kèo nội bộ)
+  isInternal Boolean @default(false)
+  accessCode String? @unique
+
   // Player level requirements (empty array = all levels allowed)
   requiredLevels Int[] @default([]) // Array of level IDs (empty = all)
 
@@ -522,6 +526,7 @@ model Session {
   venueRentalRequests VenueRentalRequest[]
 
   @@index([isCrawled])
+  @@index([isInternal])
   @@index([clubId])
   @@index([sportType])
   @@map("sessions")

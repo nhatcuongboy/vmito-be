@@ -217,6 +217,23 @@ export class CreateSessionDto {
   @IsOptional()
   allowZaloContact?: boolean;
 
+  @ApiProperty({
+    required: false,
+    description: 'Whether this is an internal / private session (Kèo nội bộ)',
+    default: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  isInternal?: boolean;
+
+  @ApiProperty({
+    required: false,
+    description: 'Custom access code for internal session (auto-generated if omitted)',
+  })
+  @IsString()
+  @IsOptional()
+  accessCode?: string;
+
   @IsArray()
   @IsNumber({}, { each: true })
   @Min(1, { each: true })

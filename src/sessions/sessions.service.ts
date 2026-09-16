@@ -55,6 +55,7 @@ import {
   paginateAvailableSessions,
   SessionTimeRange,
 } from './utils/available-session-filter.util';
+import { generateSessionAccessCode } from './utils/session-access-code.util';
 
 @Injectable()
 export class SessionsService {
@@ -70,6 +71,25 @@ export class SessionsService {
     private activityFeedService: ActivityFeedService,
     private pointsService: PointsService
   ) {}
+
+  /**
+   * Generates a unique uppercase 8-character access code for an internal session.
+   */
+  async generateUniqueSessionAccessCode(
+    client: Prisma.TransactionClient | PrismaService = this.prisma
+  ): Promise<string> {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = generateSessionAccessCode(8);
+      const existing = await client.session.findUnique({
+        where: { accessCode: code },
+        select: { id: true },
+      });
+      if (!existing) {
+        return code;
+      }
+    }
+    return generateSessionAccessCode(10);
+  }
 
   private readonly STATUS_PRIORITY: Record<string, number> = {
     IN_PROGRESS: 0,
@@ -503,6 +523,14 @@ export class SessionsService {
       where.isCrawled = true;
     }
 
+    // Non-host viewers (e.g. public host profile) cannot see internal sessions
+    const isHostOrAdmin =
+      user &&
+      (filters?.hostId === user.userId || user.role === 'ADMIN');
+    if (!isHostOrAdmin) {
+      where.isInternal = false;
+    }
+
     const total = await this.prisma.session.count({ where });
     const isStatusSort = filters?.sortBy === 'status';
     const orderBy = this.buildOrderBy(filters?.sortBy, filters?.sortOrder);
@@ -643,7 +671,10 @@ export class SessionsService {
           };
 
     // Initialize AND array if not present to avoid overwriting
-    const andConditions: Prisma.SessionWhereInput[] = [];
+    const andConditions: Prisma.SessionWhereInput[] = [
+      // Kèo nội bộ (internal sessions) are hidden from public discovery
+      { isInternal: false },
+    ];
 
     if (favoriteIds) {
       andConditions.push({ id: { in: favoriteIds } });
@@ -1061,7 +1092,11 @@ export class SessionsService {
     return degrees * (Math.PI / 180);
   }
 
-  async findOne(identifier: string) {
+  async findOne(
+    identifier: string,
+    code?: string,
+    user?: { userId: string; role?: string }
+  ) {
     const session = await this.prisma.session.findFirst({
       where: {
         OR: [{ id: identifier }, { slug: identifier }],
@@ -1216,6 +1251,31 @@ export class SessionsService {
       throw new NotFoundException('Session not found');
     }
 
+    if (session.isInternal) {
+      const isHost =
+        user && (user.userId === session.hostId || user.role === 'ADMIN');
+      const isParticipant =
+        user &&
+        session.players.some(
+          (p) =>
+            p.userId === user.userId &&
+            (p.registrationStatus === 'APPROVED' ||
+              p.registrationStatus === 'PENDING')
+        );
+      const hasValidCode = Boolean(
+        code &&
+          session.accessCode &&
+          code.trim().toUpperCase() === session.accessCode.toUpperCase()
+      );
+
+      if (!isHost && !isParticipant && !hasValidCode) {
+        throw new ForbiddenException({
+          code: 'SESSION_ACCESS_CODE_REQUIRED',
+          message: 'Kèo nội bộ yêu cầu mã truy cập hợp lệ',
+        });
+      }
+    }
+
     // Process courts to add position information to currentPlayers
     const processedCourts = session.courts.map((court) => {
       let playersWithPosition = [...court.currentPlayers];
@@ -1344,6 +1404,8 @@ export class SessionsService {
       allowGuestJoin: sourceSession.allowGuestJoin,
       allowNewPlayers: sourceSession.allowNewPlayers,
       allowZaloContact: sourceSession.allowZaloContact,
+      isInternal: cloneDto.isInternal ?? sourceSession.isInternal,
+      accessCode: cloneDto.accessCode,
       requiredLevels: sourceSession.requiredLevels,
       courtColor: sourceSession.courtColor || undefined,
       coverPhoto: sourceSession.coverPhoto || undefined,
@@ -1470,6 +1532,14 @@ export class SessionsService {
     // Grace period: 30 minutes after scheduled end
     const gracePeriodEnd = new Date(scheduledEnd.getTime() + 30 * 60 * 1000);
 
+    const isInternal = Boolean(createSessionDto.isInternal);
+    let accessCode: string | null = null;
+    if (isInternal) {
+      accessCode =
+        createSessionDto.accessCode?.trim().toUpperCase() ||
+        (await this.generateUniqueSessionAccessCode());
+    }
+
     // Create session
     const sessionSlug = `${generateSlug(name)}-${Math.random().toString(36).substring(2, 7)}`;
     const sessionSearchTerms = removeVietnameseTones(
@@ -1488,6 +1558,8 @@ export class SessionsService {
         allowGuestJoin,
         allowNewPlayers,
         allowZaloContact,
+        isInternal,
+        accessCode,
         requiredLevels: requiredLevels || [],
         searchTerms: sessionSearchTerms,
 
@@ -1604,6 +1676,7 @@ export class SessionsService {
         scheduledStartTime: session.scheduledStartTime,
         location: session.location,
         isCrawled: session.isCrawled,
+        isInternal: session.isInternal,
         sportType: session.sportType,
       });
     }
@@ -1979,6 +2052,21 @@ export class SessionsService {
       updateSessionDto.referenceVideoUrl
     );
 
+    let updatedIsInternal = existingSession.isInternal;
+    let updatedAccessCode = existingSession.accessCode;
+    if (updateSessionDto.isInternal !== undefined) {
+      updatedIsInternal = updateSessionDto.isInternal;
+      if (updatedIsInternal) {
+        if (updateSessionDto.accessCode?.trim()) {
+          updatedAccessCode = updateSessionDto.accessCode.trim().toUpperCase();
+        } else if (!updatedAccessCode) {
+          updatedAccessCode = await this.generateUniqueSessionAccessCode();
+        }
+      }
+    } else if (updateSessionDto.accessCode?.trim()) {
+      updatedAccessCode = updateSessionDto.accessCode.trim().toUpperCase();
+    }
+
     const session = await this.prisma.session.update({
       where: { id },
       data: {
@@ -1991,6 +2079,8 @@ export class SessionsService {
         allowGuestJoin: updateSessionDto.allowGuestJoin,
         allowNewPlayers: updateSessionDto.allowNewPlayers,
         allowZaloContact: updateSessionDto.allowZaloContact,
+        isInternal: updatedIsInternal,
+        accessCode: updatedAccessCode,
         requiredLevels:
           updateSessionDto.requiredLevels !== undefined
             ? updateSessionDto.requiredLevels
@@ -3769,6 +3859,14 @@ export class SessionsService {
       prismaClient
     );
 
+    const isInternal = Boolean(createSessionDto.isInternal);
+    let accessCode: string | null = null;
+    if (isInternal) {
+      accessCode =
+        createSessionDto.accessCode?.trim().toUpperCase() ||
+        (await this.generateUniqueSessionAccessCode(prismaClient));
+    }
+
     // Create session
     const internalSearchTerms = removeVietnameseTones(
       `${name} ${finalLocation || ''} ${hostName || ''} ${resolvedLocation.venueSearchText} ${SPORT_SEARCH_TOKENS[sportType]}`
@@ -3786,6 +3884,8 @@ export class SessionsService {
         allowGuestJoin,
         allowNewPlayers,
         allowZaloContact,
+        isInternal,
+        accessCode,
         requiredLevels: requiredLevels || [],
         searchTerms: internalSearchTerms,
         scheduledStartTime: startTime ? new Date(startTime) : new Date(),
@@ -4076,6 +4176,7 @@ export class SessionsService {
       status: 'PREPARING',
       endTime: { gt: now },
       allowNewPlayers: true,
+      isInternal: false,
       NOT: {
         players: {
           some: {
@@ -4288,6 +4389,7 @@ export class SessionsService {
       status: 'PREPARING',
       endTime: { gt: now },
       allowNewPlayers: true,
+      isInternal: false,
       // Exclude current session
       NOT: {
         id: sessionId,
@@ -4480,6 +4582,7 @@ export class SessionsService {
       status: 'PREPARING',
       endTime: { gt: now },
       allowNewPlayers: true,
+      isInternal: false,
       NOT: {
         id: currentSession.id,
       },

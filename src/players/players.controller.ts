@@ -330,14 +330,16 @@ export class SessionPlayersController {
   @Post('register')
   register(
     @Param('sessionId') sessionId: string,
-    @Body() body: { players: CreatePlayerDto[] },
+    @Body() body: { players: CreatePlayerDto[]; accessCode?: string },
+    @Query('accessCode') queryAccessCode: string | undefined,
     @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.playersService.registerPlayers(
       sessionId,
       user.userId,
       body.players,
-      user.role
+      user.role,
+      body.accessCode || queryAccessCode
     );
   }
 

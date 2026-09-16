@@ -785,7 +785,8 @@ export class PlayersService {
     sessionId: string,
     currentUserId: string,
     playersData: CreatePlayerDto[],
-    role?: string
+    role?: string,
+    accessCode?: string
   ) {
     // Validate session exists
     const session = await this.prisma.session.findUnique({
@@ -796,6 +797,8 @@ export class PlayersService {
         hostId: true,
         clubId: true,
         isCrawled: true,
+        isInternal: true,
+        accessCode: true,
         host: {
           select: {
             role: true,
@@ -803,7 +806,7 @@ export class PlayersService {
         },
         requiredLevels: true,
         players: {
-          select: { playerNumber: true },
+          select: { playerNumber: true, userId: true },
         },
       },
       // Note: we need existing players to check for duplicates, which createdBulkInSession did via include: { players: true }
@@ -820,6 +823,23 @@ export class PlayersService {
       throw new ForbiddenException(
         'Crawled (vãng lai) sessions are view-only; registration is disabled.'
       );
+    }
+
+    // Validate access for internal sessions
+    if (session.isInternal) {
+      const isHostOrAdmin = session.hostId === currentUserId || role === 'ADMIN';
+      const isAlreadyInSession = session.players?.some(
+        (p: { userId?: string | null }) => p.userId === currentUserId
+      );
+      const matchesAccessCode = Boolean(
+        accessCode &&
+          session.accessCode &&
+          accessCode.trim().toUpperCase() === session.accessCode.toUpperCase()
+      );
+
+      if (!isHostOrAdmin && !isAlreadyInSession && !matchesAccessCode) {
+        throw new ForbiddenException('Mã truy cập kèo nội bộ không hợp lệ');
+      }
     }
 
     // Determine initial status
