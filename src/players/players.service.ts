@@ -44,6 +44,7 @@ export class PlayersService {
   private async resolveClubMembershipForPlayer(input: {
     sessionClubId?: string | null;
     userId?: string | null;
+    profileId?: string | null;
     isClubMember?: boolean;
     clubId?: string | null;
     currentIsClubMember?: boolean;
@@ -74,6 +75,25 @@ export class PlayersService {
         clubId,
         clubFeeApplied: false,
       };
+    }
+
+    // Check by profile if session belongs to a club
+    if (input.sessionClubId && input.profileId) {
+      const profile = await this.prisma.hostPlayerProfile.findUnique({
+        where: { id: input.profileId },
+        select: { clubId: true, status: true },
+      });
+      if (
+        profile &&
+        profile.status === 'ACTIVE' &&
+        profile.clubId === input.sessionClubId
+      ) {
+        return {
+          isClubMember: true,
+          clubId: input.sessionClubId,
+          clubFeeApplied: false,
+        };
+      }
     }
 
     if (!input.sessionClubId || !input.userId) {
@@ -358,9 +378,42 @@ export class PlayersService {
       }
     }
 
+    let resolvedProfileId = createPlayerDto.profileId || null;
+    let playerName = createPlayerDto.name || null;
+    let playerGender = createPlayerDto.gender || null;
+    let playerLevel = createPlayerDto.level || null;
+    let playerPhone = createPlayerDto.phone || null;
+    let playerUserId = createPlayerDto.userId || null;
+
+    if (resolvedProfileId) {
+      const existingProfile = await this.prisma.hostPlayerProfile.findUnique({
+        where: { id: resolvedProfileId },
+      });
+      if (existingProfile) {
+        playerName = existingProfile.name;
+        playerGender = existingProfile.gender;
+        playerLevel = existingProfile.level ?? playerLevel;
+        playerPhone = existingProfile.phone || playerPhone;
+        playerUserId = existingProfile.linkedUserId || playerUserId;
+      }
+    } else if (createPlayerDto.saveToRoster && playerName) {
+      const newProfile = await this.prisma.hostPlayerProfile.create({
+        data: {
+          hostId: session.hostId,
+          clubId: createPlayerDto.clubId || session.clubId || null,
+          name: playerName.trim(),
+          gender: playerGender,
+          phone: playerPhone ? playerPhone.trim() : null,
+          level: playerLevel,
+        },
+      });
+      resolvedProfileId = newProfile.id;
+    }
+
     const clubMembership = await this.resolveClubMembershipForPlayer({
       sessionClubId: session.clubId,
-      userId: createPlayerDto.userId,
+      userId: playerUserId,
+      profileId: resolvedProfileId,
       isClubMember: createPlayerDto.isClubMember,
       clubId: createPlayerDto.clubId,
     });
@@ -370,12 +423,13 @@ export class PlayersService {
       data: {
         sessionId,
         playerNumber,
-        name: createPlayerDto.name || null,
-        gender: createPlayerDto.gender || null,
-        level: createPlayerDto.level || null,
+        name: playerName,
+        gender: playerGender,
+        level: playerLevel,
         levelDescription: createPlayerDto.levelDescription || null,
-        phone: createPlayerDto.phone || null,
-        userId: createPlayerDto.userId || null,
+        phone: playerPhone,
+        userId: playerUserId,
+        profileId: resolvedProfileId,
         joinCode: generatePlayerJoinCode(),
         preFilledByHost: createPlayerDto.preFilledByHost || false,
         confirmedByPlayer: createPlayerDto.confirmedByPlayer || false,
@@ -505,9 +559,42 @@ export class PlayersService {
           currentlyTakenNumbers.add(playerNumber);
         }
 
+        let resolvedProfileId = playerData.profileId || null;
+        let playerName = playerData.name || null;
+        let playerGender = playerData.gender || null;
+        let playerLevel = playerData.level || null;
+        let playerPhone = playerData.phone || null;
+        let playerUserId = playerData.userId || null;
+
+        if (resolvedProfileId) {
+          const existingProfile = await this.prisma.hostPlayerProfile.findUnique({
+            where: { id: resolvedProfileId },
+          });
+          if (existingProfile) {
+            playerName = existingProfile.name;
+            playerGender = existingProfile.gender;
+            playerLevel = existingProfile.level ?? playerLevel;
+            playerPhone = existingProfile.phone || playerPhone;
+            playerUserId = existingProfile.linkedUserId || playerUserId;
+          }
+        } else if (playerData.saveToRoster && playerName) {
+          const newProfile = await this.prisma.hostPlayerProfile.create({
+            data: {
+              hostId: session.hostId,
+              clubId: playerData.clubId || session.clubId || null,
+              name: playerName.trim(),
+              gender: playerGender,
+              phone: playerPhone ? playerPhone.trim() : null,
+              level: playerLevel,
+            },
+          });
+          resolvedProfileId = newProfile.id;
+        }
+
         const clubMembership = await this.resolveClubMembershipForPlayer({
           sessionClubId: session.clubId,
-          userId: playerData.userId,
+          userId: playerUserId,
+          profileId: resolvedProfileId,
           isClubMember: playerData.isClubMember,
           clubId: playerData.clubId,
         });
@@ -516,12 +603,13 @@ export class PlayersService {
           data: {
             sessionId,
             playerNumber: playerNumber,
-            name: playerData.name || null,
-            gender: playerData.gender || null,
-            level: playerData.level || null,
+            name: playerName,
+            gender: playerGender,
+            level: playerLevel,
             levelDescription: playerData.levelDescription || null,
-            phone: playerData.phone || null,
-            userId: playerData.userId || null,
+            phone: playerPhone,
+            userId: playerUserId,
+            profileId: resolvedProfileId,
             joinCode: generatePlayerJoinCode(),
             preFilledByHost: playerData.preFilledByHost || false,
             confirmedByPlayer: playerData.confirmedByPlayer || false,
@@ -697,7 +785,8 @@ export class PlayersService {
     sessionId: string,
     currentUserId: string,
     playersData: CreatePlayerDto[],
-    role?: string
+    role?: string,
+    accessCode?: string
   ) {
     // Validate session exists
     const session = await this.prisma.session.findUnique({
@@ -708,6 +797,8 @@ export class PlayersService {
         hostId: true,
         clubId: true,
         isCrawled: true,
+        isInternal: true,
+        accessCode: true,
         host: {
           select: {
             role: true,
@@ -715,7 +806,7 @@ export class PlayersService {
         },
         requiredLevels: true,
         players: {
-          select: { playerNumber: true },
+          select: { playerNumber: true, userId: true },
         },
       },
       // Note: we need existing players to check for duplicates, which createdBulkInSession did via include: { players: true }
@@ -732,6 +823,23 @@ export class PlayersService {
       throw new ForbiddenException(
         'Crawled (vãng lai) sessions are view-only; registration is disabled.'
       );
+    }
+
+    // Validate access for internal sessions
+    if (session.isInternal) {
+      const isHostOrAdmin = session.hostId === currentUserId || role === 'ADMIN';
+      const isAlreadyInSession = session.players?.some(
+        (p: { userId?: string | null }) => p.userId === currentUserId
+      );
+      const matchesAccessCode = Boolean(
+        accessCode &&
+          session.accessCode &&
+          accessCode.trim().toUpperCase() === session.accessCode.toUpperCase()
+      );
+
+      if (!isHostOrAdmin && !isAlreadyInSession && !matchesAccessCode) {
+        throw new ForbiddenException('Mã truy cập kèo nội bộ không hợp lệ');
+      }
     }
 
     // Determine initial status
@@ -2301,6 +2409,76 @@ export class PlayersService {
     });
 
     return players;
+  }
+
+  /**
+   * Get host's recent players & roster profiles to quickly select when creating a new session
+   */
+  async getHostRecentPlayers(hostId: string, clubId?: string, search?: string) {
+    if (!hostId) {
+      throw new BadRequestException('Host ID is required');
+    }
+
+    const profileWhere: Prisma.HostPlayerProfileWhereInput = {
+      status: 'ACTIVE',
+    };
+
+    if (clubId) {
+      if (clubId === 'none') {
+        profileWhere.hostId = hostId;
+        profileWhere.clubId = null;
+      } else {
+        profileWhere.clubId = clubId;
+      }
+    } else {
+      profileWhere.hostId = hostId;
+    }
+
+    if (search) {
+      const q = search.trim();
+      profileWhere.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { phone: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
+    const profiles = await this.prisma.hostPlayerProfile.findMany({
+      where: profileWhere,
+      include: {
+        club: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+            logo: true,
+          },
+        },
+        _count: {
+          select: { players: true },
+        },
+        players: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { createdAt: true },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 50,
+    });
+
+    return profiles.map((p) => ({
+      profileId: p.id,
+      name: p.name,
+      gender: p.gender,
+      level: p.level,
+      phone: p.phone,
+      clubId: p.clubId,
+      club: p.club,
+      totalSessions: p._count.players,
+      lastPlayedAt: p.players[0]?.createdAt || null,
+      isRosterProfile: true,
+      userId: p.linkedUserId,
+    }));
   }
 
   private getNextAvailablePlayerNumber(

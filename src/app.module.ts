@@ -46,6 +46,7 @@ import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { ClassesModule } from './classes/classes.module';
 import { WelcomePopupsModule } from './welcome-popups/welcome-popups.module';
 import { ArticlesModule } from './articles/articles.module';
+import { PlayerProfilesModule } from './player-profiles/player-profiles.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { UserOrIpThrottlerGuard } from './common/guards/user-or-ip-throttler.guard';
 import configuration from './config';
@@ -103,6 +104,7 @@ import configuration from './config';
     ClassesModule,
     WelcomePopupsModule,
     ArticlesModule,
+    PlayerProfilesModule,
   ],
   controllers: [AppController],
   providers: [

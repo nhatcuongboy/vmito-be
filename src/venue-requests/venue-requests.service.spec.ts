@@ -32,7 +32,8 @@ describe('VenueRequestsService', () => {
           update: venueRequestUpdate,
         },
       } as never,
-      { create: venueCreate, update: venueUpdate } as never
+      { create: venueCreate, update: venueUpdate } as never,
+      {} as never
     );
   });
 

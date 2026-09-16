@@ -363,9 +363,14 @@ export class SessionsController {
   }
 
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.sessionsService.findOne(id);
+  findOne(
+    @Param('id') id: string,
+    @Query('code') code?: string,
+    @CurrentUser() user?: AuthenticatedUser
+  ) {
+    return this.sessionsService.findOne(id, code, user);
   }
 
   @Public()

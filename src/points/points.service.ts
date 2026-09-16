@@ -15,7 +15,8 @@ import {
 } from './points.constants';
 
 export interface PointEntry {
-  userId: string;
+  userId?: string;
+  guestProfileId?: string;
   sport: SportType;
   reason: PointReason;
   refType: string;
@@ -55,20 +56,34 @@ export class PointsService {
       const entries: PointEntry[] = [];
       for (const mp of match.players) {
         const userId = mp.player.userId;
-        if (!userId) continue;
+        const profileId = mp.player.profileId;
+        if (!userId && !profileId) continue;
+
         const reason: PointReason = match.isDraw
           ? 'SESSION_MATCH_DRAW'
           : winnerPlayerIds.includes(mp.playerId)
             ? 'SESSION_MATCH_WIN'
             : 'SESSION_MATCH_LOSS';
-        entries.push({
-          userId,
-          sport: 'BADMINTON',
-          reason,
-          refType: 'MATCH',
-          refId: matchId,
-          occurredAt,
-        });
+
+        if (userId) {
+          entries.push({
+            userId,
+            sport: 'BADMINTON',
+            reason,
+            refType: 'MATCH',
+            refId: matchId,
+            occurredAt,
+          });
+        } else if (profileId) {
+          entries.push({
+            guestProfileId: profileId,
+            sport: 'BADMINTON',
+            reason,
+            refType: 'MATCH',
+            refId: matchId,
+            occurredAt,
+          });
+        }
       }
       await this.persistAndNotify(entries, options);
     } catch (error) {
@@ -87,19 +102,58 @@ export class PointsService {
     try {
       const existing = await this.prisma.pointTransaction.findMany({
         where: { refType, refId },
-        select: { userId: true, sport: true },
+        select: { userId: true, guestProfileId: true, sport: true },
       });
       if (existing.length === 0) return;
       await this.prisma.pointTransaction.deleteMany({
         where: { refType, refId },
       });
-      const keys = new Map(existing.map((e) => [`${e.userId}:${e.sport}`, e]));
-      for (const { userId, sport } of keys.values()) {
-        await this.refreshState(userId, sport);
+      const userKeys = new Map(
+        existing
+          .filter((e) => e.userId)
+          .map((e) => [`${e.userId}:${e.sport}`, e])
+      );
+      for (const { userId, sport } of userKeys.values()) {
+        if (userId) await this.refreshState(userId, sport);
+      }
+      const profileKeys = new Map(
+        existing
+          .filter((e) => e.guestProfileId)
+          .map((e) => [`${e.guestProfileId}:${e.sport}`, e])
+      );
+      for (const { guestProfileId, sport } of profileKeys.values()) {
+        if (guestProfileId)
+          await this.refreshGuestProfileState(guestProfileId, sport);
       }
     } catch (error) {
       this.logSwallowed('removeForRef', `${refType}:${refId}`, error);
     }
+  }
+
+  private async refreshGuestProfileState(
+    profileId: string,
+    sport: SportType
+  ): Promise<void> {
+    const rows = await this.prisma.pointTransaction.groupBy({
+      by: ['reason'],
+      where: { guestProfileId: profileId, sport },
+      _sum: { points: true },
+    });
+    let totalPoints = 0;
+    for (const row of rows) {
+      totalPoints += row._sum?.points ?? 0;
+    }
+    const tier = tierForPoints(totalPoints);
+    await this.prisma.guestProfilePointsState.upsert({
+      where: { profileId_sport: { profileId, sport } },
+      create: {
+        profileId,
+        sport,
+        totalPoints,
+        tier,
+      },
+      update: { totalPoints, tier },
+    });
   }
 
   private async refreshState(userId: string, sport: SportType): Promise<void> {
@@ -313,80 +367,128 @@ export class PointsService {
   ): Promise<void> {
     if (entries.length === 0) return;
 
-    const keys = new Map<string, { userId: string; sport: SportType }>();
-    for (const e of entries) {
-      keys.set(`${e.userId}:${e.sport}`, { userId: e.userId, sport: e.sport });
-    }
-    const affected = [...keys.values()];
+    const userEntries = entries.filter((e) => e.userId);
+    const profileEntries = entries.filter((e) => e.guestProfileId);
 
-    const before = await this.prisma.userPointsState.findMany({
-      where: {
-        OR: affected.map((k) => ({ userId: k.userId, sport: k.sport })),
-      },
-    });
-    const beforeByKey = new Map(
-      before.map((s) => [`${s.userId}:${s.sport}`, s])
-    );
-
-    await this.prisma.pointTransaction.createMany({
-      data: entries.map((e) => ({ ...e, points: POINT_VALUES[e.reason] })),
-      skipDuplicates: true,
-    });
-
-    for (const { userId, sport } of affected) {
-      const { totalPoints, hostPoints } = await this.sumBoards(userId, sport);
-      const tier = tierForPoints(totalPoints);
-      const prev = beforeByKey.get(`${userId}:${sport}`);
-      const prevPoints = prev?.totalPoints ?? 0;
-      const prevHostPoints = prev?.hostPoints ?? 0;
-      const prevTier: RankingTier = prev?.tier ?? 'BRONZE';
-      const delta = totalPoints - prevPoints;
-      const hostDelta = hostPoints - prevHostPoints;
-      if (delta === 0 && hostDelta === 0) continue; // Everything was a duplicate.
-
-      await this.prisma.userPointsState.upsert({
-        where: { userId_sport: { userId, sport } },
-        create: { userId, sport, totalPoints, hostPoints, tier },
-        update: { totalPoints, hostPoints, tier },
+    // 1. Handle Guest Profile Entries
+    if (profileEntries.length > 0) {
+      await this.prisma.pointTransaction.createMany({
+        data: profileEntries.map((e) => ({
+          guestProfileId: e.guestProfileId,
+          sport: e.sport,
+          reason: e.reason,
+          refType: e.refType,
+          refId: e.refId,
+          occurredAt: e.occurredAt,
+          points: POINT_VALUES[e.reason],
+        })),
+        skipDuplicates: true,
       });
 
-      const tierChanged =
-        TIER_ORDER.indexOf(tier) > TIER_ORDER.indexOf(prevTier);
-      // Host points are not on the player board, so they raise no celebration.
-      if (!options?.silent && delta !== 0) {
-        const reasons = entries
-          .filter(
-            (e) =>
-              e.userId === userId &&
-              e.sport === sport &&
-              !HOST_REASONS.includes(e.reason)
-          )
-          .map((e) => e.reason);
-        this.sessionsGateway.notifyUser(
-          userId,
-          SessionEventType.POINTS_AWARDED,
-          {
-            sport,
-            points: delta,
-            reasons,
-            totalPoints,
-            tier,
-            previousTier: prevTier,
-            tierChanged,
-          }
-        );
-        if (tierChanged) {
-          await this.notificationsService.createForUser(
+      const profileKeys = new Map<
+        string,
+        { profileId: string; sport: SportType }
+      >();
+      for (const e of profileEntries) {
+        profileKeys.set(`${e.guestProfileId}:${e.sport}`, {
+          profileId: e.guestProfileId!,
+          sport: e.sport,
+        });
+      }
+
+      for (const { profileId, sport } of profileKeys.values()) {
+        await this.refreshGuestProfileState(profileId, sport);
+      }
+    }
+
+    // 2. Handle User Account Entries
+    if (userEntries.length > 0) {
+      const keys = new Map<string, { userId: string; sport: SportType }>();
+      for (const e of userEntries) {
+        keys.set(`${e.userId}:${e.sport}`, {
+          userId: e.userId!,
+          sport: e.sport,
+        });
+      }
+      const affected = [...keys.values()];
+
+      const before = await this.prisma.userPointsState.findMany({
+        where: {
+          OR: affected.map((k) => ({ userId: k.userId, sport: k.sport })),
+        },
+      });
+      const beforeByKey = new Map(
+        before.map((s) => [`${s.userId}:${s.sport}`, s])
+      );
+
+      await this.prisma.pointTransaction.createMany({
+        data: userEntries.map((e) => ({
+          userId: e.userId,
+          sport: e.sport,
+          reason: e.reason,
+          refType: e.refType,
+          refId: e.refId,
+          occurredAt: e.occurredAt,
+          points: POINT_VALUES[e.reason],
+        })),
+        skipDuplicates: true,
+      });
+
+      for (const { userId, sport } of affected) {
+        const { totalPoints, hostPoints } = await this.sumBoards(userId, sport);
+        const tier = tierForPoints(totalPoints);
+        const prev = beforeByKey.get(`${userId}:${sport}`);
+        const prevPoints = prev?.totalPoints ?? 0;
+        const prevHostPoints = prev?.hostPoints ?? 0;
+        const prevTier: RankingTier = prev?.tier ?? 'BRONZE';
+        const delta = totalPoints - prevPoints;
+        const hostDelta = hostPoints - prevHostPoints;
+        if (delta === 0 && hostDelta === 0) continue; // Everything was a duplicate.
+
+        await this.prisma.userPointsState.upsert({
+          where: { userId_sport: { userId, sport } },
+          create: { userId, sport, totalPoints, hostPoints, tier },
+          update: { totalPoints, hostPoints, tier },
+        });
+
+        const tierChanged =
+          TIER_ORDER.indexOf(tier) > TIER_ORDER.indexOf(prevTier);
+        // Host points are not on the player board, so they raise no celebration.
+        if (!options?.silent && delta !== 0) {
+          const reasons = userEntries
+            .filter(
+              (e) =>
+                e.userId === userId &&
+                e.sport === sport &&
+                !HOST_REASONS.includes(e.reason)
+            )
+            .map((e) => e.reason);
+          this.sessionsGateway.notifyUser(
             userId,
-            'SYSTEM',
-            'Rank up!',
-            `Congratulations! You reached the ${tier} tier with ${totalPoints} ranking points.`,
-            { action: 'tier_up', sport, tier, totalPoints },
+            SessionEventType.POINTS_AWARDED,
             {
-              dedupeKey: `tier-up:${userId}:${sport}:${tier}`,
-              conflictMode: 'ONCE',
+              sport,
+              points: delta,
+              reasons,
+              totalPoints,
+              tier,
+              previousTier: prevTier,
+              tierChanged,
             }
           );
+          if (tierChanged) {
+            await this.notificationsService.createForUser(
+              userId,
+              'SYSTEM',
+              'Rank up!',
+              `Congratulations! You reached the ${tier} tier with ${totalPoints} ranking points.`,
+              { action: 'tier_up', sport, tier, totalPoints },
+              {
+                dedupeKey: `tier-up:${userId}:${sport}:${tier}`,
+                conflictMode: 'ONCE',
+              }
+            );
+          }
         }
       }
     }

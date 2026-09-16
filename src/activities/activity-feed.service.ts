@@ -40,9 +40,10 @@ export class ActivityFeedService {
     scheduledStartTime?: Date | null;
     location?: string | null;
     isCrawled?: boolean;
+    isInternal?: boolean;
     sportType: SportType;
   }): Promise<void> {
-    if (session.isCrawled) return;
+    if (session.isCrawled || session.isInternal) return;
     await this.safeCreate(session.hostId, ActivityType.SESSION_CREATED, {
       sessionId: session.id,
       sessionSlug: session.slug ?? null,

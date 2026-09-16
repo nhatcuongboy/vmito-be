@@ -173,7 +173,7 @@ describe('SessionsService location updates', () => {
     id: 'session-1',
     hostId: 'host-1',
     isCrawled: false,
-    venueId: 'venue-1',
+    venueId: 'venue-1' as string | null,
     name: 'Kèo tối',
     location: 'Địa chỉ sân cũ',
     hostName: 'Host',

@@ -66,6 +66,10 @@ model User {
   clubJoinRequests   ClubJoinRequest[]   @relation("UserClubJoinRequests")
   clubAnnouncements  ClubAnnouncement[]  @relation("UserClubAnnouncements")
 
+  // Host player profiles / roster
+  hostPlayerProfiles  HostPlayerProfile[] @relation("HostPlayerProfiles")
+  promotedFromProfile HostPlayerProfile?  @relation("PromotedFromProfile")
+
   // Image gallery
   uploadedImages UserImage[] @relation("UserImages")
 
@@ -145,22 +149,42 @@ enum RankingTier {
 // Append-only ledger of points earned. Period leaderboards are SUMs over
 // occurredAt ranges; the unique constraint makes every award idempotent.
 model PointTransaction {
-  id         String      @id @default(cuid())
-  userId     String
-  sport      SportType   @default(BADMINTON)
-  points     Int
-  reason     PointReason
-  refType    String // MATCH | CATEGORY_MATCH | SESSION | CATEGORY | MANUAL
-  refId      String
-  occurredAt DateTime
-  createdAt  DateTime    @default(now())
+  id             String      @id @default(cuid())
+  userId         String?
+  guestProfileId String?
+  sport          SportType   @default(BADMINTON)
+  points         Int
+  reason         PointReason
+  refType        String // MATCH | CATEGORY_MATCH | SESSION | CATEGORY | MANUAL
+  refId          String
+  occurredAt     DateTime
+  createdAt      DateTime    @default(now())
 
-  user User @relation("UserPointTransactions", fields: [userId], references: [id], onDelete: Cascade)
+  user         User?              @relation("UserPointTransactions", fields: [userId], references: [id], onDelete: Cascade)
+  guestProfile HostPlayerProfile? @relation(fields: [guestProfileId], references: [id], onDelete: Cascade)
 
   @@unique([userId, reason, refId])
+  @@unique([guestProfileId, reason, refId])
   @@index([sport, occurredAt])
   @@index([userId, sport, occurredAt])
+  @@index([guestProfileId, sport, occurredAt])
   @@map("point_transactions")
+}
+
+model GuestProfilePointsState {
+  id          String      @id @default(cuid())
+  profileId   String
+  sport       SportType   @default(BADMINTON)
+  totalPoints Int         @default(0)
+  tier        RankingTier @default(BRONZE)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  profile HostPlayerProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, sport])
+  @@index([sport, totalPoints])
+  @@map("guest_profile_points_states")
 }
 
 // Denormalized all-time totals per user+sport; source of truth for tier.
@@ -458,6 +482,10 @@ model Session {
   // Contact settings
   allowZaloContact Boolean @default(false) // Allow players to contact host via Zalo
 
+  // Internal session settings (Kèo nội bộ)
+  isInternal Boolean @default(false)
+  accessCode String? @unique
+
   // Player level requirements (empty array = all levels allowed)
   requiredLevels Int[] @default([]) // Array of level IDs (empty = all)
 
@@ -498,6 +526,7 @@ model Session {
   venueRentalRequests VenueRentalRequest[]
 
   @@index([isCrawled])
+  @@index([isInternal])
   @@index([clubId])
   @@index([sportType])
   @@map("sessions")
@@ -1255,6 +1284,9 @@ model Player {
   clubFeeApplied Boolean @default(false)
   customFee      Int? // Custom fee override for this player in this session only
 
+  // Host player profile / roster link
+  profileId String?
+
   // Player-specific join fields
   joinCode   String    @unique // Unique join code for this player slot
   qrCodeData String? // QR code data for this player
@@ -1262,19 +1294,21 @@ model Player {
   isGuest    Boolean   @default(true) // True if joined without account
   joinedAt   DateTime? // When the slot was filled
 
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
   matchPlayers MatchPlayer[]
-  currentCourt Court?        @relation(fields: [currentCourtId], references: [id])
-  session      Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  user         User?         @relation(fields: [userId], references: [id])
-  club         Club?         @relation(fields: [clubId], references: [id])
+  currentCourt Court?              @relation(fields: [currentCourtId], references: [id])
+  session      Session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user         User?               @relation(fields: [userId], references: [id])
+  club         Club?               @relation(fields: [clubId], references: [id])
+  profile      HostPlayerProfile?  @relation("ProfileSessions", fields: [profileId], references: [id], onDelete: SetNull)
 
   // Payment relation
   paymentRecord PaymentRecord?
 
   @@unique([sessionId, playerNumber])
   @@index([clubId])
+  @@index([profileId])
   @@map("players")
 }
 
@@ -2107,6 +2141,7 @@ model Club {
   announcements  ClubAnnouncement[]
   clubSessions   ClubSession[]
   schedules      ClubSchedule[]
+  playerProfiles HostPlayerProfile[]
 
   @@unique([hostId, name])
   @@index([hostId])
@@ -2307,6 +2342,47 @@ model ClubSchedule {
   @@index([clubId])
   @@index([clubId, isActive])
   @@map("club_schedules")
+}
+
+// ===========================================
+// Host / Club Managed Player Profiles (Roster)
+// ===========================================
+
+enum PlayerProfileStatus {
+  ACTIVE
+  PROMOTED
+  ARCHIVED
+}
+
+model HostPlayerProfile {
+  id           String              @id @default(cuid())
+  hostId       String              // User who owns this profile/roster (Host)
+  clubId       String?             // Optional: linked to a specific Club
+  name         String
+  gender       Gender?
+  phone        String?             // Helps distinguish duplicate names
+  level        Int?                // Default level ID
+  notes        String?             // Private host notes
+  status       PlayerProfileStatus @default(ACTIVE)
+
+  // Link to real User after promotion
+  linkedUserId String?             @unique
+  promotedAt   DateTime?
+
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  host              User                      @relation("HostPlayerProfiles", fields: [hostId], references: [id], onDelete: Cascade)
+  club              Club?                     @relation(fields: [clubId], references: [id], onDelete: SetNull)
+  linkedUser        User?                     @relation("PromotedFromProfile", fields: [linkedUserId], references: [id], onDelete: SetNull)
+  players           Player[]                  @relation("ProfileSessions")
+  pointTransactions PointTransaction[]
+  pointsStates      GuestProfilePointsState[]
+
+  @@index([hostId])
+  @@index([clubId])
+  @@index([hostId, name])
+  @@map("host_player_profiles")
 }
 
 // ===========================================

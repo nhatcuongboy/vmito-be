@@ -73,6 +73,16 @@ export class PlayersController {
 
   // ============ Authenticated Endpoints ============
 
+  @Get('host-recent')
+  @ApiOperation({ summary: 'Get recent players and roster for host to re-use in sessions' })
+  getHostRecentPlayers(
+    @CurrentUser() user: { userId: string; role: string },
+    @Query('clubId') clubId?: string,
+    @Query('search') search?: string
+  ) {
+    return this.playersService.getHostRecentPlayers(user.userId, clubId, search);
+  }
+
   @Get('pending-requests')
   @ApiOperation({ summary: 'Get pending player requests for host' })
   getPendingRequests(
@@ -320,14 +330,16 @@ export class SessionPlayersController {
   @Post('register')
   register(
     @Param('sessionId') sessionId: string,
-    @Body() body: { players: CreatePlayerDto[] },
+    @Body() body: { players: CreatePlayerDto[]; accessCode?: string },
+    @Query('accessCode') queryAccessCode: string | undefined,
     @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.playersService.registerPlayers(
       sessionId,
       user.userId,
       body.players,
-      user.role
+      user.role,
+      body.accessCode || queryAccessCode
     );
   }
 

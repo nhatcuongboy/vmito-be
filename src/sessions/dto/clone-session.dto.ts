@@ -20,4 +20,11 @@ export class CloneSessionDto {
 
   @IsDateString()
   endTime!: string;
+
+  @IsOptional()
+  isInternal?: boolean;
+
+  @IsString()
+  @IsOptional()
+  accessCode?: string;
 }
