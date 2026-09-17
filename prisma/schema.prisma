@@ -30,6 +30,11 @@ model User {
   // Newsfeed tracking
   lastSeenFeedAt DateTime? // Last time user viewed the newsfeed
 
+  // Stream Chat terms acceptance. A null/outdated version means the user may
+  // receive a metadata-only chat request but cannot read its message payload.
+  chatTermsAcceptedVersion String?
+  chatTermsAcceptedAt      DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -54,6 +59,13 @@ model User {
   broadcastsCreated      BroadcastNotification[]          @relation("BroadcastCreator")
   broadcastStates        BroadcastNotificationUserState[]
   notificationInboxState NotificationInboxState?
+
+  chatConversationsAsParticipantA ChatConversation[] @relation("ChatParticipantA")
+  chatConversationsAsParticipantB ChatConversation[] @relation("ChatParticipantB")
+  chatConversationsRequested      ChatConversation[] @relation("ChatRequester")
+  chatConversationsReceived       ChatConversation[] @relation("ChatRecipient")
+  chatBlocksCreated               ChatBlock[]        @relation("ChatBlocker")
+  chatBlocksReceived              ChatBlock[]        @relation("ChatBlocked")
 
   // Payment reminders
   paymentRemindersCreated  PaymentReminder[] @relation("PaymentReminderCreator")
@@ -220,6 +232,59 @@ enum NotificationType {
   POST // Post interactions (like, comment)
   VENUE_RENTAL // Venue rental workflow updates
   VENUE_REQUEST // Venue request status updates (approved/rejected)
+  CHAT // Chat request metadata only; message text never enters this table
+}
+
+enum ChatConversationStatus {
+  PENDING
+  ACTIVE
+  DECLINED
+  CANCELLED
+}
+
+// Access/workflow metadata only. Stream remains the source of truth for all
+// message bodies, delivery state, unread state and realtime events.
+model ChatConversation {
+  id               String                 @id @default(cuid())
+  participantAId   String
+  participantBId   String
+  requesterId      String
+  recipientId      String
+  streamChannelId  String                 @unique
+  status           ChatConversationStatus
+  initialMessageId String?
+  idempotencyKey   String?                @unique
+  requestSentAt    DateTime?
+  activatedAt      DateTime?
+  declinedAt       DateTime?
+  cancelledAt      DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  participantA User @relation("ChatParticipantA", fields: [participantAId], references: [id], onDelete: Cascade)
+  participantB User @relation("ChatParticipantB", fields: [participantBId], references: [id], onDelete: Cascade)
+  requester    User @relation("ChatRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  recipient    User @relation("ChatRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@unique([participantAId, participantBId])
+  @@index([recipientId, status, createdAt(sort: Desc)])
+  @@index([requesterId, status, createdAt(sort: Desc)])
+  @@index([requesterId, requestSentAt])
+  @@map("chat_conversations")
+}
+
+model ChatBlock {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  blocker User @relation("ChatBlocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("ChatBlocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("chat_blocks")
 }
 
 model Notification {
@@ -234,12 +299,33 @@ model Notification {
   occurrenceCount Int              @default(1)
   createdAt       DateTime         @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pushDispatchJob NotificationPushDispatchJob?
 
   @@index([userId])
   @@index([userId, createdAt(sort: Desc)])
   @@index([createdAt])
   @@map("notifications")
+}
+
+// Durable outbox for user-targeted notifications that must be retried (chat
+// requests use this so a transient FCM failure never rolls back the message).
+model NotificationPushDispatchJob {
+  id             String                     @id @default(cuid())
+  notificationId String                     @unique
+  status         NotificationDispatchStatus @default(PENDING)
+  attempts       Int                        @default(0)
+  availableAt    DateTime                   @default(now())
+  lockedAt       DateTime?
+  completedAt    DateTime?
+  lastError      String?
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([status, availableAt])
+  @@map("notification_push_dispatch_jobs")
 }
 
 model BroadcastNotification {

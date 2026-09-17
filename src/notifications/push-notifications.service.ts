@@ -39,31 +39,47 @@ export class PushNotificationsService {
     await this.sendMany([notification]);
   }
 
+  /**
+   * Sends one durable-outbox item and lets transient failures escape so the
+   * dispatcher can apply backoff. Ordinary notifications continue using
+   * [send], whose best-effort behavior must not break their business action.
+   */
+  async sendOrThrow(notification: PushNotification): Promise<void> {
+    await this.sendManyOrThrow([notification]);
+  }
+
   async sendMany(notifications: PushNotification[]): Promise<void> {
     if (!this.messaging || notifications.length === 0) return;
 
     try {
-      const byUserId = new Map(
-        notifications.map((notification) => [notification.userId, notification])
-      );
-      const devices = await this.prisma.notificationDevice.findMany({
-        where: { userId: { in: [...byUserId.keys()] } },
-        select: { token: true, userId: true },
-      });
-      const messages: Message[] = [];
-      const tokens: string[] = [];
-
-      for (const device of devices) {
-        const notification = byUserId.get(device.userId);
-        if (!notification) continue;
-        messages.push(this.buildMessage(device.token, notification));
-        tokens.push(device.token);
-      }
-      await this.sendMessages(messages, tokens);
+      await this.sendManyOrThrow(notifications);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`FCM delivery failed: ${message}`);
     }
+  }
+
+  private async sendManyOrThrow(
+    notifications: PushNotification[]
+  ): Promise<void> {
+    if (!this.messaging || notifications.length === 0) return;
+    const byUserId = new Map(
+      notifications.map((notification) => [notification.userId, notification])
+    );
+    const devices = await this.prisma.notificationDevice.findMany({
+      where: { userId: { in: [...byUserId.keys()] } },
+      select: { token: true, userId: true },
+    });
+    const messages: Message[] = [];
+    const tokens: string[] = [];
+
+    for (const device of devices) {
+      const notification = byUserId.get(device.userId);
+      if (!notification) continue;
+      messages.push(this.buildMessage(device.token, notification));
+      tokens.push(device.token);
+    }
+    await this.sendMessages(messages, tokens);
   }
 
   /** Deliver one shared campaign payload to an already paged token batch. */
@@ -101,8 +117,13 @@ export class PushNotificationsService {
       this.logger.log(`Removed ${invalidTokens.size} invalid FCM token(s)`);
     }
     if (transientFailureCount > 0) {
-      throw new Error(
-        `FCM failed to deliver ${transientFailureCount} message(s)`
+      // Messages in this batch were already sent to FCM by the time we know
+      // about per-message failures, so we must not throw here: throwing
+      // would make the broadcast dispatch job retry the same batch and
+      // re-deliver duplicate push notifications to devices that already
+      // received it. Transient per-message failures are logged and dropped.
+      this.logger.warn(
+        `FCM failed to deliver ${transientFailureCount} message(s) (transient, not retried)`
       );
     }
   }

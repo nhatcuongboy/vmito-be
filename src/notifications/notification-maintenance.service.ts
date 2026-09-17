@@ -46,4 +46,25 @@ export class NotificationMaintenanceService {
     }
     return { deleted };
   }
+
+  // Temporarily disabled per request
+  // @Cron('0 4 * * *')
+  // async cleanupStaleDevices() {
+  //   const cutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+  //   const result = await this.prisma.notificationDevice.deleteMany({
+  //     where: {
+  //       lastSeenAt: { lt: cutoff },
+  //     },
+  //   });
+  //   if (result.count > 0) {
+  //     this.logger.log(
+  //       JSON.stringify({
+  //         event: 'notification_stale_devices_cleanup',
+  //         deleted: result.count,
+  //       })
+  //     );
+  //   }
+  //   return { deleted: result.count };
+  // }
 }
+

@@ -1,13 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { ExecutionContext, Injectable } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import type { AuthenticatedUser } from '../decorators/current-user.decorator';
 
+/** Parses a bearer token when present while preserving genuinely public routes. */
 @Injectable()
 export class OptionalJwtAuthGuard extends AuthGuard('jwt') {
-  handleRequest<TUser = AuthenticatedUser>(
-    _err: unknown,
-    user: TUser | false
+  handleRequest<TUser = unknown>(
+    err: unknown,
+    user: TUser | false | null,
+    _info: unknown,
+    _context: ExecutionContext
   ): TUser | undefined {
+    if (err instanceof Error) throw err;
+    if (err != null) throw new Error('Optional authentication failed');
     return user || undefined;
   }
 }

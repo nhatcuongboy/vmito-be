@@ -11,12 +11,14 @@ import { CreateUserDto } from './dto/create-user.dto';
 import * as bcrypt from 'bcryptjs';
 import { removeVietnameseTones } from '../common/utils/string.utils';
 import { ActivityFeedService } from '../activities/activity-feed.service';
+import { ChatService } from '../chat/chat.service';
 
 @Injectable()
 export class UsersService {
   constructor(
     private prisma: PrismaService,
-    private activityFeedService: ActivityFeedService
+    private activityFeedService: ActivityFeedService,
+    private chatService: ChatService
   ) {}
 
   private readonly userSelect = {
@@ -453,6 +455,10 @@ export class UsersService {
 
     const anonymousEmail = `deleted_${userId}@users.vmito.invalid`;
 
+    // Stream owns message bodies. Delete them before anonymizing the local
+    // account so a transient provider failure remains safely retryable.
+    await this.chatService.deleteUserData(userId);
+
     await this.prisma.$transaction([
       // Kill every way back in first, so an interrupted transaction can never
       // leave a signed-in session alive on an anonymized account.
@@ -460,6 +466,14 @@ export class UsersService {
       this.prisma.authSession.deleteMany({ where: { userId } }),
       this.prisma.account.deleteMany({ where: { userId } }),
       this.prisma.notification.deleteMany({ where: { userId } }),
+      this.prisma.chatConversation.deleteMany({
+        where: {
+          OR: [{ participantAId: userId }, { participantBId: userId }],
+        },
+      }),
+      this.prisma.chatBlock.deleteMany({
+        where: { OR: [{ blockerId: userId }, { blockedId: userId }] },
+      }),
 
       this.prisma.user.update({
         where: { id: userId },
@@ -477,6 +491,8 @@ export class UsersService {
           levelDescription: null,
           searchTerms: null,
           emailVerified: null,
+          chatTermsAcceptedVersion: null,
+          chatTermsAcceptedAt: null,
         },
       }),
     ]);
@@ -507,6 +523,7 @@ export class UsersService {
       }
     }
 
+    await this.chatService.deleteUserData(id);
     await this.prisma.user.delete({
       where: { id },
     });

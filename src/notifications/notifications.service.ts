@@ -126,6 +126,53 @@ export class NotificationsService {
     }
   }
 
+  /**
+   * Creates a notification and a durable push job atomically. The socket event
+   * is emitted immediately, while FCM delivery is owned by the retry worker.
+   * This is used for pending chat requests, whose Stream message must never be
+   * recreated merely because push delivery failed.
+   */
+  async createQueuedForUser(
+    userId: string,
+    type: NotificationType,
+    title: string,
+    message: string,
+    data?: Prisma.InputJsonValue,
+    options: CreateForUserOptions = {}
+  ) {
+    const createData: Prisma.NotificationCreateInput = {
+      user: { connect: { id: userId } },
+      type,
+      title,
+      message,
+      data: data ?? Prisma.JsonNull,
+      dedupeKey: options.dedupeKey,
+    };
+
+    try {
+      const notification = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.notification.create({ data: createData });
+        await tx.notificationPushDispatchJob.create({
+          data: { notificationId: created.id },
+        });
+        return created;
+      });
+      this.dispatchSocket(notification);
+      return notification;
+    } catch (error) {
+      if (
+        options.dedupeKey &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        return this.prisma.notification.findUniqueOrThrow({
+          where: { dedupeKey: options.dedupeKey },
+        });
+      }
+      throw error;
+    }
+  }
+
   async createManyForUsers(
     userIds: string[],
     type: NotificationType,
@@ -423,8 +470,10 @@ export class NotificationsService {
     if (dto.deviceId) {
       await this.prisma.notificationDevice.deleteMany({
         where: {
-          userId,
-          deviceId: dto.deviceId,
+          OR: [
+            { deviceId: dto.deviceId },
+            { userId, deviceId: null },
+          ],
           token: { not: dto.token },
         },
       });
@@ -600,12 +649,16 @@ export class NotificationsService {
   }
 
   private async dispatch(notification: Notification) {
+    this.dispatchSocket(notification);
+    await this.pushNotifications.send(notification);
+  }
+
+  private dispatchSocket(notification: Notification) {
     this.sessionsGateway.notifyUser(
       notification.userId,
       SessionEventType.NOTIFICATION_RECEIVED,
       notification
     );
-    await this.pushNotifications.send(notification);
   }
 
   private broadcastWhereForUser(
