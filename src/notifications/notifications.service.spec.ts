@@ -28,6 +28,7 @@ describe('NotificationsService', () => {
       deleteMany: jest.fn(),
       upsert: jest.fn(),
     },
+    notificationPushDispatchJob: { create: jest.fn() },
     $transaction: jest.fn(),
   };
   const sessionsGateway = {
@@ -69,6 +70,46 @@ describe('NotificationsService', () => {
       notification
     );
     expect(pushNotifications.send).toHaveBeenCalledWith(notification);
+  });
+
+  it('queues chat push atomically without sending FCM in the request', async () => {
+    const notification = {
+      id: 'notification-chat',
+      userId: 'recipient',
+      type: NotificationType.CHAT,
+      title: 'Chat request',
+      message: 'Sender wants to chat',
+      data: { action: 'chat_request', requestId: 'request-1' },
+      isRead: false,
+      createdAt: new Date(),
+    };
+    prisma.notification.create.mockResolvedValue(notification);
+    prisma.notificationPushDispatchJob.create.mockResolvedValue({
+      id: 'job-1',
+    });
+    prisma.$transaction.mockImplementationOnce(
+      async (callback: (tx: typeof prisma) => Promise<unknown>) =>
+        callback(prisma)
+    );
+
+    await service.createQueuedForUser(
+      'recipient',
+      NotificationType.CHAT,
+      notification.title,
+      notification.message,
+      notification.data,
+      { dedupeKey: 'chat-request:request-1', conflictMode: 'ONCE' }
+    );
+
+    expect(prisma.notificationPushDispatchJob.create).toHaveBeenCalledWith({
+      data: { notificationId: notification.id },
+    });
+    expect(sessionsGateway.notifyUser).toHaveBeenCalledWith(
+      'recipient',
+      'notification_received',
+      notification
+    );
+    expect(pushNotifications.send).not.toHaveBeenCalled();
   });
 
   it('returns the existing row and does not redeliver an ONCE conflict', async () => {

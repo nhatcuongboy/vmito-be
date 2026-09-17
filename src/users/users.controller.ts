@@ -11,6 +11,7 @@ import {
   Query,
   UseGuards,
   ForbiddenException,
+  Req,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -19,11 +20,17 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { ChatService } from '../chat/chat.service';
+import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly chatService: ChatService
+  ) {}
 
   /**
    * Get all users (Admin or Host)
@@ -121,9 +128,17 @@ export class UsersController {
    * Get basic public info for a user
    */
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get('public/:id')
-  getPublicProfile(@Param('id') id: string) {
-    return this.usersService.getPublicProfile(id);
+  async getPublicProfile(
+    @Param('id') id: string,
+    @Req() request: { user?: AuthenticatedUser }
+  ) {
+    const [profile, chatMode] = await Promise.all([
+      this.usersService.getPublicProfile(id),
+      this.chatService.getPublicChatMode(request.user?.userId, id),
+    ]);
+    return { ...profile, chatMode };
   }
 
   /**
