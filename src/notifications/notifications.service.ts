@@ -470,8 +470,10 @@ export class NotificationsService {
     if (dto.deviceId) {
       await this.prisma.notificationDevice.deleteMany({
         where: {
-          userId,
-          deviceId: dto.deviceId,
+          OR: [
+            { deviceId: dto.deviceId },
+            { userId, deviceId: null },
+          ],
           token: { not: dto.token },
         },
       });

@@ -354,8 +354,10 @@ describe('NotificationsService', () => {
 
     expect(prisma.notificationDevice.deleteMany).toHaveBeenCalledWith({
       where: {
-        userId: 'user-1',
-        deviceId: 'installation-1',
+        OR: [
+          { deviceId: 'installation-1' },
+          { userId: 'user-1', deviceId: null },
+        ],
         token: { not: 'new-token' },
       },
     });
