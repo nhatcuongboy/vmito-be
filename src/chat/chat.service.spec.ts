@@ -7,12 +7,12 @@ import {
 import { ForbiddenException } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import {
+  STREAM_PERMISSION,
   VMITO_ACTIVE_PERMISSIONS,
   VMITO_BLOCKLIST,
   VMITO_CHANNEL_SETTINGS,
   VMITO_PENDING_PERMISSIONS,
 } from './stream-chat.service';
-import { BuiltinPermissions } from 'stream-chat';
 
 const termsVersion = '2026-09-13';
 const now = new Date('2026-09-13T00:00:00.000Z');
@@ -303,18 +303,27 @@ describe('ChatService', () => {
     expect(stream.blockUser).not.toHaveBeenCalled();
   });
 
+  it('grants Stream action IDs, not display names like "Read Own Channel"', () => {
+    for (const permission of [
+      ...VMITO_ACTIVE_PERMISSIONS,
+      ...VMITO_PENDING_PERMISSIONS,
+    ]) {
+      expect(permission).toMatch(/^[a-z]+(-[a-z]+)*$/);
+    }
+  });
+
   it('keeps pending roles read-only and disables unsupported V1 features', () => {
     expect(VMITO_PENDING_PERMISSIONS).toEqual([
-      BuiltinPermissions.ReadOwnChannel,
+      STREAM_PERMISSION.readChannel,
     ]);
     expect(VMITO_PENDING_PERMISSIONS).not.toContain(
-      BuiltinPermissions.CreateMessage
+      STREAM_PERMISSION.createMessage
     );
     expect(VMITO_ACTIVE_PERMISSIONS).toContain(
-      BuiltinPermissions.CreateMessage
+      STREAM_PERMISSION.createMessage
     );
     expect(VMITO_ACTIVE_PERMISSIONS).not.toContain(
-      BuiltinPermissions.UploadAttachment
+      STREAM_PERMISSION.uploadAttachment
     );
     expect(VMITO_CHANNEL_SETTINGS).toEqual(
       expect.objectContaining({

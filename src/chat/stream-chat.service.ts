@@ -5,7 +5,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { BuiltinPermissions, StreamChat } from 'stream-chat';
+import { StreamChat } from 'stream-chat';
 
 export const VMITO_CHANNEL_TYPE = 'vmito_dm';
 export const PENDING_SENDER_ROLE = 'vmito_pending_sender';
@@ -25,13 +25,28 @@ export const VMITO_BLOCKLIST_WORDS = [
   '婊子',
   '去死',
 ];
-export const VMITO_ACTIVE_PERMISSIONS = [
-  BuiltinPermissions.ReadOwnChannel,
-  BuiltinPermissions.CreateMessage,
-  BuiltinPermissions.UpdateOwnMessage,
-  BuiltinPermissions.DeleteOwnMessage,
+// Channel type `grants` take permission action IDs. `BuiltinPermissions` from
+// stream-chat holds display names ("Read Own Channel") for the legacy
+// permissions API, which Stream rejects here as "unknown permission".
+export const STREAM_PERMISSION = {
+  readChannel: 'read-channel',
+  createMessage: 'create-message',
+  updateOwnMessage: 'update-message-owner',
+  deleteOwnMessage: 'delete-message-owner',
+  uploadAttachment: 'upload-attachment',
+} as const;
+export const VMITO_ACTIVE_PERMISSIONS: string[] = [
+  STREAM_PERMISSION.readChannel,
+  STREAM_PERMISSION.createMessage,
+  STREAM_PERMISSION.updateOwnMessage,
+  STREAM_PERMISSION.deleteOwnMessage,
 ];
-export const VMITO_PENDING_PERMISSIONS = [BuiltinPermissions.ReadOwnChannel];
+export const VMITO_PENDING_PERMISSIONS: string[] = [
+  STREAM_PERMISSION.readChannel,
+];
+// The SDK default of 3s is too tight for the sequential calls made while
+// configuring the blocklist, roles and channel type.
+const STREAM_REQUEST_TIMEOUT_MS = 15_000;
 export const VMITO_CHANNEL_SETTINGS = {
   automod: 'simple' as const,
   automod_behavior: 'flag' as const,
@@ -69,7 +84,9 @@ export class StreamChatService implements OnModuleInit {
     this.apiKey = this.config.get<string>('STREAM_API_KEY')?.trim() ?? '';
     const secret = this.config.get<string>('STREAM_API_SECRET')?.trim() ?? '';
     if (this.apiKey && secret)
-      this.client = new StreamChat(this.apiKey, secret);
+      this.client = new StreamChat(this.apiKey, secret, {
+        timeout: STREAM_REQUEST_TIMEOUT_MS,
+      });
   }
 
   get isConfigured() {
@@ -329,8 +346,6 @@ export class StreamChatService implements OnModuleInit {
         ...VMITO_CHANNEL_SETTINGS,
         grants: {
           user: [],
-          admin: ['*'],
-          channel_moderator: ['*'],
           channel_member: VMITO_ACTIVE_PERMISSIONS,
           [PENDING_SENDER_ROLE]: VMITO_PENDING_PERMISSIONS,
           [PENDING_RECIPIENT_ROLE]: [],
