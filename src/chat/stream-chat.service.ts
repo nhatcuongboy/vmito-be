@@ -154,6 +154,7 @@ export class StreamChatService implements OnModuleInit {
           channel_role: PENDING_RECIPIENT_ROLE,
         },
       ],
+      created_by_id: input.senderId,
       vmito_state: 'pending',
       vmito_requester_id: input.senderId,
     });
@@ -185,12 +186,14 @@ export class StreamChatService implements OnModuleInit {
     channelId: string;
     firstUserId: string;
     secondUserId: string;
+    createdById: string;
   }) {
     const channel = this.requiredClient().channel(
       VMITO_CHANNEL_TYPE,
       input.channelId,
       {
         members: [input.firstUserId, input.secondUserId],
+        created_by_id: input.createdById,
         vmito_state: 'active',
       }
     );

@@ -442,6 +442,7 @@ export class ChatService {
         channelId,
         firstUserId: participantAId,
         secondUserId: participantBId,
+        createdById: userId,
       });
     }
     const conversation = await this.prisma.chatConversation.upsert({
