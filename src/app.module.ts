@@ -48,6 +48,7 @@ import { WelcomePopupsModule } from './welcome-popups/welcome-popups.module';
 import { ArticlesModule } from './articles/articles.module';
 import { PlayerProfilesModule } from './player-profiles/player-profiles.module';
 import { ChatModule } from './chat/chat.module';
+import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { UserOrIpThrottlerGuard } from './common/guards/user-or-ip-throttler.guard';
 import configuration from './config';
@@ -107,6 +108,7 @@ import configuration from './config';
     ArticlesModule,
     PlayerProfilesModule,
     ChatModule,
+    AuditLogsModule,
   ],
   controllers: [AppController],
   providers: [

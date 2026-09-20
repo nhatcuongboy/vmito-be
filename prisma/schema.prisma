@@ -2831,6 +2831,48 @@ enum ArticleStatus {
 // frontend. Each row holds a single language; rows that are translations of
 // each other share a `translationGroupId` so the page can emit hreflang
 // alternates without a separate join table.
+// ===========================================
+// Audit Log System
+// ===========================================
+
+enum AuditLogAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  ERROR
+  HTTP_REQUEST
+  OTHER
+}
+
+model AuditLog {
+  id                 String          @id @default(cuid())
+  action             AuditLogAction
+  entity             String?         // e.g. "Venue", "User", "Session"
+  entityId           String?         // ID of the affected entity
+  userId             String?         // Who performed the action
+  userEmail          String?         // Denormalized for quick display
+  userName           String?         // Denormalized for quick display
+  details            Json?           // Flexible payload (old/new values, etc.)
+  ipAddress          String?
+  userAgent          String?
+  status             Int?            // HTTP status code (alias for responseStatusCode)
+  errorMessage       String?         // Error message if applicable
+  requestMethod      String?         // GET, POST, PUT, DELETE, PATCH
+  requestUrl         String?
+  responseStatusCode Int?
+  durationMs         Int?            // Request duration in milliseconds
+  createdAt          DateTime        @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@index([action])
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([responseStatusCode])
+  @@map("audit_logs")
+}
+
 model Article {
   id                 String  @id @default(cuid())
   slug               String  @unique // URL-friendly, generated from the title

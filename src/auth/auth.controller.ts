@@ -154,11 +154,16 @@ export class AuthController {
       familyName: appleSignInDto.familyName,
     });
 
-    return this.authService.generateTokenForUser({
+    const tokenData = await this.authService.generateTokenForUser({
       id: user.id,
       email: user.email,
       role: user.role,
     });
+
+    // Audit: user logged in via Apple
+    this.authService.logLogin(user, 'apple');
+
+    return tokenData;
   }
 
   @UseGuards(JwtAuthGuard)
@@ -257,6 +262,9 @@ export class AuthController {
       callbackUrl += `&returnUrl=${encodeURIComponent(returnUrl)}`;
     }
 
+    // Audit: user logged in via Google OAuth
+    this.authService.logLogin(user, 'google');
+
     res.redirect(callbackUrl);
   }
 
@@ -326,6 +334,9 @@ export class AuthController {
     if (returnUrl) {
       callbackUrl += `&returnUrl=${encodeURIComponent(returnUrl)}`;
     }
+
+    // Audit: user logged in via Facebook OAuth
+    this.authService.logLogin(user, 'facebook');
 
     res.redirect(callbackUrl);
   }
@@ -402,6 +413,9 @@ export class AuthController {
     if (returnUrl) {
       callbackUrl += `&returnUrl=${encodeURIComponent(returnUrl)}`;
     }
+
+    // Audit: user logged in via Zalo OAuth
+    this.authService.logLogin(callbackUser, 'zalo');
 
     res.redirect(callbackUrl);
   }
