@@ -24,6 +24,7 @@ import {
   ClubJoinPolicy,
   ClubStatus,
   ClubOperationalStatus,
+  PlayerProfileStatus,
   Role,
   FavoriteType,
   NotificationType,
@@ -149,6 +150,31 @@ export class ClubsService {
     }
 
     return club;
+  }
+
+  /** Counts guest roster profiles that still represent a standalone person.
+   * Promoted or archived profiles must not inflate a club's member count. */
+  private async getActiveGuestProfileCounts(clubIds: readonly string[]) {
+    const ids = [...new Set(clubIds)];
+    if (ids.length === 0) return new Map<string, number>();
+
+    const counts = await this.prisma.hostPlayerProfile.groupBy({
+      by: ['clubId'],
+      where: {
+        clubId: { in: ids },
+        status: PlayerProfileStatus.ACTIVE,
+        linkedUserId: null,
+      },
+      _count: { _all: true },
+    });
+
+    return new Map(
+      counts
+        .filter((count): count is typeof count & { clubId: string } =>
+          Boolean(count.clubId)
+        )
+        .map((count) => [count.clubId, count._count._all])
+    );
   }
 
   // ===========================================
@@ -339,6 +365,10 @@ export class ClubsService {
       this.prisma.club.count({ where }),
     ]);
 
+    const guestProfileCounts = await this.getActiveGuestProfileCounts(
+      clubs.map((club) => club.id)
+    );
+
     // Post-fetch: distance calculation
     let result = clubs.map((club) => ({
       id: club.id,
@@ -352,7 +382,7 @@ export class ClubsService {
       location: club.location,
       joinPolicy: club.joinPolicy,
       maxMembers: club.maxMembers,
-      memberCount: club._count.members,
+      memberCount: club._count.members + (guestProfileCounts.get(club.id) ?? 0),
       sessionCount: club.sessionCount,
       host: club.host,
       schedules: club.schedules,
@@ -480,6 +510,20 @@ export class ClubsService {
           },
           orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
         },
+        playerProfiles: {
+          where: {
+            status: PlayerProfileStatus.ACTIVE,
+            linkedUserId: null,
+          },
+          select: {
+            id: true,
+            name: true,
+            gender: true,
+            level: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        },
         announcements: {
           orderBy: [{ pinnedUntil: 'desc' }, { createdAt: 'desc' }],
           take: 5,
@@ -571,7 +615,7 @@ export class ClubsService {
       isPublic: club.isPublic,
       joinPolicy: club.joinPolicy,
       maxMembers: club.maxMembers,
-      memberCount: club._count.members,
+      memberCount: club._count.members + club.playerProfiles.length,
       sessionCount: club.sessionCount,
       totalPlayersServed: club.totalPlayersServed,
       hostName: clubRecord.hostName ?? undefined,
@@ -587,6 +631,7 @@ export class ClubsService {
         createdAt: m.createdAt,
         user: m.user,
       })),
+      guestProfiles: club.playerProfiles,
       announcements: club.announcements,
       createdAt: club.createdAt,
       scheduleVenues,
@@ -887,6 +932,12 @@ export class ClubsService {
       orderBy: { createdAt: 'desc' },
     });
 
+    const guestProfileCounts = await this.getActiveGuestProfileCounts([
+      ...memberships.map((membership) => membership.club.id),
+      ...pendingClubs.map((club) => club.id),
+      ...hostedClubs.map((club) => club.id),
+    ]);
+
     // Map memberships to club data
     const memberClubs = memberships.map((m) => ({
       id: m.club.id,
@@ -897,7 +948,8 @@ export class ClubsService {
       image: m.club.image,
       status: m.club.status,
       role: m.role,
-      memberCount: m.club._count.members,
+      memberCount:
+        m.club._count.members + (guestProfileCounts.get(m.club.id) ?? 0),
       host: m.club.host,
       schedules: m.club.schedules,
       defaultVenue: m.club.defaultVenue,
@@ -914,7 +966,7 @@ export class ClubsService {
       image: club.image,
       status: club.status,
       role: MemberRole.ADMIN, // User is the host/creator
-      memberCount: club._count.members,
+      memberCount: club._count.members + (guestProfileCounts.get(club.id) ?? 0),
       host: club.host,
       schedules: club.schedules,
       defaultVenue: club.defaultVenue,
@@ -931,7 +983,7 @@ export class ClubsService {
       image: club.image,
       status: club.status,
       role: MemberRole.ADMIN, // User is the host/creator
-      memberCount: club._count.members,
+      memberCount: club._count.members + (guestProfileCounts.get(club.id) ?? 0),
       host: club.host,
       schedules: club.schedules,
       defaultVenue: club.defaultVenue,
@@ -1029,9 +1081,13 @@ export class ClubsService {
       orderBy: { createdAt: 'asc' },
     });
 
+    const guestProfileCounts = await this.getActiveGuestProfileCounts(
+      clubs.map((club) => club.id)
+    );
+
     return clubs.map((club) => ({
       ...club,
-      memberCount: club._count.members,
+      memberCount: club._count.members + (guestProfileCounts.get(club.id) ?? 0),
       currentMonthFee: club.feeConfigs[0] || null,
       _count: undefined,
       feeConfigs: undefined,
@@ -1091,9 +1147,13 @@ export class ClubsService {
       throw new NotFoundException('Club not found');
     }
 
+    const guestProfileCounts = await this.getActiveGuestProfileCounts([
+      club.id,
+    ]);
+
     return {
       ...club,
-      memberCount: club._count.members,
+      memberCount: club._count.members + (guestProfileCounts.get(club.id) ?? 0),
       _count: undefined,
     };
   }
