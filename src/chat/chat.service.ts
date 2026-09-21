@@ -64,12 +64,20 @@ export class ChatService {
 
     await this.stream.ensureInfrastructure();
     await this.reconcileBlocksFor(userId);
-    await this.reconcilePendingFor(userId);
+    await this.reconcileBlockedPendingFor(userId);
     await this.stream.upsertUser(user);
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
     return {
       ...base,
-      pendingRequestCount: 0,
+      // Requests survive consent now, so the count stays truthful — the app
+      // renders them as an inbox section to accept or decline one by one.
+      pendingRequestCount: await this.prisma.chatConversation.count({
+        where: {
+          recipientId: userId,
+          status: ChatConversationStatus.PENDING,
+          initialMessageId: { not: null },
+        },
+      }),
       apiKey: this.stream.key,
       token: this.stream.createToken(userId, expiresAt),
       expiresAt: expiresAt.toISOString(),
@@ -88,8 +96,10 @@ export class ChatService {
         chatTermsAcceptedAt: new Date(),
       },
     });
-    const activatedCount = await this.reconcilePendingFor(userId);
-    return { ...(await this.getSession(userId)), activatedCount };
+    // Consent opens chat; it does not answer anyone's request. `activatedCount`
+    // stays in the payload for the clients that read it, always zero now.
+    await this.reconcileBlockedPendingFor(userId);
+    return { ...(await this.getSession(userId)), activatedCount: 0 };
   }
 
   async findContacts(userId: string, query: ChatContactsQueryDto) {
@@ -120,15 +130,16 @@ export class ChatService {
       }),
       this.prisma.user.count({ where }),
     ]);
-    const modes = await Promise.all(
-      users.map((user) => this.getMode(userId, user.id, user))
+    const targets = await Promise.all(
+      users.map((user) => this.resolveTarget(userId, user.id, user))
     );
     return {
       data: users.map((user, index) => ({
         id: user.id,
         name: user.name,
         image: user.image,
-        chatMode: modes[index],
+        chatMode: targets[index].mode,
+        pendingChannelId: targets[index].pendingChannelId,
       })),
       pagination: {
         page: query.page,
@@ -359,6 +370,54 @@ export class ChatService {
     }
   }
 
+  /**
+   * Activates one pending request the recipient chose to accept.
+   *
+   * Consent no longer activates anything on its own: a request stays pending
+   * until the recipient answers it here or in {@link declineRequest}, so the
+   * inbox can show it as an incoming request the way the app does.
+   */
+  async acceptRequest(userId: string, requestId: string) {
+    await this.assertAvailable();
+    const conversation = await this.findConversation(requestId);
+    if (conversation.recipientId !== userId) {
+      throw new ForbiddenException('Only the recipient can accept a request');
+    }
+    if (conversation.status !== ChatConversationStatus.PENDING) {
+      return this.conversationResponse(conversation);
+    }
+    const recipient = await this.findChatUser(userId);
+    if (!this.hasCurrentConsent(recipient)) {
+      throw new ForbiddenException('Accept chat terms before accepting requests');
+    }
+    // A block raised after the request was sent turns acceptance into a
+    // decline — the same resolution reconciliation applies.
+    if (
+      await this.isBlocked(
+        conversation.participantAId,
+        conversation.participantBId
+      )
+    ) {
+      return this.declineRequest(userId, requestId);
+    }
+
+    await this.stream.ensureInfrastructure();
+    await this.stream.upsertUser(recipient);
+    await this.stream.activateChannel(conversation.streamChannelId, [
+      conversation.participantAId,
+      conversation.participantBId,
+    ]);
+    return this.conversationResponse(
+      await this.prisma.chatConversation.update({
+        where: { id: requestId },
+        data: {
+          status: ChatConversationStatus.ACTIVE,
+          activatedAt: new Date(),
+        },
+      })
+    );
+  }
+
   async declineRequest(userId: string, requestId: string) {
     const conversation = await this.findConversation(requestId);
     if (conversation.recipientId !== userId) {
@@ -532,15 +591,30 @@ export class ChatService {
   }
 
   async getPublicChatMode(viewerId: string | undefined, targetUserId: string) {
-    if (!viewerId || viewerId === targetUserId) return 'UNAVAILABLE' as const;
+    const { mode } = await this.getPublicChatTarget(viewerId, targetUserId);
+    return mode;
+  }
+
+  /**
+   * The public-profile view of {@link resolveTarget}: the mode plus the
+   * pending request the viewer already sent this user, so the profile's
+   * message CTA can reopen it rather than start a second one.
+   */
+  async getPublicChatTarget(
+    viewerId: string | undefined,
+    targetUserId: string
+  ): Promise<{ mode: ChatMode; pendingChannelId: string | null }> {
+    if (!viewerId || viewerId === targetUserId) {
+      return { mode: 'UNAVAILABLE', pendingChannelId: null };
+    }
     if (
       !(await this.featureFlags.isEnabled('CHAT_ENABLED')) ||
       !this.stream.isConfigured
     ) {
-      return 'UNAVAILABLE' as const;
+      return { mode: 'UNAVAILABLE', pendingChannelId: null };
     }
     const target = await this.findChatUser(targetUserId);
-    return this.getMode(viewerId, targetUserId, target);
+    return this.resolveTarget(viewerId, targetUserId, target);
   }
 
   async deleteUserData(userId: string) {
@@ -571,7 +645,14 @@ export class ChatService {
     await this.stream.deleteUserData(userId);
   }
 
-  private async reconcilePendingFor(userId: string) {
+  /**
+   * Resolves pending requests a block has made unanswerable.
+   *
+   * Acceptance itself is explicit — see {@link acceptRequest}. This only
+   * clears requests whose participants blocked each other after the request
+   * was sent, so a blocked pair never keeps a live invitation between them.
+   */
+  private async reconcileBlockedPendingFor(userId: string) {
     const pending = await this.prisma.chatConversation.findMany({
       where: {
         recipientId: userId,
@@ -579,38 +660,26 @@ export class ChatService {
         initialMessageId: { not: null },
       },
     });
-    let activatedCount = 0;
+    let declinedCount = 0;
     for (const conversation of pending) {
       const blocked = await this.isBlocked(
         conversation.participantAId,
         conversation.participantBId
       );
-      if (blocked) {
-        await this.stream.deleteChannel(conversation.streamChannelId);
-        await this.prisma.chatConversation.update({
-          where: { id: conversation.id },
-          data: {
-            status: ChatConversationStatus.DECLINED,
-            declinedAt: new Date(),
-            initialMessageId: null,
-          },
-        });
-        continue;
-      }
-      await this.stream.activateChannel(conversation.streamChannelId, [
-        conversation.participantAId,
-        conversation.participantBId,
-      ]);
+      if (!blocked) continue;
+
+      await this.stream.deleteChannel(conversation.streamChannelId);
       await this.prisma.chatConversation.update({
         where: { id: conversation.id },
         data: {
-          status: ChatConversationStatus.ACTIVE,
-          activatedAt: new Date(),
+          status: ChatConversationStatus.DECLINED,
+          declinedAt: new Date(),
+          initialMessageId: null,
         },
       });
-      activatedCount++;
+      declinedCount++;
     }
-    return activatedCount;
+    return declinedCount;
   }
 
   /**
@@ -647,17 +716,53 @@ export class ChatService {
       chatTermsAcceptedAt: Date | null;
     }
   ): Promise<ChatMode> {
-    if (await this.isBlocked(viewerId, targetUserId)) return 'UNAVAILABLE';
+    const { mode } = await this.resolveTarget(viewerId, targetUserId, target);
+    return mode;
+  }
+
+  /**
+   * How the viewer can reach this target, and the conversation they already
+   * opened with them, if any.
+   *
+   * `pendingChannelId` is set only for a request the *viewer* sent: that
+   * channel exists and they can read it (`PENDING_SENDER_ROLE`), so clients
+   * send them back to it instead of composing a second request that
+   * {@link createRequest} would reject as a conflict. A request pointed *at*
+   * the viewer stays out of it — they answer that one through
+   * {@link acceptRequest}, and until then Stream grants them nothing.
+   */
+  private async resolveTarget(
+    viewerId: string,
+    targetUserId: string,
+    target?: {
+      chatTermsAcceptedVersion: string | null;
+      chatTermsAcceptedAt: Date | null;
+    }
+  ): Promise<{ mode: ChatMode; pendingChannelId: string | null }> {
+    if (await this.isBlocked(viewerId, targetUserId)) {
+      return { mode: 'UNAVAILABLE', pendingChannelId: null };
+    }
     const pair = await this.findPair(viewerId, targetUserId);
     if (
       pair?.status === ChatConversationStatus.DECLINED &&
       pair.requesterId === viewerId
     ) {
-      return 'UNAVAILABLE';
+      return { mode: 'UNAVAILABLE', pendingChannelId: null };
     }
-    if (pair?.status === ChatConversationStatus.ACTIVE) return 'DIRECT';
+    if (pair?.status === ChatConversationStatus.ACTIVE) {
+      return { mode: 'DIRECT', pendingChannelId: null };
+    }
+    const pendingChannelId =
+      pair?.status === ChatConversationStatus.PENDING &&
+      pair.requesterId === viewerId &&
+      pair.initialMessageId
+        ? pair.streamChannelId
+        : null;
     const resolvedTarget = target ?? (await this.findChatUser(targetUserId));
-    return this.hasCurrentConsent(resolvedTarget) ? 'DIRECT' : 'REQUEST';
+    return {
+      mode: this.hasCurrentConsent(resolvedTarget) ? 'DIRECT' : 'REQUEST',
+      pendingChannelId,
+    };
   }
 
   private async assertAvailable() {

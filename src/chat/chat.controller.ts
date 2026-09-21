@@ -63,6 +63,12 @@ export class ChatController {
     return this.chat.createRequest(user.userId, dto);
   }
 
+  @Post('requests/:id/accept')
+  @HttpCode(HttpStatus.OK)
+  accept(@CurrentUser() user: { userId: string }, @Param('id') id: string) {
+    return this.chat.acceptRequest(user.userId, id);
+  }
+
   @Post('requests/:id/decline')
   @HttpCode(HttpStatus.OK)
   decline(@CurrentUser() user: { userId: string }, @Param('id') id: string) {
