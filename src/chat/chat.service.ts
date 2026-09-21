@@ -64,12 +64,20 @@ export class ChatService {
 
     await this.stream.ensureInfrastructure();
     await this.reconcileBlocksFor(userId);
-    await this.reconcilePendingFor(userId);
+    await this.reconcileBlockedPendingFor(userId);
     await this.stream.upsertUser(user);
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
     return {
       ...base,
-      pendingRequestCount: 0,
+      // Requests survive consent now, so the count stays truthful — the app
+      // renders them as an inbox section to accept or decline one by one.
+      pendingRequestCount: await this.prisma.chatConversation.count({
+        where: {
+          recipientId: userId,
+          status: ChatConversationStatus.PENDING,
+          initialMessageId: { not: null },
+        },
+      }),
       apiKey: this.stream.key,
       token: this.stream.createToken(userId, expiresAt),
       expiresAt: expiresAt.toISOString(),
@@ -88,8 +96,10 @@ export class ChatService {
         chatTermsAcceptedAt: new Date(),
       },
     });
-    const activatedCount = await this.reconcilePendingFor(userId);
-    return { ...(await this.getSession(userId)), activatedCount };
+    // Consent opens chat; it does not answer anyone's request. `activatedCount`
+    // stays in the payload for the clients that read it, always zero now.
+    await this.reconcileBlockedPendingFor(userId);
+    return { ...(await this.getSession(userId)), activatedCount: 0 };
   }
 
   async findContacts(userId: string, query: ChatContactsQueryDto) {
@@ -359,6 +369,54 @@ export class ChatService {
     }
   }
 
+  /**
+   * Activates one pending request the recipient chose to accept.
+   *
+   * Consent no longer activates anything on its own: a request stays pending
+   * until the recipient answers it here or in {@link declineRequest}, so the
+   * inbox can show it as an incoming request the way the app does.
+   */
+  async acceptRequest(userId: string, requestId: string) {
+    await this.assertAvailable();
+    const conversation = await this.findConversation(requestId);
+    if (conversation.recipientId !== userId) {
+      throw new ForbiddenException('Only the recipient can accept a request');
+    }
+    if (conversation.status !== ChatConversationStatus.PENDING) {
+      return this.conversationResponse(conversation);
+    }
+    const recipient = await this.findChatUser(userId);
+    if (!this.hasCurrentConsent(recipient)) {
+      throw new ForbiddenException('Accept chat terms before accepting requests');
+    }
+    // A block raised after the request was sent turns acceptance into a
+    // decline — the same resolution reconciliation applies.
+    if (
+      await this.isBlocked(
+        conversation.participantAId,
+        conversation.participantBId
+      )
+    ) {
+      return this.declineRequest(userId, requestId);
+    }
+
+    await this.stream.ensureInfrastructure();
+    await this.stream.upsertUser(recipient);
+    await this.stream.activateChannel(conversation.streamChannelId, [
+      conversation.participantAId,
+      conversation.participantBId,
+    ]);
+    return this.conversationResponse(
+      await this.prisma.chatConversation.update({
+        where: { id: requestId },
+        data: {
+          status: ChatConversationStatus.ACTIVE,
+          activatedAt: new Date(),
+        },
+      })
+    );
+  }
+
   async declineRequest(userId: string, requestId: string) {
     const conversation = await this.findConversation(requestId);
     if (conversation.recipientId !== userId) {
@@ -571,7 +629,14 @@ export class ChatService {
     await this.stream.deleteUserData(userId);
   }
 
-  private async reconcilePendingFor(userId: string) {
+  /**
+   * Resolves pending requests a block has made unanswerable.
+   *
+   * Acceptance itself is explicit — see {@link acceptRequest}. This only
+   * clears requests whose participants blocked each other after the request
+   * was sent, so a blocked pair never keeps a live invitation between them.
+   */
+  private async reconcileBlockedPendingFor(userId: string) {
     const pending = await this.prisma.chatConversation.findMany({
       where: {
         recipientId: userId,
@@ -579,38 +644,26 @@ export class ChatService {
         initialMessageId: { not: null },
       },
     });
-    let activatedCount = 0;
+    let declinedCount = 0;
     for (const conversation of pending) {
       const blocked = await this.isBlocked(
         conversation.participantAId,
         conversation.participantBId
       );
-      if (blocked) {
-        await this.stream.deleteChannel(conversation.streamChannelId);
-        await this.prisma.chatConversation.update({
-          where: { id: conversation.id },
-          data: {
-            status: ChatConversationStatus.DECLINED,
-            declinedAt: new Date(),
-            initialMessageId: null,
-          },
-        });
-        continue;
-      }
-      await this.stream.activateChannel(conversation.streamChannelId, [
-        conversation.participantAId,
-        conversation.participantBId,
-      ]);
+      if (!blocked) continue;
+
+      await this.stream.deleteChannel(conversation.streamChannelId);
       await this.prisma.chatConversation.update({
         where: { id: conversation.id },
         data: {
-          status: ChatConversationStatus.ACTIVE,
-          activatedAt: new Date(),
+          status: ChatConversationStatus.DECLINED,
+          declinedAt: new Date(),
+          initialMessageId: null,
         },
       });
-      activatedCount++;
+      declinedCount++;
     }
-    return activatedCount;
+    return declinedCount;
   }
 
   /**
