@@ -130,15 +130,16 @@ export class ChatService {
       }),
       this.prisma.user.count({ where }),
     ]);
-    const modes = await Promise.all(
-      users.map((user) => this.getMode(userId, user.id, user))
+    const targets = await Promise.all(
+      users.map((user) => this.resolveTarget(userId, user.id, user))
     );
     return {
       data: users.map((user, index) => ({
         id: user.id,
         name: user.name,
         image: user.image,
-        chatMode: modes[index],
+        chatMode: targets[index].mode,
+        pendingChannelId: targets[index].pendingChannelId,
       })),
       pagination: {
         page: query.page,
@@ -590,15 +591,30 @@ export class ChatService {
   }
 
   async getPublicChatMode(viewerId: string | undefined, targetUserId: string) {
-    if (!viewerId || viewerId === targetUserId) return 'UNAVAILABLE' as const;
+    const { mode } = await this.getPublicChatTarget(viewerId, targetUserId);
+    return mode;
+  }
+
+  /**
+   * The public-profile view of {@link resolveTarget}: the mode plus the
+   * pending request the viewer already sent this user, so the profile's
+   * message CTA can reopen it rather than start a second one.
+   */
+  async getPublicChatTarget(
+    viewerId: string | undefined,
+    targetUserId: string
+  ): Promise<{ mode: ChatMode; pendingChannelId: string | null }> {
+    if (!viewerId || viewerId === targetUserId) {
+      return { mode: 'UNAVAILABLE', pendingChannelId: null };
+    }
     if (
       !(await this.featureFlags.isEnabled('CHAT_ENABLED')) ||
       !this.stream.isConfigured
     ) {
-      return 'UNAVAILABLE' as const;
+      return { mode: 'UNAVAILABLE', pendingChannelId: null };
     }
     const target = await this.findChatUser(targetUserId);
-    return this.getMode(viewerId, targetUserId, target);
+    return this.resolveTarget(viewerId, targetUserId, target);
   }
 
   async deleteUserData(userId: string) {
@@ -700,17 +716,53 @@ export class ChatService {
       chatTermsAcceptedAt: Date | null;
     }
   ): Promise<ChatMode> {
-    if (await this.isBlocked(viewerId, targetUserId)) return 'UNAVAILABLE';
+    const { mode } = await this.resolveTarget(viewerId, targetUserId, target);
+    return mode;
+  }
+
+  /**
+   * How the viewer can reach this target, and the conversation they already
+   * opened with them, if any.
+   *
+   * `pendingChannelId` is set only for a request the *viewer* sent: that
+   * channel exists and they can read it (`PENDING_SENDER_ROLE`), so clients
+   * send them back to it instead of composing a second request that
+   * {@link createRequest} would reject as a conflict. A request pointed *at*
+   * the viewer stays out of it — they answer that one through
+   * {@link acceptRequest}, and until then Stream grants them nothing.
+   */
+  private async resolveTarget(
+    viewerId: string,
+    targetUserId: string,
+    target?: {
+      chatTermsAcceptedVersion: string | null;
+      chatTermsAcceptedAt: Date | null;
+    }
+  ): Promise<{ mode: ChatMode; pendingChannelId: string | null }> {
+    if (await this.isBlocked(viewerId, targetUserId)) {
+      return { mode: 'UNAVAILABLE', pendingChannelId: null };
+    }
     const pair = await this.findPair(viewerId, targetUserId);
     if (
       pair?.status === ChatConversationStatus.DECLINED &&
       pair.requesterId === viewerId
     ) {
-      return 'UNAVAILABLE';
+      return { mode: 'UNAVAILABLE', pendingChannelId: null };
     }
-    if (pair?.status === ChatConversationStatus.ACTIVE) return 'DIRECT';
+    if (pair?.status === ChatConversationStatus.ACTIVE) {
+      return { mode: 'DIRECT', pendingChannelId: null };
+    }
+    const pendingChannelId =
+      pair?.status === ChatConversationStatus.PENDING &&
+      pair.requesterId === viewerId &&
+      pair.initialMessageId
+        ? pair.streamChannelId
+        : null;
     const resolvedTarget = target ?? (await this.findChatUser(targetUserId));
-    return this.hasCurrentConsent(resolvedTarget) ? 'DIRECT' : 'REQUEST';
+    return {
+      mode: this.hasCurrentConsent(resolvedTarget) ? 'DIRECT' : 'REQUEST',
+      pendingChannelId,
+    };
   }
 
   private async assertAvailable() {

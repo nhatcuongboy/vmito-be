@@ -134,11 +134,17 @@ export class UsersController {
     @Param('id') id: string,
     @Req() request: { user?: AuthenticatedUser }
   ) {
-    const [profile, chatMode] = await Promise.all([
+    const [profile, chatTarget] = await Promise.all([
       this.usersService.getPublicProfile(id),
-      this.chatService.getPublicChatMode(request.user?.userId, id),
+      this.chatService.getPublicChatTarget(request.user?.userId, id),
     ]);
-    return { ...profile, chatMode };
+    // `pendingChannelId` lets the message CTA reopen a request the viewer
+    // already sent instead of composing a second one.
+    return {
+      ...profile,
+      chatMode: chatTarget.mode,
+      pendingChannelId: chatTarget.pendingChannelId,
+    };
   }
 
   /**
