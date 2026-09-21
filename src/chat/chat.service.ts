@@ -301,14 +301,18 @@ export class ChatService {
   private async deliverPendingRequest(
     reserved: ChatConversation,
     sender: { id: string; name: string; image: string | null },
-    recipient: { id: string },
+    recipient: { id: string; name: string; image: string | null },
     dto: CreateChatRequestDto
   ) {
     try {
       await this.stream.ensureInfrastructure();
       await Promise.all([
         this.stream.upsertUser(sender),
-        this.stream.upsertMinimalUser(recipient.id),
+        // Full profile, not just the id: a Stream user with no name makes
+        // every client fall back to the raw user id as the channel title,
+        // and the recipient only gets a name of their own once they open
+        // chat themselves.
+        this.stream.upsertUser(recipient),
       ]);
       const result = await this.stream.createPendingChannel({
         channelId: reserved.streamChannelId,

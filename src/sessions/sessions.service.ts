@@ -1843,11 +1843,12 @@ export class SessionsService {
     const resolvedVenueName =
       verifiedVenue?.name || extracted.venue?.name?.trim() || undefined;
 
-    // Session name follows the "Sân {tên sân}" convention so that cards in the
-    // discovery feed immediately convey the venue. Fall back to the AI's title
-    // or the generic placeholder when no venue could be determined.
+    // Session name follows the "Kèo sân {tên sân}" convention so that cards in
+    // the discovery feed immediately convey both the session and its venue.
+    // Fall back to the AI's title or the generic placeholder when no venue
+    // could be determined.
     const name = resolvedVenueName
-      ? `Sân ${resolvedVenueName}`
+      ? `Kèo sân ${resolvedVenueName}`
       : extracted.name?.trim() || 'Kèo vãng lai';
     const sessionDuration = extracted.sessionDuration ?? 120;
 
