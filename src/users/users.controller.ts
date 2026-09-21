@@ -146,8 +146,15 @@ export class UsersController {
    */
   @Post()
   @UseGuards(AdminGuard)
-  create(@Body() createUserDto: CreateUserDto) {
-    return this.usersService.create(createUserDto);
+  create(
+    @Body() createUserDto: CreateUserDto,
+    @CurrentUser() currentUser: { userId: string; email?: string; name?: string },
+  ) {
+    return this.usersService.create(createUserDto, {
+      userId: currentUser.userId,
+      email: currentUser.email,
+      name: currentUser.name,
+    });
   }
 
   /**
@@ -157,7 +164,7 @@ export class UsersController {
   update(
     @Param('id') id: string,
     @Body() updateUserDto: UpdateUserDto,
-    @CurrentUser() currentUser: { userId: string; role?: string }
+    @CurrentUser() currentUser: { userId: string; role?: string; email?: string; name?: string },
   ) {
     // Admin can update anyone, users can only update themselves
     if (id !== currentUser.userId && currentUser.role !== 'ADMIN') {
@@ -169,7 +176,11 @@ export class UsersController {
       throw new ForbiddenException('Only admin can change user role');
     }
 
-    return this.usersService.update(id, updateUserDto);
+    return this.usersService.update(id, updateUserDto, {
+      userId: currentUser.userId,
+      email: currentUser.email,
+      name: currentUser.name,
+    });
   }
 
   /**
@@ -196,12 +207,16 @@ export class UsersController {
   @UseGuards(AdminGuard)
   delete(
     @Param('id') id: string,
-    @CurrentUser() currentUser: { userId: string }
+    @CurrentUser() currentUser: { userId: string; email?: string; name?: string },
   ) {
     // Prevent self-deletion
     if (id === currentUser.userId) {
       throw new ForbiddenException('Cannot delete your own account');
     }
-    return this.usersService.delete(id);
+    return this.usersService.delete(id, {
+      userId: currentUser.userId,
+      email: currentUser.email,
+      name: currentUser.name,
+    });
   }
 }

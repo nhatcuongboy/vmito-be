@@ -12,6 +12,7 @@ import * as bcrypt from 'bcryptjs';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -101,7 +102,8 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
-    private mailService: MailService
+    private mailService: MailService,
+    private auditLogsService: AuditLogsService,
   ) {}
 
   async validateUser(
@@ -190,6 +192,9 @@ export class AuthService {
 
     const accessToken = this.jwtService.sign(payload);
     const refreshToken = await this.generateRefreshToken(user.id);
+
+    // Audit: user logged in via email/password
+    this.logLogin(user);
 
     return {
       accessToken,
@@ -585,6 +590,9 @@ export class AuthService {
         email: user.email,
         role: user.role,
       });
+
+      // Audit: user logged in via Google One Tap
+      this.logLogin(user, 'google');
 
       return {
         ...tokenData,
@@ -1032,6 +1040,20 @@ export class AuthService {
       return candidate;
     });
     return this.generateTokenForUser(session.user, session.id);
+  }
+
+  /**
+   * Write an audit log entry for a login event. Safe to call from controllers
+   * after a successful OAuth or email/password login.
+   */
+  logLogin(user: { id: string; email: string; name: string }, provider?: string) {
+    this.auditLogsService.create({
+      action: 'LOGIN',
+      userId: user.id,
+      userEmail: user.email,
+      userName: user.name,
+      details: provider ? { provider } : undefined,
+    });
   }
 
   async revokeWebViewSession(sessionId: string, userId: string) {

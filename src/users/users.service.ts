@@ -12,13 +12,15 @@ import * as bcrypt from 'bcryptjs';
 import { removeVietnameseTones } from '../common/utils/string.utils';
 import { ActivityFeedService } from '../activities/activity-feed.service';
 import { ChatService } from '../chat/chat.service';
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
 
 @Injectable()
 export class UsersService {
   constructor(
     private prisma: PrismaService,
     private activityFeedService: ActivityFeedService,
-    private chatService: ChatService
+    private chatService: ChatService,
+    private auditLogsService: AuditLogsService,
   ) {}
 
   private readonly userSelect = {
@@ -311,7 +313,10 @@ export class UsersService {
     };
   }
 
-  async create(createUserDto: CreateUserDto) {
+  async create(
+    createUserDto: CreateUserDto,
+    actor?: { userId: string; email?: string; name?: string },
+  ) {
     // Check if email already exists
     const existingUser = await this.prisma.user.findUnique({
       where: { email: createUserDto.email },
@@ -342,10 +347,25 @@ export class UsersService {
       select: this.userSelect,
     });
 
+    // Audit: user created
+    this.auditLogsService.create({
+      action: 'CREATE',
+      entity: 'User',
+      entityId: user.id,
+      userId: actor?.userId,
+      userEmail: actor?.email,
+      userName: actor?.name,
+      details: { createdUser: { id: user.id, email: user.email, role: user.role } },
+    });
+
     return user;
   }
 
-  async update(id: string, updateUserDto: UpdateUserDto) {
+  async update(
+    id: string,
+    updateUserDto: UpdateUserDto,
+    actor?: { userId: string; email?: string; name?: string },
+  ) {
     const user = await this.prisma.user.findUnique({
       where: { id },
     });
@@ -401,6 +421,20 @@ export class UsersService {
         updateUserDto.coverPhoto
       );
     }
+
+    // Audit: user updated
+    const changedFields = Object.keys(updateUserDto).filter(
+      (k) => k !== 'password' && k !== 'searchTerms',
+    );
+    this.auditLogsService.create({
+      action: 'UPDATE',
+      entity: 'User',
+      entityId: id,
+      userId: actor?.userId,
+      userEmail: actor?.email,
+      userName: actor?.name,
+      details: changedFields.length > 0 ? { changedFields } : undefined,
+    });
 
     return updated;
   }
@@ -497,13 +531,25 @@ export class UsersService {
       }),
     ]);
 
+    // Audit: user deleted own account
+    this.auditLogsService.create({
+      action: 'DELETE',
+      entity: 'User',
+      entityId: userId,
+      userId,
+      details: { selfDeleted: true },
+    });
+
     return {
       deleted: true,
       message: 'Tài khoản đã được xoá.',
     };
   }
 
-  async delete(id: string) {
+  async delete(
+    id: string,
+    actor?: { userId: string; email?: string; name?: string },
+  ) {
     const user = await this.prisma.user.findUnique({
       where: { id },
     });
@@ -526,6 +572,17 @@ export class UsersService {
     await this.chatService.deleteUserData(id);
     await this.prisma.user.delete({
       where: { id },
+    });
+
+    // Audit: user deleted
+    this.auditLogsService.create({
+      action: 'DELETE',
+      entity: 'User',
+      entityId: id,
+      userId: actor?.userId,
+      userEmail: actor?.email,
+      userName: actor?.name,
+      details: { deletedUser: { id, email: user.email, name: user.name, role: user.role } },
     });
 
     return { message: 'User deleted successfully', id };
