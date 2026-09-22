@@ -77,4 +77,14 @@ export class UpdateTournamentDto {
   @IsString()
   @MaxLength(30)
   contactPhone?: string | null;
+
+  /** Allow users to request to join (see tournament-registrations module). */
+  @IsOptional()
+  @IsBoolean()
+  registrationOpen?: boolean;
+
+  /** Self-registration closes at this instant. null clears the deadline. */
+  @IsOptional()
+  @IsDateString()
+  registrationDeadline?: string | null;
 }

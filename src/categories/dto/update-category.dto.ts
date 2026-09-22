@@ -132,4 +132,16 @@ export class UpdateCategoryDto {
   @IsInt()
   @Min(1)
   teamSize?: number;
+
+  // ─── Self-registration ──────────────────────────────────────────────
+  /** Accept user registration requests while the tournament is open. */
+  @IsOptional()
+  @IsBoolean()
+  registrationEnabled?: boolean;
+
+  /** Maximum approved registrations; null = unlimited. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxRegistrations?: number | null;
 }

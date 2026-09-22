@@ -99,6 +99,8 @@ interface CategoryUpdateData {
   finalPointsToWin?: number | null;
   finalWinByTwo?: boolean | null;
   finalPointCap?: number | null;
+  registrationEnabled?: boolean;
+  maxRegistrations?: number | null;
 }
 
 export interface MatchGenerationPreview {
@@ -880,6 +882,12 @@ export class CategoriesService {
         ...(dto.finalPointCap !== undefined && {
           finalPointCap: dto.finalPointCap,
         }),
+        ...(dto.registrationEnabled !== undefined && {
+          registrationEnabled: dto.registrationEnabled,
+        }),
+        ...(dto.maxRegistrations !== undefined && {
+          maxRegistrations: dto.maxRegistrations,
+        }),
       },
       include: {
         _count: {
@@ -1105,6 +1113,12 @@ export class CategoriesService {
         );
       }
       updateData.finalPointCap = dto.finalPointCap;
+    }
+    if (dto.registrationEnabled !== undefined) {
+      updateData.registrationEnabled = dto.registrationEnabled;
+    }
+    if (dto.maxRegistrations !== undefined) {
+      updateData.maxRegistrations = dto.maxRegistrations;
     }
 
     const formatChanged =
