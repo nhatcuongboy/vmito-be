@@ -20,6 +20,8 @@ import {
   categoryCounts,
   findPendingConflict,
   findRegisteredUserIds,
+  withPartners,
+  withPartnersOne,
 } from './registration.queries';
 import { TournamentRegistrationNotifier } from './tournament-registration.notifier';
 
@@ -171,12 +173,12 @@ export class TournamentRegistrationsService {
       },
       tournament.hostId
     );
-    return request;
+    return withPartnersOne(this.prisma, request);
   }
 
   /** Requests the user made or was named as a partner in. */
-  listMine(tournamentId: string, userId: string) {
-    return this.prisma.tournamentRegistrationRequest.findMany({
+  async listMine(tournamentId: string, userId: string) {
+    const requests = await this.prisma.tournamentRegistrationRequest.findMany({
       where: {
         tournamentId,
         OR: [{ userId }, { partnerUserIds: { has: userId } }],
@@ -184,6 +186,7 @@ export class TournamentRegistrationsService {
       include: REQUEST_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
+    return withPartners(this.prisma, requests);
   }
 
   async cancel(tournamentId: string, requestId: string, userId: string) {
@@ -199,10 +202,11 @@ export class TournamentRegistrationsService {
     if (request.status !== TournamentRegistrationStatus.PENDING) {
       throw new BadRequestException('Only pending requests can be cancelled');
     }
-    return this.prisma.tournamentRegistrationRequest.update({
+    const cancelled = await this.prisma.tournamentRegistrationRequest.update({
       where: { id: requestId },
       data: { status: TournamentRegistrationStatus.CANCELLED },
       include: REQUEST_INCLUDE,
     });
+    return withPartnersOne(this.prisma, cancelled);
   }
 }

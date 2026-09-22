@@ -25,6 +25,8 @@ import {
   categoryCounts,
   findRegisteredUserIds,
   requestUserIds,
+  withPartners,
+  withPartnersOne,
 } from './registration.queries';
 import { TournamentRegistrationNotifier } from './tournament-registration.notifier';
 
@@ -66,7 +68,7 @@ export class TournamentRegistrationReviewService {
     role?: string
   ) {
     await this.assertParticipantsAccess(tournamentId, userId, role);
-    return this.prisma.tournamentRegistrationRequest.findMany({
+    const requests = await this.prisma.tournamentRegistrationRequest.findMany({
       where: {
         tournamentId,
         ...(query.status && { status: query.status }),
@@ -75,6 +77,7 @@ export class TournamentRegistrationReviewService {
       include: REQUEST_INCLUDE,
       orderBy: { createdAt: 'asc' },
     });
+    return withPartners(this.prisma, requests);
   }
 
   async approve(
@@ -165,7 +168,7 @@ export class TournamentRegistrationReviewService {
     );
 
     await this.notifyReviewed(tournament.name, approved, true);
-    return approved;
+    return withPartnersOne(this.prisma, approved);
   }
 
   async reject(
@@ -187,7 +190,7 @@ export class TournamentRegistrationReviewService {
       reviewerId: userId,
     });
     await this.notifyReviewed(tournament.name, rejected, false);
-    return rejected;
+    return withPartnersOne(this.prisma, rejected);
   }
 
   private async assertParticipantsAccess(

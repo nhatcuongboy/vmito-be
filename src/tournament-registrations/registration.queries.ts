@@ -15,6 +15,44 @@ export const REQUEST_INCLUDE = {
   },
 } satisfies Prisma.TournamentRegistrationRequestInclude;
 
+export type RegistrationPartner = {
+  id: string;
+  name: string;
+  image: string | null;
+};
+
+/**
+ * `partnerUserIds` is a scalar array, not a relation, so Prisma cannot include
+ * it. Resolve it in one query so clients can show partner names without a
+ * lookup per id. Stored order is kept; users deleted since submission drop out.
+ */
+export async function withPartners<T extends { partnerUserIds: string[] }>(
+  db: Pick<Db, 'user'>,
+  requests: T[]
+): Promise<(T & { partners: RegistrationPartner[] })[]> {
+  const ids = [...new Set(requests.flatMap((r) => r.partnerUserIds))];
+  const users =
+    ids.length === 0
+      ? []
+      : await db.user.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, name: true, image: true },
+        });
+  const byId = new Map(users.map((u) => [u.id, u]));
+  return requests.map((request) => ({
+    ...request,
+    partners: request.partnerUserIds.flatMap((id) => byId.get(id) ?? []),
+  }));
+}
+
+export async function withPartnersOne<T extends { partnerUserIds: string[] }>(
+  db: Pick<Db, 'user'>,
+  request: T
+) {
+  const [resolved] = await withPartners(db, [request]);
+  return resolved;
+}
+
 /** Everyone a request would register: requester first, then Vmito partners. */
 export function requestUserIds(request: {
   userId: string;
