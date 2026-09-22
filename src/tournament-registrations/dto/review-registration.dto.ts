@@ -18,3 +18,9 @@ export class ListRegistrationRequestsDto {
   @IsString()
   categoryId?: string;
 }
+
+export class ListMyRegistrationsDto {
+  @IsOptional()
+  @IsEnum(TournamentRegistrationStatus)
+  status?: TournamentRegistrationStatus;
+}

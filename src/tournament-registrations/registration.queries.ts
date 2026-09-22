@@ -15,6 +15,22 @@ export const REQUEST_INCLUDE = {
   },
 } satisfies Prisma.TournamentRegistrationRequestInclude;
 
+/** Cross-tournament lists also need which tournament each request is for. */
+export const MY_REQUEST_INCLUDE = {
+  ...REQUEST_INCLUDE,
+  tournament: {
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      coverPhoto: true,
+      startDate: true,
+      endDate: true,
+      status: true,
+    },
+  },
+} satisfies Prisma.TournamentRegistrationRequestInclude;
+
 export type RegistrationPartner = {
   id: string;
   name: string;

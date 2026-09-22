@@ -16,6 +16,7 @@ import {
   tournamentClosedReason,
 } from './registration-eligibility.helper';
 import {
+  MY_REQUEST_INCLUDE,
   REQUEST_INCLUDE,
   categoryCounts,
   findPendingConflict,
@@ -24,6 +25,8 @@ import {
   withPartnersOne,
 } from './registration.queries';
 import { TournamentRegistrationNotifier } from './tournament-registration.notifier';
+
+const MY_REQUESTS_LIMIT = 200;
 
 /**
  * User side of tournament self-registration: submit / cancel a request and
@@ -185,6 +188,24 @@ export class TournamentRegistrationsService {
       },
       include: REQUEST_INCLUDE,
       orderBy: { createdAt: 'desc' },
+    });
+    return withPartners(this.prisma, requests);
+  }
+
+  /**
+   * Requests the user made or was named as a partner in, across every
+   * tournament, newest first. Capped: this backs a personal history screen,
+   * not an export.
+   */
+  async listAllMine(userId: string, status?: TournamentRegistrationStatus) {
+    const requests = await this.prisma.tournamentRegistrationRequest.findMany({
+      where: {
+        OR: [{ userId }, { partnerUserIds: { has: userId } }],
+        ...(status && { status }),
+      },
+      include: MY_REQUEST_INCLUDE,
+      orderBy: { createdAt: 'desc' },
+      take: MY_REQUESTS_LIMIT,
     });
     return withPartners(this.prisma, requests);
   }
