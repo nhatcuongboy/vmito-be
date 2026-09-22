@@ -654,6 +654,8 @@ export class TournamentsService {
               finalWinByTwo: c.finalWinByTwo,
               finalPointCap: c.finalPointCap,
               formatConfig: c.formatConfig ?? undefined,
+              registrationEnabled: c.registrationEnabled,
+              maxRegistrations: c.maxRegistrations,
             },
           });
           catMap.set(c.id, nc.id);
@@ -977,6 +979,8 @@ export class TournamentsService {
       contactName?: string | null;
       contactEmail?: string | null;
       contactPhone?: string | null;
+      registrationOpen?: boolean;
+      registrationDeadline?: Date | null;
     } = {};
 
     if (dto.name !== undefined) {
@@ -1059,6 +1063,21 @@ export class TournamentsService {
       const trimmed =
         typeof dto.contactPhone === 'string' ? dto.contactPhone.trim() : null;
       updateData.contactPhone = trimmed ? trimmed : null;
+    }
+
+    if (dto.registrationOpen !== undefined) {
+      updateData.registrationOpen = dto.registrationOpen;
+    }
+
+    if (dto.registrationDeadline !== undefined) {
+      const deadline =
+        dto.registrationDeadline === null
+          ? null
+          : new Date(dto.registrationDeadline);
+      if (deadline && isNaN(deadline.getTime())) {
+        throw new BadRequestException('Invalid registrationDeadline format');
+      }
+      updateData.registrationDeadline = deadline;
     }
 
     // Validate date range only when dates are being changed

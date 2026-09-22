@@ -39,26 +39,27 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relations
-  playerRecords          Player[]
-  hostedSessions         Session[]                        @relation("HostedSessions")
-  hostedClasses          Class[]                          @relation("HostedClasses")
-  accounts               Account[]
-  sessions               AuthSession[]
-  hostedTournaments      Tournament[]                     @relation("HostedTournaments")
-  managedTournaments     TournamentManager[]              @relation("ManagedTournaments")
-  tournamentPlayers      TournamentPlayer[]               @relation("TournamentPlayers")
-  refreshTokens          RefreshToken[]
-  webViewSessions        WebViewSession[]
-  paymentSettings        HostPaymentSettings[]
-  hostPayments           PaymentRecord[]                  @relation("HostPayments")
-  registeredPayments     PaymentRecord[]                  @relation("RegisteredPayments")
-  ratingsGiven           Rating[]                         @relation("RatingsGiven")
-  ratingsReceived        Rating[]                         @relation("RatingsReceived")
-  notifications          Notification[]
-  notificationDevices    NotificationDevice[]
-  broadcastsCreated      BroadcastNotification[]          @relation("BroadcastCreator")
-  broadcastStates        BroadcastNotificationUserState[]
-  notificationInboxState NotificationInboxState?
+  playerRecords                  Player[]
+  hostedSessions                 Session[]                        @relation("HostedSessions")
+  hostedClasses                  Class[]                          @relation("HostedClasses")
+  accounts                       Account[]
+  sessions                       AuthSession[]
+  hostedTournaments              Tournament[]                     @relation("HostedTournaments")
+  managedTournaments             TournamentManager[]              @relation("ManagedTournaments")
+  tournamentPlayers              TournamentPlayer[]               @relation("TournamentPlayers")
+  tournamentRegistrationRequests TournamentRegistrationRequest[]  @relation("TournamentRegistrationRequester")
+  refreshTokens                  RefreshToken[]
+  webViewSessions                WebViewSession[]
+  paymentSettings                HostPaymentSettings[]
+  hostPayments                   PaymentRecord[]                  @relation("HostPayments")
+  registeredPayments             PaymentRecord[]                  @relation("RegisteredPayments")
+  ratingsGiven                   Rating[]                         @relation("RatingsGiven")
+  ratingsReceived                Rating[]                         @relation("RatingsReceived")
+  notifications                  Notification[]
+  notificationDevices            NotificationDevice[]
+  broadcastsCreated              BroadcastNotification[]          @relation("BroadcastCreator")
+  broadcastStates                BroadcastNotificationUserState[]
+  notificationInboxState         NotificationInboxState?
 
   chatConversationsAsParticipantA ChatConversation[] @relation("ChatParticipantA")
   chatConversationsAsParticipantB ChatConversation[] @relation("ChatParticipantB")
@@ -114,7 +115,7 @@ model User {
   postReports  PostReport[]  @relation("UserPostReports")
 
   // User moderation
-  blockedUsers  UserBlock[] @relation("BlockedUsers")
+  blockedUsers   UserBlock[] @relation("BlockedUsers")
   blockedByUsers UserBlock[] @relation("BlockedByUsers")
 
   // Favorite relations
@@ -1380,14 +1381,14 @@ model Player {
   isGuest    Boolean   @default(true) // True if joined without account
   joinedAt   DateTime? // When the slot was filled
 
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
   matchPlayers MatchPlayer[]
-  currentCourt Court?              @relation(fields: [currentCourtId], references: [id])
-  session      Session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  user         User?               @relation(fields: [userId], references: [id])
-  club         Club?               @relation(fields: [clubId], references: [id])
-  profile      HostPlayerProfile?  @relation("ProfileSessions", fields: [profileId], references: [id], onDelete: SetNull)
+  currentCourt Court?             @relation(fields: [currentCourtId], references: [id])
+  session      Session            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user         User?              @relation(fields: [userId], references: [id])
+  club         Club?              @relation(fields: [clubId], references: [id])
+  profile      HostPlayerProfile? @relation("ProfileSessions", fields: [profileId], references: [id], onDelete: SetNull)
 
   // Payment relation
   paymentRecord PaymentRecord?
@@ -1519,40 +1520,45 @@ enum MatchStatus {
 // Tournament Management Models
 
 model Tournament {
-  id                 String           @id @default(cuid())
-  slug               String           @unique
-  name               String
-  description        String?          @db.Text
-  startDate          DateTime
-  endDate            DateTime
-  hostId             String
-  venueId            String?
-  status             TournamentStatus @default(PREPARING)
-  sportType          SportType        @default(BADMINTON)
-  isPublished        Boolean          @default(false)
-  scheduleType       ScheduleType?
-  coverPhoto         String?
-  coverPhotoPublicId String?
-  youtubeVideoUrls   String[]         @default([])
-  contactName        String?
-  contactEmail       String?
-  contactPhone       String?
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  id                   String           @id @default(cuid())
+  slug                 String           @unique
+  name                 String
+  description          String?          @db.Text
+  startDate            DateTime
+  endDate              DateTime
+  hostId               String
+  venueId              String?
+  status               TournamentStatus @default(PREPARING)
+  sportType            SportType        @default(BADMINTON)
+  isPublished          Boolean          @default(false)
+  scheduleType         ScheduleType?
+  coverPhoto           String?
+  coverPhotoPublicId   String?
+  youtubeVideoUrls     String[]         @default([])
+  contactName          String?
+  contactEmail         String?
+  contactPhone         String?
+  // Self-registration: users may request to join while this is true (and the
+  // tournament is published + PREPARING, before registrationDeadline).
+  registrationOpen     Boolean          @default(false)
+  registrationDeadline DateTime?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
 
   // Relations
-  host             User                      @relation("HostedTournaments", fields: [hostId], references: [id])
-  venue            Venue?                    @relation(fields: [venueId], references: [id])
-  categories       Category[]
-  managers         TournamentManager[]
-  umpires          TournamentUmpire[]
-  scoringDevices   TournamentScoringDevice[]
-  courts           TournamentCourt[]
-  players          TournamentPlayer[]
-  pairs            TournamentPair[]
-  tournamentVenues TournamentVenue[]
-  scheduleConfig   ScheduleConfiguration?
-  sponsors         TournamentSponsor[]
+  host                 User                            @relation("HostedTournaments", fields: [hostId], references: [id])
+  venue                Venue?                          @relation(fields: [venueId], references: [id])
+  categories           Category[]
+  managers             TournamentManager[]
+  umpires              TournamentUmpire[]
+  scoringDevices       TournamentScoringDevice[]
+  courts               TournamentCourt[]
+  players              TournamentPlayer[]
+  pairs                TournamentPair[]
+  tournamentVenues     TournamentVenue[]
+  scheduleConfig       ScheduleConfiguration?
+  sponsors             TournamentSponsor[]
+  registrationRequests TournamentRegistrationRequest[]
 
   @@map("tournaments")
 }
@@ -1657,14 +1663,18 @@ model Category {
   finalWinByTwo          Boolean?
   finalPointCap          Int?
   formatConfig           Json?
+  // Self-registration: only effective while Tournament.registrationOpen is true.
+  registrationEnabled    Boolean                  @default(true)
+  maxRegistrations       Int? // null = unlimited
   createdAt              DateTime                 @default(now())
   updatedAt              DateTime                 @updatedAt
 
   // Relations
-  tournament    Tournament             @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  registrations CategoryRegistration[]
-  groups        CategoryGroup[]
-  matches       CategoryMatch[]
+  tournament           Tournament                      @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  registrations        CategoryRegistration[]
+  groups               CategoryGroup[]
+  matches              CategoryMatch[]
+  registrationRequests TournamentRegistrationRequest[]
 
   @@unique([tournamentId, name])
   @@map("categories")
@@ -1705,11 +1715,12 @@ model CategoryRegistration {
   createdAt          DateTime @default(now())
 
   // Relations
-  category           Category                    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  player             TournamentPlayer?           @relation(fields: [tournamentPlayerId], references: [id], onDelete: Cascade)
-  pair               TournamentPair?             @relation(fields: [tournamentPairId], references: [id], onDelete: Cascade)
+  category           Category                       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  player             TournamentPlayer?              @relation(fields: [tournamentPlayerId], references: [id], onDelete: Cascade)
+  pair               TournamentPair?                @relation(fields: [tournamentPairId], references: [id], onDelete: Cascade)
   groupRegistrations CategoryGroupRegistration[]
   matchParticipants  CategoryMatchParticipant[]
+  selfRegistration   TournamentRegistrationRequest?
 
   @@unique([categoryId, tournamentPlayerId])
   @@unique([categoryId, tournamentPairId])
@@ -1981,6 +1992,45 @@ model TournamentPairMember {
   @@unique([pairId, playerId])
   @@unique([pairId, position])
   @@map("tournament_pair_members")
+}
+
+enum TournamentRegistrationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+// A user's request to join a tournament category. Organizers approve it, which
+// creates the TournamentPlayer(s) / pair and CategoryRegistration — linked
+// players then earn ranking points through the normal tournament flow.
+model TournamentRegistrationRequest {
+  id                     String                       @id @default(cuid())
+  tournamentId           String
+  categoryId             String
+  userId                 String // Requester
+  partnerUserIds         String[]                     @default([]) // Teammates with a Vmito account
+  guestPartnerNames      String[]                     @default([]) // Teammates without an account (no points)
+  phone                  String?
+  message                String?
+  status                 TournamentRegistrationStatus @default(PENDING)
+  response               String? // Organizer note / rejection reason
+  reviewedById           String?
+  reviewedAt             DateTime?
+  categoryRegistrationId String?                      @unique // Set on approval
+  createdAt              DateTime                     @default(now())
+  updatedAt              DateTime                     @updatedAt
+
+  // Relations
+  tournament           Tournament            @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  category             Category              @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  user                 User                  @relation("TournamentRegistrationRequester", fields: [userId], references: [id], onDelete: Cascade)
+  categoryRegistration CategoryRegistration? @relation(fields: [categoryRegistrationId], references: [id], onDelete: SetNull)
+
+  @@index([tournamentId, status])
+  @@index([categoryId, status])
+  @@index([userId])
+  @@map("tournament_registration_requests")
 }
 
 // ===========================================
@@ -2441,22 +2491,22 @@ enum PlayerProfileStatus {
 }
 
 model HostPlayerProfile {
-  id           String              @id @default(cuid())
-  hostId       String              // User who owns this profile/roster (Host)
-  clubId       String?             // Optional: linked to a specific Club
-  name         String
-  gender       Gender?
-  phone        String?             // Helps distinguish duplicate names
-  level        Int?                // Default level ID
-  notes        String?             // Private host notes
-  status       PlayerProfileStatus @default(ACTIVE)
+  id     String              @id @default(cuid())
+  hostId String // User who owns this profile/roster (Host)
+  clubId String? // Optional: linked to a specific Club
+  name   String
+  gender Gender?
+  phone  String? // Helps distinguish duplicate names
+  level  Int? // Default level ID
+  notes  String? // Private host notes
+  status PlayerProfileStatus @default(ACTIVE)
 
   // Link to real User after promotion
-  linkedUserId String?             @unique
+  linkedUserId String?   @unique
   promotedAt   DateTime?
 
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   host              User                      @relation("HostPlayerProfiles", fields: [hostId], references: [id], onDelete: Cascade)
   club              Club?                     @relation(fields: [clubId], references: [id], onDelete: SetNull)
@@ -2847,23 +2897,23 @@ enum AuditLogAction {
 }
 
 model AuditLog {
-  id                 String          @id @default(cuid())
+  id                 String         @id @default(cuid())
   action             AuditLogAction
-  entity             String?         // e.g. "Venue", "User", "Session"
-  entityId           String?         // ID of the affected entity
-  userId             String?         // Who performed the action
-  userEmail          String?         // Denormalized for quick display
-  userName           String?         // Denormalized for quick display
-  details            Json?           // Flexible payload (old/new values, etc.)
+  entity             String? // e.g. "Venue", "User", "Session"
+  entityId           String? // ID of the affected entity
+  userId             String? // Who performed the action
+  userEmail          String? // Denormalized for quick display
+  userName           String? // Denormalized for quick display
+  details            Json? // Flexible payload (old/new values, etc.)
   ipAddress          String?
   userAgent          String?
-  status             Int?            // HTTP status code (alias for responseStatusCode)
-  errorMessage       String?         // Error message if applicable
-  requestMethod      String?         // GET, POST, PUT, DELETE, PATCH
+  status             Int? // HTTP status code (alias for responseStatusCode)
+  errorMessage       String? // Error message if applicable
+  requestMethod      String? // GET, POST, PUT, DELETE, PATCH
   requestUrl         String?
   responseStatusCode Int?
-  durationMs         Int?            // Request duration in milliseconds
-  createdAt          DateTime        @default(now())
+  durationMs         Int? // Request duration in milliseconds
+  createdAt          DateTime       @default(now())
 
   @@index([createdAt(sort: Desc)])
   @@index([action])

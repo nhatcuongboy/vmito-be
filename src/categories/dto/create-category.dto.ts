@@ -94,4 +94,16 @@ export class CreateCategoryDto {
   @Min(1)
   @Max(99)
   finalPointCap?: number | null;
+
+  // ─── Self-registration ──────────────────────────────────────────────
+  /** Accept user registration requests while the tournament is open. */
+  @IsOptional()
+  @IsBoolean()
+  registrationEnabled?: boolean;
+
+  /** Maximum approved registrations; null = unlimited. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxRegistrations?: number | null;
 }
