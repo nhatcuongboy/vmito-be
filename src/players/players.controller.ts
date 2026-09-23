@@ -202,6 +202,22 @@ export class PlayersController {
     return this.playersService.withdrawMyJoinRequest(user.userId, sessionId);
   }
 
+  @Delete('me/join-requests/:sessionId/:playerId')
+  @ApiOperation({
+    summary: 'Withdraw one pending player registered by the current user',
+  })
+  withdrawMyJoinRequestPlayer(
+    @Param('sessionId') sessionId: string,
+    @Param('playerId') playerId: string,
+    @CurrentUser() user: { userId: string }
+  ) {
+    return this.playersService.withdrawMyJoinRequestPlayer(
+      user.userId,
+      sessionId,
+      playerId
+    );
+  }
+
   @Post('link-account')
   async linkAccount(
     @Body() body: { playerId: string; userId: string },
