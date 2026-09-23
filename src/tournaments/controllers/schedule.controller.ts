@@ -39,7 +39,8 @@ export class ScheduleGeneratorController {
     return this.scheduleGeneratorService.generate(
       tournamentId,
       dto,
-      user.userId
+      user.userId,
+      user.role
     );
   }
 
@@ -52,7 +53,8 @@ export class ScheduleGeneratorController {
     return this.scheduleGeneratorService.getPreview(
       tournamentId,
       scheduleId,
-      user.userId
+      user.userId,
+      user.role
     );
   }
 
@@ -69,7 +71,8 @@ export class ScheduleGeneratorController {
       scheduleId,
       matchId,
       dto,
-      user.userId
+      user.userId,
+      user.role
     );
   }
 
@@ -82,7 +85,8 @@ export class ScheduleGeneratorController {
     return this.scheduleGeneratorService.saveSchedule(
       tournamentId,
       scheduleId,
-      user.userId
+      user.userId,
+      user.role
     );
   }
 
@@ -95,7 +99,8 @@ export class ScheduleGeneratorController {
     return this.scheduleGeneratorService.validateConfig(
       tournamentId,
       dto,
-      user.userId
+      user.userId,
+      user.role
     );
   }
 
@@ -117,7 +122,8 @@ export class ScheduleGeneratorController {
   ): Promise<unknown> {
     return await this.scheduleGeneratorService.clearSchedule(
       tournamentId,
-      user.userId
+      user.userId,
+      user.role
     );
   }
 
@@ -128,7 +134,8 @@ export class ScheduleGeneratorController {
   ): Promise<unknown> {
     return await this.scheduleGeneratorService.deleteUnscheduledMatches(
       tournamentId,
-      user.userId
+      user.userId,
+      user.role
     );
   }
 
@@ -154,7 +161,11 @@ export class ScheduleGeneratorController {
     @Param('tournamentId') tournamentId: string,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<unknown> {
-    return this.scheduleService.getAvailableCourts(tournamentId, user.userId);
+    return this.scheduleService.getAvailableCourts(
+      tournamentId,
+      user.userId,
+      user.role
+    );
   }
 
   @Get('queue')
@@ -162,7 +173,11 @@ export class ScheduleGeneratorController {
     @Param('tournamentId') tournamentId: string,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<unknown> {
-    return this.scheduleService.getQueuedMatches(tournamentId, user.userId);
+    return this.scheduleService.getQueuedMatches(
+      tournamentId,
+      user.userId,
+      user.role
+    );
   }
 
   @Get('queue/addable')
@@ -170,7 +185,11 @@ export class ScheduleGeneratorController {
     @Param('tournamentId') tournamentId: string,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<unknown> {
-    return this.scheduleService.getUnqueuedMatches(tournamentId, user.userId);
+    return this.scheduleService.getUnqueuedMatches(
+      tournamentId,
+      user.userId,
+      user.role
+    );
   }
 
   @Post('queue/initialize')
@@ -178,7 +197,11 @@ export class ScheduleGeneratorController {
     @Param('tournamentId') tournamentId: string,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<unknown> {
-    return this.scheduleService.initializeQueue(tournamentId, user.userId);
+    return this.scheduleService.initializeQueue(
+      tournamentId,
+      user.userId,
+      user.role
+    );
   }
 
   @Post('queue/add')
@@ -191,7 +214,8 @@ export class ScheduleGeneratorController {
       tournamentId,
       dto.matchId,
       user.userId,
-      dto.queueOrder
+      dto.queueOrder,
+      user.role
     );
     return { success: true };
   }
@@ -205,7 +229,8 @@ export class ScheduleGeneratorController {
     await this.scheduleService.reorderQueue(
       tournamentId,
       dto.matchIds,
-      user.userId
+      user.userId,
+      user.role
     );
     return { success: true };
   }
@@ -219,7 +244,8 @@ export class ScheduleGeneratorController {
     await this.scheduleService.removeMatchFromQueue(
       tournamentId,
       matchId,
-      user.userId
+      user.userId,
+      user.role
     );
     return { success: true };
   }
@@ -229,7 +255,11 @@ export class ScheduleGeneratorController {
     @Param('tournamentId') tournamentId: string,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<unknown> {
-    return this.scheduleService.autoAssignNextMatch(tournamentId, user.userId);
+    return this.scheduleService.autoAssignNextMatch(
+      tournamentId,
+      user.userId,
+      user.role
+    );
   }
 
   @Post('matches/:matchId/unassign')
@@ -241,7 +271,8 @@ export class ScheduleGeneratorController {
     await this.scheduleService.unassignMatch(
       tournamentId,
       matchId,
-      user.userId
+      user.userId,
+      user.role
     );
     return { success: true };
   }

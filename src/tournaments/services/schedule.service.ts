@@ -94,7 +94,8 @@ export class ScheduleService {
    */
   private async verifyOwnership(
     tournamentId: string,
-    userId: string
+    userId: string,
+    role?: string
   ): Promise<void> {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: tournamentId },
@@ -103,7 +104,7 @@ export class ScheduleService {
     if (!tournament) {
       throw new NotFoundException('Tournament not found');
     }
-    if (tournament.hostId !== userId) {
+    if (tournament.hostId !== userId && role !== 'ADMIN') {
       throw new ForbiddenException('You are not the owner of this tournament');
     }
   }
@@ -162,9 +163,10 @@ export class ScheduleService {
    */
   async initializeQueue(
     tournamentId: string,
-    userId: string
+    userId: string,
+    role?: string
   ): Promise<{ queuedCount: number }> {
-    await this.verifyOwnership(tournamentId, userId);
+    await this.verifyOwnership(tournamentId, userId, role);
 
     const matches = await this.prisma.categoryMatch.findMany({
       where: {
@@ -245,9 +247,10 @@ export class ScheduleService {
    */
   async getAvailableCourts(
     tournamentId: string,
-    userId: string
+    userId: string,
+    role?: string
   ): Promise<CourtAvailability[]> {
-    await this.verifyOwnership(tournamentId, userId);
+    await this.verifyOwnership(tournamentId, userId, role);
 
     const courts = await this.prisma.tournamentCourt.findMany({
       where: { tournamentId },
@@ -300,9 +303,10 @@ export class ScheduleService {
    */
   async getQueuedMatches(
     tournamentId: string,
-    userId: string
+    userId: string,
+    role?: string
   ): Promise<QueuedMatch[]> {
-    await this.verifyOwnership(tournamentId, userId);
+    await this.verifyOwnership(tournamentId, userId, role);
 
     const matches = await this.prisma.categoryMatch.findMany({
       where: {
@@ -332,9 +336,10 @@ export class ScheduleService {
    */
   async getUnqueuedMatches(
     tournamentId: string,
-    userId: string
+    userId: string,
+    role?: string
   ): Promise<QueuedMatch[]> {
-    await this.verifyOwnership(tournamentId, userId);
+    await this.verifyOwnership(tournamentId, userId, role);
 
     const matches = await this.prisma.categoryMatch.findMany({
       where: {
@@ -366,9 +371,10 @@ export class ScheduleService {
   async unassignMatch(
     tournamentId: string,
     matchId: string,
-    userId: string
+    userId: string,
+    role?: string
   ): Promise<void> {
-    await this.verifyOwnership(tournamentId, userId);
+    await this.verifyOwnership(tournamentId, userId, role);
 
     const match = await this.prisma.categoryMatch.findFirst({
       where: { id: matchId, category: { tournamentId } },
@@ -429,10 +435,11 @@ export class ScheduleService {
    */
   async autoAssignNextMatch(
     tournamentId: string,
-    userId?: string
+    userId?: string,
+    role?: string
   ): Promise<AutoAssignmentResult> {
     if (userId) {
-      await this.verifyOwnership(tournamentId, userId);
+      await this.verifyOwnership(tournamentId, userId, role);
     }
 
     // Get first available court
@@ -688,9 +695,10 @@ export class ScheduleService {
     tournamentId: string,
     matchId: string,
     userId: string,
-    queueOrder?: number
+    queueOrder?: number,
+    role?: string
   ): Promise<void> {
-    await this.verifyOwnership(tournamentId, userId);
+    await this.verifyOwnership(tournamentId, userId, role);
     await this.assertMatchInTournament(tournamentId, matchId);
 
     // If no queue order specified, add to the end of THIS tournament's queue.
@@ -719,9 +727,10 @@ export class ScheduleService {
   async removeMatchFromQueue(
     tournamentId: string,
     matchId: string,
-    userId: string
+    userId: string,
+    role?: string
   ): Promise<void> {
-    await this.verifyOwnership(tournamentId, userId);
+    await this.verifyOwnership(tournamentId, userId, role);
     await this.assertMatchInTournament(tournamentId, matchId);
 
     await this.prisma.categoryMatch.update({
@@ -741,9 +750,10 @@ export class ScheduleService {
   async reorderQueue(
     tournamentId: string,
     matchIds: string[],
-    userId: string
+    userId: string,
+    role?: string
   ): Promise<void> {
-    await this.verifyOwnership(tournamentId, userId);
+    await this.verifyOwnership(tournamentId, userId, role);
 
     const count = await this.prisma.categoryMatch.count({
       where: { id: { in: matchIds }, category: { tournamentId } },
