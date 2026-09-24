@@ -1124,6 +1124,11 @@ export class PlayersService {
               venue: { select: { name: true } },
             },
           },
+          // Same shape as findPendingRequestById, so the list can show the
+          // requester's avatar instead of initials.
+          user: {
+            select: { id: true, name: true, image: true },
+          },
         },
         orderBy: {
           createdAt: 'asc',
