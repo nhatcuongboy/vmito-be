@@ -1124,6 +1124,11 @@ export class PlayersService {
               venue: { select: { name: true } },
             },
           },
+          // Same shape as findPendingRequestById, so the list can show the
+          // requester's avatar instead of initials.
+          user: {
+            select: { id: true, name: true, image: true },
+          },
         },
         orderBy: {
           createdAt: 'asc',
@@ -2373,6 +2378,67 @@ export class PlayersService {
       pendingPlayers[0].session.hostId,
       SessionEventType.NOTIFICATION_RECEIVED,
       { sessionId, playerIds, type: 'JOIN_REQUEST_WITHDRAWN' }
+    );
+
+    return { deleted: result.count };
+  }
+
+  async withdrawMyJoinRequestPlayer(
+    userId: string,
+    sessionId: string,
+    playerId: string
+  ) {
+    const player = await this.prisma.player.findFirst({
+      where: {
+        id: playerId,
+        sessionId,
+        OR: [{ userId }, { createdByUserId: userId }],
+      },
+      select: {
+        registrationStatus: true,
+        status: true,
+        session: { select: { hostId: true } },
+      },
+    });
+
+    if (!player) {
+      throw new NotFoundException('Join request not found');
+    }
+    if (player.registrationStatus !== 'PENDING') {
+      throw new BadRequestException(
+        'Only pending join requests can be withdrawn'
+      );
+    }
+    if (player.status === 'PLAYING') {
+      throw new BadRequestException(
+        'Cannot withdraw a player who is currently playing'
+      );
+    }
+
+    const result = await this.prisma.player.deleteMany({
+      where: {
+        id: playerId,
+        sessionId,
+        registrationStatus: 'PENDING',
+        status: { not: 'PLAYING' },
+        OR: [{ userId }, { createdByUserId: userId }],
+      },
+    });
+    if (result.count === 0) {
+      throw new BadRequestException(
+        'Join request changed. Please refresh and try again'
+      );
+    }
+
+    this.sessionsGateway.notifyEvent(
+      sessionId,
+      SessionEventType.PLAYER_REMOVED,
+      { playerIds: [playerId], withdrawnByUserId: userId }
+    );
+    this.sessionsGateway.notifyUser(
+      player.session.hostId,
+      SessionEventType.NOTIFICATION_RECEIVED,
+      { sessionId, playerIds: [playerId], type: 'JOIN_REQUEST_WITHDRAWN' }
     );
 
     return { deleted: result.count };

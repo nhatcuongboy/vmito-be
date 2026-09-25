@@ -675,6 +675,58 @@ export class PostsService {
     }
   }
 
+  /**
+   * Who liked a post — author only. Real likes are paged newest first; the
+   * engagement-boost likes (at most 9, all from the first ~90 minutes) are
+   * appended to the page that holds the last real like, so they read as the
+   * oldest entries and `total` matches the displayed like count.
+   */
+  async getLikes(postId: string, viewerId: string, page = 1, limit = 20) {
+    const post = await this.prisma.post.findUnique({
+      where: { id: postId },
+      select: { authorId: true },
+    });
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+    if (post.authorId !== viewerId) {
+      throw new ForbiddenException('Only the author can view post likes');
+    }
+
+    const skip = (page - 1) * limit;
+    const [likes, realTotal, virtualLikers] = await Promise.all([
+      this.prisma.postLike.findMany({
+        where: { postId },
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: { select: { id: true, name: true, image: true } },
+        },
+      }),
+      this.prisma.postLike.count({ where: { postId } }),
+      this.engagementBoostService.getVirtualLikers(postId),
+    ]);
+
+    const hasMore = skip + likes.length < realTotal;
+    const isLastRealPage = !hasMore && (likes.length > 0 || skip === 0);
+    return {
+      likes: [
+        ...likes.map((like) => ({
+          id: like.user.id,
+          name: like.user.name,
+          image: like.user.image,
+          isVirtual: false,
+        })),
+        ...(isLastRealPage ? virtualLikers : []),
+      ],
+      total: realTotal + virtualLikers.length,
+      page,
+      limit,
+      hasMore,
+    };
+  }
+
   async createComment(
     postId: string,
     userId: string,

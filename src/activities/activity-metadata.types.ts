@@ -38,6 +38,8 @@ export interface ClubMetadata {
   clubSlug?: string | null;
   clubName: string;
   logo?: string | null;
+  venueName?: string | null;
+  numberOfCourts?: number | null;
 }
 
 export interface TournamentCreatedMetadata {

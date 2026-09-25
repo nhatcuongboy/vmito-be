@@ -159,6 +159,21 @@ export class PostsController {
     );
   }
 
+  @Get(':id/likes')
+  getLikes(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ) {
+    return this.postsService.getLikes(
+      id,
+      req.user.userId,
+      page ? parseInt(page) : 1,
+      limit ? parseInt(limit) : 20
+    );
+  }
+
   @Get(':id/comments')
   getComments(
     @Param('id') id: string,

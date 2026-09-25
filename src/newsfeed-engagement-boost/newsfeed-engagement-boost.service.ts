@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SessionsGateway } from '../sessions/sessions.gateway';
+import { buildVirtualLikers, VirtualLiker } from './virtual-likers';
 
 export const NEWSFEED_ENGAGEMENT_BOOST_FLAG =
   'NEWSFEED_ENGAGEMENT_BOOST_ENABLED';
@@ -82,6 +83,18 @@ export class NewsfeedEngagementBoostService {
     ]);
 
     return resolvedRealCount + (boost?.currentCount ?? 0);
+  }
+
+  /**
+   * Not gated on the feature flag: boosted likes already counted on a post
+   * must stay listable after the flag is switched off.
+   */
+  async getVirtualLikers(postId: string): Promise<VirtualLiker[]> {
+    const boost = await this.prisma.postEngagementBoost.findUnique({
+      where: { postId },
+      select: { currentCount: true },
+    });
+    return buildVirtualLikers(postId, boost?.currentCount ?? 0);
   }
 
   @Cron(CronExpression.EVERY_MINUTE)

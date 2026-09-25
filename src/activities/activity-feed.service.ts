@@ -61,6 +61,7 @@ export class ActivityFeedService {
       slug?: string | null;
       name: string;
       logo?: string | null;
+      defaultVenue?: { name: string; numberOfCourts?: number | null } | null;
     },
     actorId: string
   ): Promise<void> {
@@ -69,6 +70,8 @@ export class ActivityFeedService {
       clubSlug: club.slug ?? null,
       clubName: club.name,
       logo: club.logo ?? null,
+      venueName: club.defaultVenue?.name ?? null,
+      numberOfCourts: club.defaultVenue?.numberOfCourts ?? null,
     });
   }
 
@@ -78,6 +81,7 @@ export class ActivityFeedService {
       slug?: string | null;
       name: string;
       logo?: string | null;
+      defaultVenue?: { name: string; numberOfCourts?: number | null } | null;
     },
     actorId: string
   ): Promise<void> {
@@ -99,6 +103,8 @@ export class ActivityFeedService {
         clubSlug: club.slug ?? null,
         clubName: club.name,
         logo: club.logo ?? null,
+        venueName: club.defaultVenue?.name ?? null,
+        numberOfCourts: club.defaultVenue?.numberOfCourts ?? null,
       });
     } catch (error) {
       this.logActivityError(ActivityType.CLUB_UPDATED, error);

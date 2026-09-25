@@ -111,10 +111,11 @@ export class ScheduleGeneratorService {
   async generate(
     tournamentId: string,
     dto: GenerateScheduleDto,
-    userId: string
+    userId: string,
+    role?: string
   ): Promise<GenerateResponse> {
     // Verify tournament ownership
-    await this.verifyTournamentOwnership(tournamentId, userId);
+    await this.verifyTournamentOwnership(tournamentId, userId, role);
 
     // Note: incomplete team rosters are allowed here so organizers can build
     // the schedule early. Roster completeness is enforced at play time
@@ -359,9 +360,10 @@ export class ScheduleGeneratorService {
   async getPreview(
     tournamentId: string,
     scheduleId: string,
-    userId: string
+    userId: string,
+    role?: string
   ): Promise<PreviewResponse> {
-    await this.verifyTournamentOwnership(tournamentId, userId);
+    await this.verifyTournamentOwnership(tournamentId, userId, role);
 
     const generated = await this.generatedScheduleModel.findFirst({
       where: { id: scheduleId, tournamentId },
@@ -451,9 +453,10 @@ export class ScheduleGeneratorService {
     scheduleId: string,
     matchId: string,
     dto: UpdateMatchAssignmentDto,
-    userId: string
+    userId: string,
+    role?: string
   ): Promise<{ success: boolean; conflicts?: ScheduleConflictResult[] }> {
-    await this.verifyTournamentOwnership(tournamentId, userId);
+    await this.verifyTournamentOwnership(tournamentId, userId, role);
 
     const generated = await this.generatedScheduleModel.findFirst({
       where: { id: scheduleId, tournamentId },
@@ -538,9 +541,10 @@ export class ScheduleGeneratorService {
    */
   async clearSchedule(
     tournamentId: string,
-    userId: string
+    userId: string,
+    role?: string
   ): Promise<{ success: boolean; clearedCount: number }> {
-    await this.verifyTournamentOwnership(tournamentId, userId);
+    await this.verifyTournamentOwnership(tournamentId, userId, role);
 
     const result = await this.prisma.categoryMatch.updateMany({
       where: {
@@ -572,9 +576,10 @@ export class ScheduleGeneratorService {
    */
   async deleteUnscheduledMatches(
     tournamentId: string,
-    userId: string
+    userId: string,
+    role?: string
   ): Promise<{ success: boolean; deletedCount: number }> {
-    await this.verifyTournamentOwnership(tournamentId, userId);
+    await this.verifyTournamentOwnership(tournamentId, userId, role);
 
     const result = await this.prisma.categoryMatch.deleteMany({
       where: {
@@ -594,13 +599,14 @@ export class ScheduleGeneratorService {
   async saveSchedule(
     tournamentId: string,
     scheduleId: string,
-    userId: string
+    userId: string,
+    role?: string
   ): Promise<{
     success: boolean;
     scheduledCount: number;
     unscheduledCount: number;
   }> {
-    await this.verifyTournamentOwnership(tournamentId, userId);
+    await this.verifyTournamentOwnership(tournamentId, userId, role);
 
     const generated = await this.generatedScheduleModel.findFirst({
       where: { id: scheduleId, tournamentId },
@@ -701,9 +707,10 @@ export class ScheduleGeneratorService {
   async validateConfig(
     tournamentId: string,
     dto: GenerateScheduleDto,
-    userId: string
+    userId: string,
+    role?: string
   ): Promise<{ valid: boolean; errors: { field: string; message: string }[] }> {
-    await this.verifyTournamentOwnership(tournamentId, userId);
+    await this.verifyTournamentOwnership(tournamentId, userId, role);
 
     const matchesRaw = await this.prisma.categoryMatch.findMany({
       where: {
@@ -733,7 +740,8 @@ export class ScheduleGeneratorService {
 
   private async verifyTournamentOwnership(
     tournamentId: string,
-    userId: string
+    userId: string,
+    role?: string
   ): Promise<void> {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: tournamentId },
@@ -744,7 +752,7 @@ export class ScheduleGeneratorService {
       throw new NotFoundException('Tournament not found');
     }
 
-    if (tournament.hostId !== userId) {
+    if (tournament.hostId !== userId && role !== 'ADMIN') {
       throw new BadRequestException('You are not the owner of this tournament');
     }
   }
