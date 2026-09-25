@@ -1245,6 +1245,7 @@ export class ClubsService {
               newAddress: true,
               newDistrict: true,
               newCity: true,
+              numberOfCourts: true,
             },
           },
         },
@@ -1294,7 +1295,13 @@ export class ClubsService {
     );
 
     await this.activityFeedService.postClubCreated(
-      { id: club.id, slug: club.slug, name: club.name, logo: club.logo },
+      {
+        id: club.id,
+        slug: club.slug,
+        name: club.name,
+        logo: club.logo,
+        defaultVenue: club.defaultVenue,
+      },
       hostId
     );
 
@@ -1444,6 +1451,7 @@ export class ClubsService {
                 newAddress: true,
                 newDistrict: true,
                 newCity: true,
+                numberOfCourts: true,
               },
             },
           },
@@ -1456,6 +1464,7 @@ export class ClubsService {
           slug: updatedClub.slug,
           name: updatedClub.name,
           logo: updatedClub.logo,
+          defaultVenue: updatedClub.defaultVenue,
         },
         userId
       );
@@ -1528,6 +1537,7 @@ export class ClubsService {
             newAddress: true,
             newDistrict: true,
             newCity: true,
+            numberOfCourts: true,
           },
         },
       },
@@ -1539,6 +1549,7 @@ export class ClubsService {
         slug: updatedClub.slug,
         name: updatedClub.name,
         logo: updatedClub.logo,
+        defaultVenue: updatedClub.defaultVenue,
       },
       userId
     );
