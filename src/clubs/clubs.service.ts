@@ -33,6 +33,7 @@ import {
   removeVietnameseTones,
   generateSlug,
 } from '../common/utils/string.utils';
+import { randomBytes } from 'crypto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { VALID_LEVELS } from '../common/constants/level.constants';
 import { FavoritesService } from '../favorites/favorites.service';
@@ -152,6 +153,109 @@ export class ClubsService {
     return club;
   }
 
+  /**
+   * Role hierarchy for member mutations (remove, change role). Being a club
+   * manager is not enough on its own: nobody may touch the owner's row, a
+   * manager may not act on themselves (leaving goes through `/leave`), and
+   * only the owner or a system admin may act on another club ADMIN.
+   */
+  private async ensureCanManageMember(
+    clubId: string,
+    actorId: string,
+    targetUserId: string,
+    userRole?: Role
+  ) {
+    await this.ensureManagedClub(clubId, actorId, userRole);
+    const club = await this.prisma.club.findUniqueOrThrow({
+      where: { id: clubId },
+      select: { hostId: true },
+    });
+    const member = await this.prisma.clubMember.findUnique({
+      where: { clubId_userId: { clubId, userId: targetUserId } },
+    });
+    if (!member) {
+      throw new NotFoundException('Member not found in this club');
+    }
+    if (targetUserId === club.hostId) {
+      throw new ForbiddenException('The club owner cannot be changed');
+    }
+    if (targetUserId === actorId) {
+      throw new BadRequestException('You cannot change your own membership');
+    }
+    const isOwnerOrSystemAdmin =
+      userRole === Role.ADMIN || club.hostId === actorId;
+    if (member.role === MemberRole.ADMIN && !isOwnerOrSystemAdmin) {
+      throw new ForbiddenException(
+        'Only the club owner can change another admin'
+      );
+    }
+    return member;
+  }
+
+  // ===========================================
+  // Invite link
+  // ===========================================
+
+  /** No 0/O or 1/I, so a code read aloud or retyped survives. 32 symbols
+   * keep `byte % length` unbiased; 8 of them give ~10^12 codes. */
+  private static readonly INVITE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+  private generateInviteCode(): string {
+    const alphabet = ClubsService.INVITE_ALPHABET;
+    return Array.from(
+      randomBytes(8),
+      (b) => alphabet[b % alphabet.length]
+    ).join('');
+  }
+
+  private matchesInvite(stored: string | undefined, given: string): boolean {
+    return !!stored && stored === given.trim().toUpperCase();
+  }
+
+  private readonly inviteSelect = {
+    code: true,
+    useCount: true,
+    createdAt: true,
+    updatedAt: true,
+  } as const;
+
+  /** The club's live invite, or null when links are off. */
+  async getClubInvite(clubId: string, userId: string, userRole?: Role) {
+    await this.ensureManagedClub(clubId, userId, userRole);
+    return this.prisma.clubInvite.findUnique({
+      where: { clubId },
+      select: this.inviteSelect,
+    });
+  }
+
+  async resetClubInvite(clubId: string, userId: string, userRole?: Role) {
+    await this.ensureManagedClub(clubId, userId, userRole);
+    // A collision on the unique code is astronomically rare; retry anyway
+    // rather than surface a 500.
+    for (let attempt = 0; ; attempt++) {
+      const code = this.generateInviteCode();
+      try {
+        return await this.prisma.clubInvite.upsert({
+          where: { clubId },
+          create: { clubId, code },
+          update: { code, useCount: 0 },
+          select: this.inviteSelect,
+        });
+      } catch (error) {
+        const isCollision =
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002';
+        if (!isCollision || attempt >= 2) throw error;
+      }
+    }
+  }
+
+  async disableClubInvite(clubId: string, userId: string, userRole?: Role) {
+    await this.ensureManagedClub(clubId, userId, userRole);
+    await this.prisma.clubInvite.deleteMany({ where: { clubId } });
+    return { success: true };
+  }
+
   /** Counts guest roster profiles that still represent a standalone person.
    * Promoted or archived profiles must not inflate a club's member count. */
   private async getActiveGuestProfileCounts(clubIds: readonly string[]) {
@@ -267,9 +371,15 @@ export class ClubsService {
         andConditions.push({
           OR: districtList.map((d) => ({
             OR: [
-              { defaultVenue: { district: { contains: d, mode: 'insensitive' } } },
               {
-                defaultVenue: { newDistrict: { contains: d, mode: 'insensitive' } },
+                defaultVenue: {
+                  district: { contains: d, mode: 'insensitive' },
+                },
+              },
+              {
+                defaultVenue: {
+                  newDistrict: { contains: d, mode: 'insensitive' },
+                },
               },
             ],
           })),
@@ -465,12 +575,13 @@ export class ClubsService {
   /**
    * Get club details by ID or slug
    */
-  async getClubDetails(idOrSlug: string) {
+  async getClubDetails(idOrSlug: string, inviteCode?: string) {
     const club = await this.prisma.club.findFirst({
       where: {
         OR: [{ id: idOrSlug }, { slug: idOrSlug }],
       },
       include: {
+        invite: { select: { code: true } },
         host: {
           select: {
             id: true,
@@ -525,7 +636,12 @@ export class ClubsService {
           orderBy: { createdAt: 'asc' },
         },
         announcements: {
-          orderBy: [{ pinnedUntil: 'desc' }, { createdAt: 'desc' }],
+          // Postgres sorts NULLs first on DESC, which put every unpinned
+          // announcement above the pinned ones.
+          orderBy: [
+            { pinnedUntil: { sort: 'desc', nulls: 'last' } },
+            { createdAt: 'desc' },
+          ],
           take: 5,
           include: {
             author: {
@@ -556,8 +672,16 @@ export class ClubsService {
       throw new NotFoundException('Club not found');
     }
 
-    // Only show full details if club is public
-    if (!club.isPublic) {
+    // Reported only when the caller came through an invite link, so the
+    // client can tell a stale link from a normal visit. The code itself is
+    // never echoed back.
+    const inviteValid = inviteCode
+      ? this.matchesInvite(club.invite?.code, inviteCode)
+      : undefined;
+
+    // Only show full details if club is public — or the viewer holds a valid
+    // invite, which is exactly how a private club is meant to be shared.
+    if (!club.isPublic && !inviteValid) {
       return {
         id: club.id,
         name: club.name,
@@ -567,6 +691,7 @@ export class ClubsService {
         isPublic: club.isPublic,
         joinPolicy: club.joinPolicy,
         message: 'This is a private club',
+        inviteValid,
       };
     }
 
@@ -635,16 +760,23 @@ export class ClubsService {
       announcements: club.announcements,
       createdAt: club.createdAt,
       scheduleVenues,
+      inviteValid,
     };
   }
 
   /**
    * Request to join a club
    */
-  async requestToJoinClub(clubId: string, userId: string, message?: string) {
+  async requestToJoinClub(
+    clubId: string,
+    userId: string,
+    message?: string,
+    inviteCode?: string
+  ) {
     const club = await this.prisma.club.findUnique({
       where: { id: clubId },
       include: {
+        invite: { select: { code: true } },
         members: {
           where: { userId },
         },
@@ -671,6 +803,40 @@ export class ClubsService {
     // Check if already a member
     if (club.members.length > 0) {
       throw new ConflictException('You are already a member of this club');
+    }
+
+    // An invite link is a manager's standing approval: it joins directly,
+    // whatever the join policy, and settles any request still pending.
+    if (inviteCode !== undefined) {
+      if (!this.matchesInvite(club.invite?.code, inviteCode)) {
+        throw new BadRequestException(
+          'This invite link is invalid or has been reset'
+        );
+      }
+      if (club.maxMembers && club._count.members >= club.maxMembers) {
+        throw new BadRequestException('This club has reached maximum capacity');
+      }
+      await this.prisma.$transaction([
+        this.prisma.clubMember.create({
+          data: { clubId, userId, status: MemberStatus.ACTIVE },
+        }),
+        this.prisma.clubJoinRequest.updateMany({
+          where: { clubId, userId, status: JoinRequestStatus.PENDING },
+          data: { status: JoinRequestStatus.APPROVED },
+        }),
+        this.prisma.clubInvite.update({
+          where: { clubId },
+          data: { useCount: { increment: 1 } },
+        }),
+      ]);
+      await this.activityFeedService.postClubMemberJoined(
+        { id: clubId, slug: club.slug, name: club.name, logo: club.logo },
+        userId
+      );
+      return {
+        status: 'joined',
+        message: `You have successfully joined ${club.name}`,
+      };
     }
 
     // Check if already has pending request
@@ -1625,6 +1791,7 @@ export class ClubsService {
             gender: true,
             image: true,
             phone: true,
+            level: true,
           },
         },
       },
@@ -1663,6 +1830,19 @@ export class ClubsService {
       throw new ConflictException('User is already a member of this club');
     }
 
+    const club = await this.prisma.club.findUniqueOrThrow({
+      where: { id: clubId },
+      select: {
+        maxMembers: true,
+        _count: {
+          select: { members: { where: { status: MemberStatus.ACTIVE } } },
+        },
+      },
+    });
+    if (club.maxMembers && club._count.members >= club.maxMembers) {
+      throw new BadRequestException('This club has reached maximum capacity');
+    }
+
     return this.prisma.clubMember.create({
       data: {
         clubId,
@@ -1691,17 +1871,12 @@ export class ClubsService {
     hostId: string,
     userRole?: Role
   ) {
-    await this.ensureManagedClub(clubId, hostId, userRole);
-
-    const member = await this.prisma.clubMember.findUnique({
-      where: {
-        clubId_userId: { clubId, userId },
-      },
-    });
-
-    if (!member) {
-      throw new NotFoundException('Member not found in this club');
-    }
+    const member = await this.ensureCanManageMember(
+      clubId,
+      hostId,
+      userId,
+      userRole
+    );
 
     await this.prisma.clubMember.delete({
       where: { id: member.id },
@@ -1720,17 +1895,12 @@ export class ClubsService {
     role: MemberRole,
     userRole?: Role
   ) {
-    await this.ensureManagedClub(clubId, hostId, userRole);
-
-    const member = await this.prisma.clubMember.findUnique({
-      where: {
-        clubId_userId: { clubId, userId },
-      },
-    });
-
-    if (!member) {
-      throw new NotFoundException('Member not found in this club');
-    }
+    const member = await this.ensureCanManageMember(
+      clubId,
+      hostId,
+      userId,
+      userRole
+    );
 
     return this.prisma.clubMember.update({
       where: { id: member.id },
@@ -1802,13 +1972,9 @@ export class ClubsService {
   }
 
   async getJoinRequests(clubId: string, hostId: string, userRole?: Role) {
-    const club = await this.prisma.club.findFirst({
-      where: userRole === Role.ADMIN ? { id: clubId } : { id: clubId, hostId },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found');
-    }
+    // Host, club ADMIN or system admin — the same set `/clubs/my/join-requests`
+    // lists requests to, so everyone who sees a request can act on it.
+    await this.ensureManagedClub(clubId, hostId, userRole);
 
     return this.prisma.clubJoinRequest.findMany({
       where: { clubId },
@@ -1834,13 +2000,9 @@ export class ClubsService {
     hostId: string,
     userRole?: Role
   ) {
-    const club = await this.prisma.club.findFirst({
-      where: userRole === Role.ADMIN ? { id: clubId } : { id: clubId, hostId },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found');
-    }
+    // Host, club ADMIN or system admin — the same set `/clubs/my/join-requests`
+    // lists requests to, so everyone who sees a request can act on it.
+    await this.ensureManagedClub(clubId, hostId, userRole);
 
     const request = await this.prisma.clubJoinRequest.findUnique({
       where: { id: requestId },
@@ -1890,12 +2052,24 @@ export class ClubsService {
     hostId: string,
     userRole?: Role
   ) {
-    const club = await this.prisma.club.findFirst({
-      where: userRole === Role.ADMIN ? { id: clubId } : { id: clubId, hostId },
+    await this.ensureManagedClub(clubId, hostId, userRole);
+    const club = await this.prisma.club.findUniqueOrThrow({
+      where: { id: clubId },
+      include: {
+        _count: {
+          select: { members: { where: { status: MemberStatus.ACTIVE } } },
+        },
+      },
     });
 
-    if (!club) {
-      throw new NotFoundException('Club not found or unauthorized');
+    // Same gates as a self-join: approving must not bypass them.
+    if (club.operationalStatus !== ClubOperationalStatus.ACTIVE) {
+      throw new BadRequestException(
+        'This club is not currently accepting new members'
+      );
+    }
+    if (club.maxMembers && club._count.members >= club.maxMembers) {
+      throw new BadRequestException('This club has reached maximum capacity');
     }
 
     const request = await this.prisma.clubJoinRequest.findUnique({
@@ -1959,13 +2133,7 @@ export class ClubsService {
     response?: string,
     userRole?: Role
   ) {
-    const club = await this.prisma.club.findFirst({
-      where: userRole === Role.ADMIN ? { id: clubId } : { id: clubId, hostId },
-    });
-
-    if (!club) {
-      throw new NotFoundException('Club not found or unauthorized');
-    }
+    await this.ensureManagedClub(clubId, hostId, userRole);
 
     const request = await this.prisma.clubJoinRequest.findUnique({
       where: { id: requestId },
@@ -1973,6 +2141,10 @@ export class ClubsService {
 
     if (!request || request.clubId !== clubId) {
       throw new NotFoundException('Join request not found');
+    }
+
+    if (request.status !== JoinRequestStatus.PENDING) {
+      throw new BadRequestException('Request is already processed');
     }
 
     return this.prisma.clubJoinRequest.update({
@@ -2302,7 +2474,12 @@ export class ClubsService {
 
     return this.prisma.clubAnnouncement.findMany({
       where: { clubId },
-      orderBy: [{ pinnedUntil: 'desc' }, { createdAt: 'desc' }],
+      // Postgres sorts NULLs first on DESC, which put every unpinned
+      // announcement above the pinned ones.
+      orderBy: [
+        { pinnedUntil: { sort: 'desc', nulls: 'last' } },
+        { createdAt: 'desc' },
+      ],
       include: {
         author: {
           select: { id: true, name: true, image: true },

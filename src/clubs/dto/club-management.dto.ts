@@ -11,6 +11,13 @@ export class JoinRequestDto {
   @IsString()
   @MaxLength(500)
   message?: string;
+
+  /** Code from an invite link; a valid one joins directly, skipping the
+   * join policy and approval. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  inviteCode?: string;
 }
 
 export class RejectJoinRequestDto {
