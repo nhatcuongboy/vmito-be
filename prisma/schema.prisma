@@ -2276,6 +2276,7 @@ model Club {
   joinRequests   ClubJoinRequest[]
   announcements  ClubAnnouncement[]
   clubSessions   ClubSession[]
+  invite         ClubInvite?
   schedules      ClubSchedule[]
   playerProfiles HostPlayerProfile[]
 
@@ -2417,6 +2418,22 @@ model ClubJoinRequest {
 // ===========================================
 // Club Announcement Model
 // ===========================================
+
+/// The club's shareable invite link (`/clubs/{slug}?invite={code}`). One live
+/// code per club: resetting replaces it, disabling deletes the row. Kept out of
+/// `clubs` so no endpoint that returns club scalars can leak the code.
+model ClubInvite {
+  id        String   @id @default(cuid())
+  clubId    String   @unique
+  code      String   @unique
+  useCount  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@map("club_invites")
+}
 
 model ClubAnnouncement {
   id          String    @id @default(cuid())

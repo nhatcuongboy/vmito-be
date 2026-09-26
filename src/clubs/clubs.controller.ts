@@ -66,8 +66,11 @@ export class ClubsController {
    */
   @Public()
   @Get(':id/details')
-  async getClubDetails(@Param('id') id: string) {
-    return this.clubsService.getClubDetails(id);
+  async getClubDetails(
+    @Param('id') id: string,
+    @Query('invite') invite?: string
+  ) {
+    return this.clubsService.getClubDetails(id, invite);
   }
 
   /**
@@ -83,7 +86,8 @@ export class ClubsController {
     return this.clubsService.requestToJoinClub(
       clubId,
       user.userId,
-      dto.message
+      dto.message,
+      dto.inviteCode
     );
   }
 
@@ -443,6 +447,41 @@ export class ClubsController {
       parseInt(month, 10),
       user.role
     );
+  }
+
+  // ===========================================
+  // Invite Link Endpoints
+  // ===========================================
+
+  @Get(':id/invite')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async getClubInvite(
+    @Param('id') clubId: string,
+    @CurrentUser() user: JwtUser
+  ) {
+    return this.clubsService.getClubInvite(clubId, user.userId, user.role);
+  }
+
+  /** Creates the invite link, or replaces its code (old links stop working). */
+  @Post(':id/invite')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async resetClubInvite(
+    @Param('id') clubId: string,
+    @CurrentUser() user: JwtUser
+  ) {
+    return this.clubsService.resetClubInvite(clubId, user.userId, user.role);
+  }
+
+  @Delete(':id/invite')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async disableClubInvite(
+    @Param('id') clubId: string,
+    @CurrentUser() user: JwtUser
+  ) {
+    return this.clubsService.disableClubInvite(clubId, user.userId, user.role);
   }
 
   // ===========================================
