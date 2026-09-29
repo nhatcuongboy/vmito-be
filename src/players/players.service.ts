@@ -1094,21 +1094,16 @@ export class PlayersService {
     return updatedPlayer;
   }
 
-  async findPendingRequests(
-    hostId: string,
-    role?: string,
-    page = 1,
-    limit = 20
-  ) {
+  /**
+   * The host's own inbox — every role, ADMIN included, only sees requests
+   * for sessions they host. An ADMIN reaches other hosts' requests per
+   * session (roster), never as a system-wide list.
+   */
+  async findPendingRequests(hostId: string, page = 1, limit = 20) {
     const where: Prisma.PlayerWhereInput = {
       registrationStatus: 'PENDING',
+      session: { hostId },
     };
-
-    if (role !== 'ADMIN') {
-      where.session = {
-        hostId: hostId,
-      };
-    }
 
     const skip = (page - 1) * limit;
 
@@ -1147,16 +1142,12 @@ export class PlayersService {
     };
   }
 
-  async countPendingRequests(hostId: string, role?: string) {
+  /** Same scope as {@link findPendingRequests}. */
+  async countPendingRequests(hostId: string) {
     const where: Prisma.PlayerWhereInput = {
       registrationStatus: 'PENDING',
+      session: { hostId },
     };
-
-    if (role !== 'ADMIN') {
-      where.session = {
-        hostId: hostId,
-      };
-    }
 
     const count = await this.prisma.player.count({ where });
     return { count };
