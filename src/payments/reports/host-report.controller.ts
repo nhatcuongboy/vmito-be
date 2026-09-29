@@ -7,6 +7,7 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import { resolveActingUserId } from '../acting-user.util';
 import { HostReportQueryDto } from './dto';
 import { HostReportService } from './host-report.service';
 
@@ -25,8 +26,12 @@ export class HostReportController {
   @ApiOkResponse({ description: 'Host finance report' })
   getReport(
     @Query() query: HostReportQueryDto,
-    @CurrentUser() user: { userId: string }
+    @CurrentUser() user: { userId: string; role: string }
   ) {
-    return this.service.getReport(user.userId, query);
+    // `query.hostId` is honoured for ADMIN only; everyone else gets their own.
+    return this.service.getReport(
+      resolveActingUserId(user, query.hostId),
+      query
+    );
   }
 }

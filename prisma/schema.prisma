@@ -120,6 +120,7 @@ model User {
 
   // Favorite relations
   favorites Favorite[] @relation("UserFavorites")
+  savedDiscoveryFilters SavedDiscoveryFilter[]
 
   // Ranking points
   pointTransactions PointTransaction[] @relation("UserPointTransactions")
@@ -130,6 +131,30 @@ model User {
 
   @@index([createdAt])
   @@map("users")
+}
+
+enum DiscoveryFilterTab {
+  sessions
+  venues
+  clubs
+  tournaments
+}
+
+model SavedDiscoveryFilter {
+  id             String             @id @default(cuid())
+  userId         String
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tab            DiscoveryFilterTab
+  name           String             @db.VarChar(60)
+  normalizedName String             @db.VarChar(60)
+  version        Int                @default(1)
+  config         Json
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([userId, tab, normalizedName])
+  @@index([userId, tab, updatedAt])
+  @@map("saved_discovery_filters")
 }
 
 // ===========================================

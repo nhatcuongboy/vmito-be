@@ -86,13 +86,12 @@ export class PlayersController {
   @Get('pending-requests')
   @ApiOperation({ summary: 'Get pending player requests for host' })
   getPendingRequests(
-    @CurrentUser() user: { userId: string; role: string },
+    @CurrentUser() user: { userId: string },
     @Query('page') page?: string,
     @Query('limit') limit?: string
   ) {
     return this.playersService.findPendingRequests(
       user.userId,
-      user.role,
       page ? parseInt(page, 10) : undefined,
       limit ? parseInt(limit, 10) : undefined
     );
@@ -100,10 +99,8 @@ export class PlayersController {
 
   @Get('pending-requests/count')
   @ApiOperation({ summary: 'Get count of pending player requests for host' })
-  getPendingRequestsCount(
-    @CurrentUser() user: { userId: string; role: string }
-  ) {
-    return this.playersService.countPendingRequests(user.userId, user.role);
+  getPendingRequestsCount(@CurrentUser() user: { userId: string }) {
+    return this.playersService.countPendingRequests(user.userId);
   }
 
   @Get('pending-requests/:id')
