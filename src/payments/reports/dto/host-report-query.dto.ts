@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsISO8601, IsOptional } from 'class-validator';
+import { IsEnum, IsISO8601, IsOptional, IsString } from 'class-validator';
 
 export enum HostReportGranularity {
   DAY = 'day',
@@ -29,4 +29,12 @@ export class HostReportQueryDto {
   @IsOptional()
   @IsEnum(HostReportGranularity)
   granularity?: HostReportGranularity;
+
+  @ApiPropertyOptional({
+    description:
+      'Admin only: report on this host instead of the caller. Ignored for other roles.',
+  })
+  @IsOptional()
+  @IsString()
+  hostId?: string;
 }

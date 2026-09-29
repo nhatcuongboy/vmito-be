@@ -17,6 +17,7 @@ import {
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PaymentsService } from './payments.service';
+import { resolveActingUserId } from './acting-user.util';
 import {
   SubmitPaymentDto,
   ApprovePaymentDto,
@@ -119,9 +120,19 @@ export class PaymentsController {
   @ApiOperation({
     summary: 'Get transaction summary for current player (grouped by host)',
   })
+  @ApiQuery({
+    name: 'userId',
+    required: false,
+    description: 'Admin only: view this user’s summary instead of your own',
+  })
   @ApiResponse({ status: 200, description: 'Transaction summary' })
-  async getPlayerTransactionSummary(@CurrentUser() user: { userId: string }) {
-    return this.service.getPlayerTransactionSummary(user.userId);
+  async getPlayerTransactionSummary(
+    @CurrentUser() user: { userId: string; role: string },
+    @Query('userId') userId?: string
+  ) {
+    return this.service.getPlayerTransactionSummary(
+      resolveActingUserId(user, userId)
+    );
   }
 
   // Transaction summary for host
@@ -129,9 +140,19 @@ export class PaymentsController {
   @ApiOperation({
     summary: 'Get transaction summary for current host (grouped by user)',
   })
+  @ApiQuery({
+    name: 'hostId',
+    required: false,
+    description: 'Admin only: view this host’s summary instead of your own',
+  })
   @ApiResponse({ status: 200, description: 'Transaction summary' })
-  async getHostTransactionSummary(@CurrentUser() user: { userId: string }) {
-    return this.service.getHostTransactionSummary(user.userId);
+  async getHostTransactionSummary(
+    @CurrentUser() user: { userId: string; role: string },
+    @Query('hostId') hostId?: string
+  ) {
+    return this.service.getHostTransactionSummary(
+      resolveActingUserId(user, hostId)
+    );
   }
 
   // Detailed transactions with a specific host (player view)
@@ -139,12 +160,21 @@ export class PaymentsController {
   @ApiOperation({
     summary: 'Get detailed transactions between player and specific host',
   })
+  @ApiQuery({
+    name: 'userId',
+    required: false,
+    description: 'Admin only: view this player’s transactions instead of yours',
+  })
   @ApiResponse({ status: 200, description: 'Detailed transactions with host' })
   async getPlayerTransactionsWithHost(
     @Param('hostId') hostId: string,
-    @CurrentUser() user: { userId: string }
+    @CurrentUser() user: { userId: string; role: string },
+    @Query('userId') userId?: string
   ) {
-    return this.service.getPlayerTransactionsWithHost(user.userId, hostId);
+    return this.service.getPlayerTransactionsWithHost(
+      resolveActingUserId(user, userId),
+      hostId
+    );
   }
 
   // Detailed transactions with a specific user (host view)
@@ -152,12 +182,21 @@ export class PaymentsController {
   @ApiOperation({
     summary: 'Get detailed transactions between host and specific user',
   })
+  @ApiQuery({
+    name: 'hostId',
+    required: false,
+    description: 'Admin only: view this host’s transactions instead of yours',
+  })
   @ApiResponse({ status: 200, description: 'Detailed transactions with user' })
   async getHostTransactionsWithUser(
     @Param('userId') targetUserId: string,
-    @CurrentUser() user: { userId: string }
+    @CurrentUser() user: { userId: string; role: string },
+    @Query('hostId') hostId?: string
   ) {
-    return this.service.getHostTransactionsWithUser(user.userId, targetUserId);
+    return this.service.getHostTransactionsWithUser(
+      resolveActingUserId(user, hostId),
+      targetUserId
+    );
   }
 
   // Set split amount for SPLIT_EVENLY fee type
