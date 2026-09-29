@@ -2,11 +2,12 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { CloudinaryModule } from '../cloudinary/cloudinary.module';
 import { MailModule } from '../mail/mail.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { FeedbackController } from './feedback.controller';
 import { FeedbackService } from './feedback.service';
 
 @Module({
-  imports: [PrismaModule, CloudinaryModule, MailModule],
+  imports: [PrismaModule, CloudinaryModule, MailModule, NotificationsModule],
   controllers: [FeedbackController],
   providers: [FeedbackService],
   exports: [FeedbackService],
