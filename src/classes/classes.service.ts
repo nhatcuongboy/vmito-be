@@ -17,11 +17,22 @@ import {
   generateSlug,
   removeVietnameseTones,
 } from '../common/utils/string.utils';
-import { BrowseClassesDto } from './dto/browse-classes.dto';
+import { BrowseClassesDto, ClassPeriodValue } from './dto/browse-classes.dto';
 import { CreateClassDto } from './dto/create-class.dto';
 import { UpdateClassDto } from './dto/update-class.dto';
 
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+// Same buckets as the clubs browse filter; HH:mm strings compare
+// lexicographically because they're zero-padded 24h.
+const CLASS_PERIOD_WINDOWS: Record<
+  ClassPeriodValue,
+  { start: string; end: string }
+> = {
+  morning: { start: '05:00', end: '12:00' },
+  afternoon: { start: '12:00', end: '18:00' },
+  evening: { start: '18:00', end: '23:59' },
+};
 
 @Injectable()
 export class ClassesService {
@@ -278,43 +289,60 @@ export class ClassesService {
         .split(',')
         .map(Number)
         .filter(Number.isInteger);
-      if (levels.length) and.push({ requiredLevels: { hasSome: levels } });
+      // An empty `requiredLevels` means "open to all levels", so it matches
+      // any level filter (same rule as clubs).
+      if (levels.length)
+        and.push({
+          OR: [
+            { requiredLevels: { hasSome: levels } },
+            { requiredLevels: { isEmpty: true } },
+          ],
+        });
     }
     if (query.city)
       and.push({
         OR: [
           { venue: { city: { contains: query.city, mode: 'insensitive' } } },
+          { venue: { newCity: { contains: query.city, mode: 'insensitive' } } },
           { customLocationCity: { contains: query.city, mode: 'insensitive' } },
         ],
       });
-    if (query.district)
+    const districts = (query.district ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (districts.length)
+      // The app sends the wards picked in its multi-select area filter.
       and.push({
-        OR: [
+        OR: districts.flatMap((district) => [
+          { venue: { district: { contains: district, mode: 'insensitive' } } },
           {
-            venue: {
-              district: { contains: query.district, mode: 'insensitive' },
-            },
+            venue: { newDistrict: { contains: district, mode: 'insensitive' } },
           },
           {
-            venue: {
-              newDistrict: { contains: query.district, mode: 'insensitive' },
-            },
+            customLocationDistrict: { contains: district, mode: 'insensitive' },
           },
-          {
-            customLocationDistrict: {
-              contains: query.district,
-              mode: 'insensitive',
-            },
-          },
-        ],
+        ]),
       });
-    if (query.dayOfWeek !== undefined || query.timeFrom || query.timeTo)
+    const days = [
+      ...(query.daysOfWeek ?? []),
+      ...(query.dayOfWeek !== undefined ? [query.dayOfWeek] : []),
+    ];
+    if (days.length || query.periods?.length || query.timeFrom || query.timeTo)
       and.push({
         schedules: {
           some: {
             isActive: true,
-            ...(query.dayOfWeek !== undefined
-              ? { dayOfWeek: query.dayOfWeek }
+            ...(days.length ? { dayOfWeek: { in: days } } : {}),
+            ...(query.periods?.length
+              ? {
+                  // Overlap, like clubs: a 17:00–19:00 lesson is both
+                  // afternoon and evening.
+                  OR: query.periods.map((period) => ({
+                    startTime: { lt: CLASS_PERIOD_WINDOWS[period].end },
+                    endTime: { gt: CLASS_PERIOD_WINDOWS[period].start },
+                  })),
+                }
               : {}),
             ...(query.timeFrom ? { startTime: { gte: query.timeFrom } } : {}),
             ...(query.timeTo ? { endTime: { lte: query.timeTo } } : {}),
