@@ -83,6 +83,22 @@ export class PlayersController {
     return this.playersService.getHostRecentPlayers(user.userId, clubId, search);
   }
 
+  // Declared before the `:id` routes so "host-recent-users" is not read as an id.
+  @Get('host-recent-users')
+  @ApiOperation({
+    summary:
+      'Get system users most recently added to the host sessions (newest first)',
+  })
+  getHostRecentUsers(
+    @CurrentUser() user: { userId: string },
+    @Query('limit') limit?: string
+  ) {
+    return this.playersService.getHostRecentUsers(
+      user.userId,
+      limit ? parseInt(limit, 10) : undefined
+    );
+  }
+
   @Get('pending-requests')
   @ApiOperation({ summary: 'Get pending player requests for host' })
   getPendingRequests(
