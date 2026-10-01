@@ -39,6 +39,7 @@ export interface ClubMetadata {
   clubName: string;
   logo?: string | null;
   venueName?: string | null;
+  venueAddress?: string | null;
   numberOfCourts?: number | null;
 }
 
