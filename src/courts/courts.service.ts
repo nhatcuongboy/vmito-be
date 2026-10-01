@@ -22,6 +22,10 @@ import {
   LEVEL_SHORT_LABELS,
   getLevelRank,
 } from '../common/constants/level.constants';
+import {
+  assertNotBookedElsewhere,
+  findPlayersBookedElsewhere,
+} from './court-pre-selection.helper';
 
 export interface PreSelectedPlayerInfo {
   playerId: string;
@@ -230,6 +234,15 @@ export class CourtsService {
         `Players ${nonWaitingPlayers.map((p) => p.playerNumber).join(', ')} are not in waiting state`
       );
     }
+
+    // Pre-selected players are still WAITING, so the status check above does
+    // not catch them.
+    await assertNotBookedElsewhere(
+      this.prisma,
+      court.sessionId,
+      id,
+      validPlayers
+    );
 
     // All validations passed, prepare for transaction
     const result = await this.prisma.$transaction(
@@ -817,6 +830,8 @@ export class CourtsService {
       );
     }
 
+    await assertNotBookedElsewhere(this.prisma, court.sessionId, id, players);
+
     const updatedCourt = await this.prisma.court.update({
       where: { id },
       data: {
@@ -970,10 +985,21 @@ export class CourtsService {
       throw new BadRequestException(`topCount must be at least ${minPlayers}`);
     }
 
+    // Players already booked into another court's next match are still
+    // WAITING, but suggesting them would just be rejected on confirm.
+    const bookedElsewhere = await findPlayersBookedElsewhere(
+      this.prisma,
+      court.sessionId,
+      id
+    );
+
     const waitingPlayers = await this.prisma.player.findMany({
       where: {
         sessionId: court.sessionId,
         status: 'WAITING',
+        ...(bookedElsewhere.size > 0
+          ? { id: { notIn: [...bookedElsewhere.keys()] } }
+          : {}),
       },
       // `currentWaitTime` is a stored counter that no longer advances on its
       // own (see wait-time.utils.ts) — order by `waitingSince` instead, or
