@@ -2554,22 +2554,27 @@ export class PlayersService {
       limit !== undefined && Number.isFinite(limit) ? limit : 30;
     const take = Math.min(50, Math.max(1, requested));
 
-    const grouped = await this.prisma.player.groupBy({
-      by: ['userId'],
-      where: {
-        userId: { not: null },
-        registrationStatus: 'APPROVED',
-        session: { hostId },
-      },
-      _max: { createdAt: true },
-      _count: { _all: true },
-      orderBy: { _max: { createdAt: 'desc' } },
-      take,
-    });
+    // Raw SQL on purpose: Prisma's groupBy joins `sessions` to apply the host
+    // filter and then emits an unqualified MAX("createdAt"), which Postgres
+    // rejects as ambiguous (42702) because both tables have that column.
+    // COUNT is cast to int because bigint cannot be JSON-serialised.
+    const grouped = await this.prisma.$queryRaw<
+      { userId: string; lastAddedAt: Date; totalSessions: number }[]
+    >`
+      SELECT p."userId" AS "userId",
+             MAX(p."createdAt") AS "lastAddedAt",
+             COUNT(*)::int AS "totalSessions"
+      FROM "players" p
+      JOIN "sessions" s ON s."id" = p."sessionId"
+      WHERE s."hostId" = ${hostId}
+        AND p."userId" IS NOT NULL
+        AND p."registrationStatus" = 'APPROVED'
+      GROUP BY p."userId"
+      ORDER BY MAX(p."createdAt") DESC
+      LIMIT ${take}
+    `;
 
-    const userIds = grouped
-      .map((row) => row.userId)
-      .filter((id): id is string => id !== null);
+    const userIds = grouped.map((row) => row.userId);
     if (userIds.length === 0) {
       return [];
     }
@@ -2588,15 +2593,15 @@ export class PlayersService {
     });
     const usersById = new Map(users.map((u) => [u.id, u]));
 
-    // Re-apply the groupBy ordering; findMany does not preserve `in` order.
+    // Re-apply the SQL ordering; findMany does not preserve `in` order.
     return grouped.flatMap((row) => {
-      const user = row.userId ? usersById.get(row.userId) : undefined;
+      const user = usersById.get(row.userId);
       if (!user) return [];
       return [
         {
           ...user,
-          lastAddedAt: row._max.createdAt,
-          totalSessions: row._count._all,
+          lastAddedAt: row.lastAddedAt,
+          totalSessions: row.totalSessions,
         },
       ];
     });
