@@ -2538,6 +2538,70 @@ export class PlayersService {
     }));
   }
 
+  /**
+   * System users the host most recently added to (or approved into) their own
+   * sessions, newest first. Read from `players` rather than the roster:
+   * adding a system user creates a Player with `userId` but no roster profile
+   * unless the host opts into `saveToRoster`, so `getHostRecentPlayers` misses
+   * most of them.
+   */
+  async getHostRecentUsers(hostId: string, limit?: number) {
+    if (!hostId) {
+      throw new BadRequestException('Host ID is required');
+    }
+
+    const requested =
+      limit !== undefined && Number.isFinite(limit) ? limit : 30;
+    const take = Math.min(50, Math.max(1, requested));
+
+    const grouped = await this.prisma.player.groupBy({
+      by: ['userId'],
+      where: {
+        userId: { not: null },
+        registrationStatus: 'APPROVED',
+        session: { hostId },
+      },
+      _max: { createdAt: true },
+      _count: { _all: true },
+      orderBy: { _max: { createdAt: 'desc' } },
+      take,
+    });
+
+    const userIds = grouped
+      .map((row) => row.userId)
+      .filter((id): id is string => id !== null);
+    if (userIds.length === 0) {
+      return [];
+    }
+
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        image: true,
+        gender: true,
+        level: true,
+        levelDescription: true,
+      },
+    });
+    const usersById = new Map(users.map((u) => [u.id, u]));
+
+    // Re-apply the groupBy ordering; findMany does not preserve `in` order.
+    return grouped.flatMap((row) => {
+      const user = row.userId ? usersById.get(row.userId) : undefined;
+      if (!user) return [];
+      return [
+        {
+          ...user,
+          lastAddedAt: row._max.createdAt,
+          totalSessions: row._count._all,
+        },
+      ];
+    });
+  }
+
   private getNextAvailablePlayerNumber(
     existingNumbers: number[],
     requestedNumbers: Set<number> // Updated to Set<number>
