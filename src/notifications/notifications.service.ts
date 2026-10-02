@@ -26,6 +26,12 @@ export type NotificationConflictMode = 'ONCE' | 'COALESCE';
 export interface CreateForUserOptions {
   dedupeKey?: string;
   conflictMode?: NotificationConflictMode;
+  /**
+   * Keeps the in-app feed entry and socket event but sends no FCM push, for
+   * callers whose push is already delivered by another channel (chat messages
+   * are pushed by Stream itself).
+   */
+  skipPush?: boolean;
 }
 
 export interface CreateManyForUsersOptions {
@@ -95,7 +101,7 @@ export class NotificationsService {
           createdAt: new Date(),
         },
       });
-      await this.dispatch(notification);
+      await this.dispatch(notification, options.skipPush);
       return notification;
     }
 
@@ -103,7 +109,7 @@ export class NotificationsService {
       const notification = await this.prisma.notification.create({
         data: createData,
       });
-      await this.dispatch(notification);
+      await this.dispatch(notification, options.skipPush);
       return notification;
     } catch (error) {
       if (
@@ -470,10 +476,7 @@ export class NotificationsService {
     if (dto.deviceId) {
       await this.prisma.notificationDevice.deleteMany({
         where: {
-          OR: [
-            { deviceId: dto.deviceId },
-            { userId, deviceId: null },
-          ],
+          OR: [{ deviceId: dto.deviceId }, { userId, deviceId: null }],
           token: { not: dto.token },
         },
       });
@@ -648,8 +651,9 @@ export class NotificationsService {
     };
   }
 
-  private async dispatch(notification: Notification) {
+  private async dispatch(notification: Notification, skipPush = false) {
     this.dispatchSocket(notification);
+    if (skipPush) return;
     await this.pushNotifications.send(notification);
   }
 
