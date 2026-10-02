@@ -3,13 +3,15 @@ import { FeatureFlagsModule } from '../feature-flags/feature-flags.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ChatController } from './chat.controller';
+import { ChatMessageNotifierService } from './chat-message-notifier.service';
 import { ChatService } from './chat.service';
 import { StreamChatService } from './stream-chat.service';
+import { StreamWebhookController } from './stream-webhook.controller';
 
 @Module({
   imports: [PrismaModule, FeatureFlagsModule, NotificationsModule],
-  controllers: [ChatController],
-  providers: [ChatService, StreamChatService],
+  controllers: [ChatController, StreamWebhookController],
+  providers: [ChatService, ChatMessageNotifierService, StreamChatService],
   exports: [ChatService, StreamChatService],
 })
 export class ChatModule {}

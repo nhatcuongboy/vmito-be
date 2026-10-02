@@ -123,6 +123,12 @@ export class StreamChatService implements OnModuleInit {
     return client.createToken(userId, Math.floor(expiresAt.getTime() / 1000));
   }
 
+  /** Whether `signature` is Stream's HMAC of the exact raw webhook body. */
+  verifyWebhook(rawBody: Buffer, signature: string | undefined) {
+    if (!this.client || !signature) return false;
+    return this.client.verifyWebhook(rawBody, signature);
+  }
+
   async upsertMinimalUser(userId: string) {
     await this.requiredClient().upsertUser({ id: userId });
   }

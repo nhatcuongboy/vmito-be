@@ -14,7 +14,11 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    // Stream signs webhooks over the exact bytes it sent, so the chat webhook
+    // needs the unparsed body alongside the parsed one.
+    rawBody: true,
+  });
   const configService = app.get(ConfigService);
 
   // Security middleware
