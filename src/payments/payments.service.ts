@@ -95,9 +95,10 @@ export class PaymentsService {
       where: {
         sessionId,
         ...(status ? { status } : {}),
-        // Hide payments for players the host rejected (records may already
-        // exist if the player was approved and billed before being rejected).
-        player: { registrationStatus: { not: RegistrationStatus.REJECTED } },
+        // Only bill slots the host has approved: pending join requests and
+        // rejected players must not show up as income (records may already
+        // exist for them from before approval / before being rejected).
+        player: { registrationStatus: RegistrationStatus.APPROVED },
       },
       select: this.paymentWithPlayerSelect,
       orderBy: { createdAt: 'asc' },
@@ -386,7 +387,7 @@ export class PaymentsService {
       where: {
         OR: [{ player: { userId } }, { registeredByUserId: userId }],
         player: {
-          registrationStatus: { not: RegistrationStatus.REJECTED },
+          registrationStatus: RegistrationStatus.APPROVED,
         },
         session: {
           status: { not: SessionStatus.CANCELLED },
@@ -462,9 +463,7 @@ export class PaymentsService {
       where: {
         hostId,
         player: {
-          registrationStatus: {
-            not: RegistrationStatus.REJECTED,
-          },
+          registrationStatus: RegistrationStatus.APPROVED,
         },
         session: {
           status: { not: SessionStatus.CANCELLED },
@@ -555,7 +554,7 @@ export class PaymentsService {
         hostId,
         OR: [{ player: { userId } }, { registeredByUserId: userId }],
         player: {
-          registrationStatus: { not: RegistrationStatus.REJECTED },
+          registrationStatus: RegistrationStatus.APPROVED,
         },
         session: {
           status: { not: SessionStatus.CANCELLED },
