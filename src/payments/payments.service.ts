@@ -45,6 +45,7 @@ export class PaymentsService {
     player: {
       select: {
         id: true,
+        playerNumber: true,
         name: true,
         gender: true,
         isClubMember: true,
