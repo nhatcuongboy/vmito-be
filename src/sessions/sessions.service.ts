@@ -56,6 +56,13 @@ import {
   SessionTimeRange,
 } from './utils/available-session-filter.util';
 import { generateSessionAccessCode } from './utils/session-access-code.util';
+import { UserRecommendationContextService } from '../recommendations/user-recommendation-context.service';
+import { Recommendation } from '../recommendations/recommendation.types';
+import { sortByRecommendation } from '../recommendations/recommendation.utils';
+import { scoreSession } from '../recommendations/scorers/session.scorer';
+
+/** Upcoming sessions considered by `sortBy=recommended`. */
+const RECOMMENDATION_CANDIDATES = 300;
 
 @Injectable()
 export class SessionsService {
@@ -69,7 +76,8 @@ export class SessionsService {
     private userImagesService: UserImagesService,
     private favoritesService: FavoritesService,
     private activityFeedService: ActivityFeedService,
-    private pointsService: PointsService
+    private pointsService: PointsService,
+    private recommendationContext: UserRecommendationContextService
   ) {}
 
   /**
@@ -525,8 +533,7 @@ export class SessionsService {
 
     // Non-host viewers (e.g. public host profile) cannot see internal sessions
     const isHostOrAdmin =
-      user &&
-      (filters?.hostId === user.userId || user.role === 'ADMIN');
+      user && (filters?.hostId === user.userId || user.role === 'ADMIN');
     if (!isHostOrAdmin) {
       where.isInternal = false;
     }
@@ -637,6 +644,16 @@ export class SessionsService {
     const page = filters?.page || 1;
     const limit = filters?.limit || 12;
     const skip = (page - 1) * limit;
+
+    // "Gợi ý cho bạn": same filters, ranked by a per-viewer score. Anonymous
+    // viewers fall back to the default upcoming order.
+    const isRecommended = filters?.sortBy === 'recommended' && !!userId;
+    const recommendationContext = isRecommended
+      ? await this.recommendationContext.build(userId!, {
+          lat: filters?.lat,
+          lng: filters?.lng,
+        })
+      : null;
 
     let favoriteIds: string[] | undefined;
     if (filters?.favoriteOnly) {
@@ -890,10 +907,34 @@ export class SessionsService {
     if (filters?.minCourts !== undefined || filters?.maxCourts !== undefined) {
       andConditions.push({
         numberOfCourts: {
-          ...(filters.minCourts !== undefined ? { gte: filters.minCourts } : {}),
-          ...(filters.maxCourts !== undefined ? { lte: filters.maxCourts } : {}),
+          ...(filters.minCourts !== undefined
+            ? { gte: filters.minCourts }
+            : {}),
+          ...(filters.maxCourts !== undefined
+            ? { lte: filters.maxCourts }
+            : {}),
         },
       });
+    }
+
+    if (recommendationContext) {
+      // Never suggest what the viewer already joined, requested or hosts.
+      andConditions.push({
+        hostId: { not: userId },
+        allowNewPlayers: true,
+        NOT: {
+          players: {
+            some: {
+              userId,
+              registrationStatus: { in: ['PENDING', 'APPROVED'] },
+            },
+          },
+        },
+      });
+      // A one-sport player is not shown the other sport unless they ask.
+      if (!filters?.sportType?.length && recommendationContext.soleSport) {
+        andConditions.push({ sportType: recommendationContext.soleSport });
+      }
     }
 
     if (andConditions.length > 0) {
@@ -937,17 +978,19 @@ export class SessionsService {
       filters.lat !== undefined &&
       filters.lng !== undefined;
     const requiresPostFilter =
+      isRecommended ||
       isDistanceSort ||
       Boolean(filters?.timeRanges?.length) ||
       filters?.hasSlots !== undefined ||
       filters?.minAvailableSlots !== undefined;
 
     // Build orderBy - use sortBy param if provided, otherwise default to startTime asc
-    const orderBy = isDistanceSort
-      ? { startTime: 'asc' as const } // distance sort is handled post-fetch
-      : filters?.sortBy
-        ? this.buildOrderBy(filters.sortBy, filters.sortOrder)
-        : { startTime: 'asc' as const };
+    const orderBy =
+      isDistanceSort || filters?.sortBy === 'recommended'
+        ? { startTime: 'asc' as const } // distance sort is handled post-fetch
+        : filters?.sortBy
+          ? this.buildOrderBy(filters.sortBy, filters.sortOrder)
+          : { startTime: 'asc' as const };
 
     // Fetch sessions
     let sessions = await this.prisma.session.findMany({
@@ -977,23 +1020,45 @@ export class SessionsService {
       // Distance is calculated in memory, so database pagination here would
       // limit ranking to an arbitrary time-sorted page.
       skip: requiresPostFilter ? undefined : skip,
-      take: requiresPostFilter ? undefined : limit,
+      // Recommendation ranks the nearest upcoming candidates only; scoring
+      // the whole future catalog would not change the first pages.
+      take: requiresPostFilter
+        ? isRecommended
+          ? RECOMMENDATION_CANDIDATES
+          : undefined
+        : limit,
     });
 
     // Post-fetch filters (for complex calculations)
 
     sessions = filterAvailableSessions(sessions, {
       timeRanges: filters?.timeRanges,
-      hasSlots: filters?.hasSlots,
+      hasSlots: isRecommended ? true : filters?.hasSlots,
       minAvailableSlots: filters?.minAvailableSlots,
     });
 
     // Calculate distance and sort if geospatial params provided
     type SessionWithDistance = (typeof sessions)[number] & {
       distance?: number | null;
+      recommendation?: Recommendation;
     };
     let sessionsToReturn: SessionWithDistance[] = sessions;
-    if (isDistanceSort) {
+    if (recommendationContext) {
+      const friendCounts = await this.countFriendsBySession(
+        sessions.map((s) => s.id),
+        recommendationContext.friendIds
+      );
+      sessionsToReturn = sortByRecommendation(
+        sessions.map((session) => ({
+          ...session,
+          recommendation: scoreSession(
+            session,
+            recommendationContext,
+            friendCounts.get(session.id) ?? 0
+          ),
+        }))
+      );
+    } else if (isDistanceSort) {
       // Calculate distance for each session using Haversine formula
       sessionsToReturn = sessions
         .map((session) => {
@@ -1062,6 +1127,24 @@ export class SessionsService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  /** Approved friends (see UserRecommendationContext) per session. */
+  private async countFriendsBySession(
+    sessionIds: string[],
+    friendIds: Set<string>
+  ): Promise<Map<string, number>> {
+    if (sessionIds.length === 0 || friendIds.size === 0) return new Map();
+    const rows = await this.prisma.player.groupBy({
+      by: ['sessionId'],
+      where: {
+        sessionId: { in: sessionIds },
+        userId: { in: [...friendIds] },
+        registrationStatus: 'APPROVED',
+      },
+      _count: { _all: true },
+    });
+    return new Map(rows.map((r) => [r.sessionId, r._count._all]));
   }
 
   // Haversine formula to calculate distance between two lat/lng points in kilometers
@@ -1264,8 +1347,8 @@ export class SessionsService {
         );
       const hasValidCode = Boolean(
         code &&
-          session.accessCode &&
-          code.trim().toUpperCase() === session.accessCode.toUpperCase()
+        session.accessCode &&
+        code.trim().toUpperCase() === session.accessCode.toUpperCase()
       );
 
       if (!isHost && !isParticipant && !hasValidCode) {
@@ -4132,6 +4215,16 @@ export class SessionsService {
   }
 
   /**
+   * Weekday (0 = Sunday) and hour in Vietnam time (UTC+7, no DST).
+   * Date#getDay/getHours follow the server timezone, which is UTC in
+   * production, so evening sessions were bucketed into the wrong hour/day.
+   */
+  private toVietnamDayHour(date: Date): { day: number; hour: number } {
+    const vn = new Date(date.getTime() + 7 * 60 * 60 * 1000);
+    return { day: vn.getUTCDay(), hour: vn.getUTCHours() };
+  }
+
+  /**
    * Get suggested sessions for a user based on level, location, and play history
    */
   async getSuggestions(
@@ -4192,8 +4285,7 @@ export class SessionsService {
           (hostFrequency[p.session.hostId] || 0) + 1;
       }
       if (p.session.startTime) {
-        const day = p.session.startTime.getDay();
-        const hour = p.session.startTime.getHours();
+        const { day, hour } = this.toVietnamDayHour(p.session.startTime);
         dayFrequency[day] = (dayFrequency[day] || 0) + 1;
         hourFrequency[hour] = (hourFrequency[hour] || 0) + 1;
       }
@@ -4322,8 +4414,9 @@ export class SessionsService {
       // Schedule match (weight: 0.15)
       let scheduleScore = hasHistory ? 0 : 0.5;
       if (hasHistory && session.startTime) {
-        const sessionDay = session.startTime.getDay();
-        const sessionHour = session.startTime.getHours();
+        const { day: sessionDay, hour: sessionHour } = this.toVietnamDayHour(
+          session.startTime
+        );
         const dayScore = (dayFrequency[sessionDay] || 0) / maxDayFreq;
         const hourScore = (hourFrequency[sessionHour] || 0) / maxHourFreq;
         scheduleScore = dayScore * 0.5 + hourScore * 0.5;

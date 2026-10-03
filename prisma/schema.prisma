@@ -119,7 +119,7 @@ model User {
   blockedByUsers UserBlock[] @relation("BlockedByUsers")
 
   // Favorite relations
-  favorites Favorite[] @relation("UserFavorites")
+  favorites             Favorite[]             @relation("UserFavorites")
   savedDiscoveryFilters SavedDiscoveryFilter[]
 
   // Ranking points
@@ -636,12 +636,29 @@ model Session {
   ratings             Rating[]
   clubSessions        ClubSession[]
   venueRentalRequests VenueRentalRequest[]
+  videos              SessionVideo[]
 
   @@index([isCrawled])
   @@index([isInternal])
   @@index([clubId])
   @@index([sportType])
   @@map("sessions")
+}
+
+// Match recordings the host links to a session ("Clip trận đấu"). Private to
+// the host and the session's approved players — never part of the public
+// session payload.
+model SessionVideo {
+  id          String   @id @default(cuid())
+  sessionId   String
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  url         String
+  title       String?  @db.VarChar(100)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([sessionId, createdAt])
+  @@map("session_videos")
 }
 
 // Public recurring sports class recruitment. This intentionally stays separate

@@ -120,6 +120,12 @@ export class RatingsService {
       throw new BadRequestException('Can only rate after session is finished');
     }
 
+    // A host who also plays in their own session must not inflate their own
+    // reputation, and nobody rates themselves as a player either.
+    if (dto.ratedUserId === raterUserId) {
+      throw new BadRequestException('You cannot rate yourself');
+    }
+
     // Verify rating type and permissions
     if (dto.type === RatingType.PLAYER_TO_HOST) {
       // Player rating host - verify rater was a player in the session
@@ -282,7 +288,9 @@ export class RatingsService {
     const playerRatings: Array<(typeof existingRatings)[0]> = [];
 
     if (isFinished) {
-      if (isPlayer) {
+      // A host listed as a player in their own session would otherwise be
+      // offered to rate themselves.
+      if (isPlayer && !isHost) {
         // Player can rate host
         canRateHost = true;
         const hostRatingRecord = existingRatings.find(

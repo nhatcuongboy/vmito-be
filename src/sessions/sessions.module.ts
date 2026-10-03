@@ -13,6 +13,7 @@ import { SessionAccessModule } from '../common/session-access/session-access.mod
 import { FavoritesModule } from '../favorites/favorites.module';
 import { ActivitiesModule } from '../activities/activities.module';
 import { PointsModule } from '../points/points.module';
+import { RecommendationsModule } from '../recommendations/recommendations.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { PointsModule } from '../points/points.module';
     FavoritesModule,
     ActivitiesModule,
     PointsModule,
+    RecommendationsModule,
   ],
   controllers: [SessionsController],
   providers: [SessionsService, SessionSchedulerService],
