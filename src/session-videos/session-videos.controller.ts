@@ -26,7 +26,9 @@ export class SessionVideosController {
   constructor(private readonly service: SessionVideosService) {}
 
   @Get('sessions/:sessionId/videos')
-  @ApiOperation({ summary: 'List match clips of a session (host only)' })
+  @ApiOperation({
+    summary: 'List match clips of a session (host or approved player)',
+  })
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Param('sessionId') sessionId: string

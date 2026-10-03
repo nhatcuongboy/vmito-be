@@ -34,11 +34,23 @@ const CLASS_PERIOD_WINDOWS: Record<
   evening: { start: '18:00', end: '23:59' },
 };
 
+import { UserRecommendationContextService } from '../recommendations/user-recommendation-context.service';
+import { UserRecommendationContext } from '../recommendations/recommendation.types';
+import { sortByRecommendation } from '../recommendations/recommendation.utils';
+import {
+  ScorableClass,
+  scoreClass,
+} from '../recommendations/scorers/class.scorer';
+
+/** Newest published classes considered by `sortBy=recommended`. */
+const RECOMMENDATION_CANDIDATES = 300;
+
 @Injectable()
 export class ClassesService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly favorites: FavoritesService
+    private readonly favorites: FavoritesService,
+    private readonly recommendationContext: UserRecommendationContextService
   ) {}
 
   private readonly publicInclude = {
@@ -265,6 +277,22 @@ export class ClassesService {
       limit = query.limit ?? 12,
       skip = (page - 1) * limit;
     const and: Prisma.ClassWhereInput[] = [{ status: ClassStatus.PUBLISHED }];
+    // "Gợi ý cho bạn": same filters, ranked per viewer. Anonymous viewers
+    // fall back to newest first.
+    const recommendationContext =
+      query.sortBy === 'recommended' && userId
+        ? await this.recommendationContext.build(userId, {
+            lat: query.lat,
+            lng: query.lng,
+          })
+        : null;
+    if (recommendationContext) {
+      // Never suggest the viewer's own class.
+      and.push({ hostId: { not: userId } });
+      if (!query.sportType && recommendationContext.soleSport) {
+        and.push({ sportType: recommendationContext.soleSport });
+      }
+    }
     if (query.favoriteOnly) {
       const ids = userId
         ? await this.favorites.getFavoritedTargetIds(userId, FavoriteType.CLASS)
@@ -361,12 +389,17 @@ export class ClassesService {
       query.sortBy === 'distance' &&
       query.lat !== undefined &&
       query.lng !== undefined;
+    const rankInMemory = distanceSort || !!recommendationContext;
     const [items, total] = await Promise.all([
       this.prisma.class.findMany({
         where,
         include: this.publicInclude,
         orderBy: { createdAt: 'desc' },
-        ...(distanceSort ? {} : { skip, take: limit }),
+        ...(rankInMemory
+          ? recommendationContext
+            ? { take: RECOMMENDATION_CANDIDATES }
+            : {}
+          : { skip, take: limit }),
       }),
       this.prisma.class.count({ where }),
     ]);
@@ -385,9 +418,17 @@ export class ClassesService {
           (a.distance ?? Number.MAX_VALUE) - (b.distance ?? Number.MAX_VALUE) ||
           b.createdAt.getTime() - a.createdAt.getTime()
       );
-    const result = distanceSort
-      ? withDistance.slice(skip, skip + limit)
-      : withDistance;
+    const result = recommendationContext
+      ? this.rankForViewer(withDistance, recommendationContext).slice(
+          skip,
+          skip + limit
+        )
+      : distanceSort
+        ? withDistance.slice(skip, skip + limit)
+        : withDistance;
+    // Recommendation ranks a capped candidate set; report that size so
+    // pagination never promises pages it cannot serve.
+    const reportedTotal = recommendationContext ? items.length : total;
     const favorites = userId
       ? await this.favorites.isFavoritedMap(
           userId,
@@ -400,11 +441,41 @@ export class ClassesService {
         ...item,
         isFavorite: favorites.has(item.id),
       })),
-      total,
+      total: reportedTotal,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
+      totalPages: Math.ceil(reportedTotal / limit),
     };
+  }
+
+  /** See `recommendations/scorers/class.scorer`. */
+  private rankForViewer<T extends ScorableClass>(
+    items: T[],
+    ctx: UserRecommendationContext
+  ) {
+    // "Typical price" is per tuition period: a monthly fee and a per-lesson
+    // fee are not comparable.
+    const amountsByPeriod = new Map<string, number[]>();
+    for (const item of items) {
+      if (item.tuitionAmount == null) continue;
+      const list = amountsByPeriod.get(item.tuitionPeriod) ?? [];
+      list.push(item.tuitionAmount);
+      amountsByPeriod.set(item.tuitionPeriod, list);
+    }
+    const medians = new Map(
+      [...amountsByPeriod].map(([period, amounts]) => {
+        const sorted = [...amounts].sort((a, b) => a - b);
+        return [period, sorted[Math.floor(sorted.length / 2)]];
+      })
+    );
+    return sortByRecommendation(
+      items.map((item) => ({
+        ...item,
+        recommendation: scoreClass(item, ctx, {
+          medianTuition: medians.get(item.tuitionPeriod) ?? null,
+        }),
+      }))
+    );
   }
 
   async mine(userId: string, role: string) {

@@ -32,14 +32,15 @@ const sorts: Record<DiscoveryFilterTab, string[]> = {
     'priceDesc',
   ],
   venues: [
+    'recommended',
     'distance',
     'createdAt',
     'name',
     'hourlyRateFixed',
     'numberOfCourts',
   ],
-  clubs: ['distance', 'sessionCount', 'createdAt', 'name'],
-  tournaments: ['startAsc', 'newest', 'nameAsc', 'nameDesc'],
+  clubs: ['recommended', 'distance', 'sessionCount', 'createdAt', 'name'],
+  tournaments: ['recommended', 'startAsc', 'newest', 'nameAsc', 'nameDesc'],
 };
 
 const choices: Record<string, readonly string[]> = {

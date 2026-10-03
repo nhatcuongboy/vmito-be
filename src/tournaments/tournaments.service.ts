@@ -28,6 +28,7 @@ import {
   Gender,
   FavoriteType,
   Prisma,
+  TournamentRegistrationStatus,
 } from '@prisma/client';
 import { MATCH_SCORING_INCLUDE } from '../categories/scoring/match-include';
 import { normalizeMatchForBroadcast } from '../categories/scoring/normalize-match';
@@ -49,6 +50,10 @@ import {
   isTournamentStartDateInPast,
 } from './tournament-date';
 
+import { UserRecommendationContextService } from '../recommendations/user-recommendation-context.service';
+import { sortByRecommendation } from '../recommendations/recommendation.utils';
+import { scoreTournament } from '../recommendations/scorers/tournament.scorer';
+
 @Injectable()
 export class TournamentsService {
   constructor(
@@ -58,7 +63,8 @@ export class TournamentsService {
     private gateway: TournamentsGateway,
     private favoritesService: FavoritesService,
     private activityFeedService: ActivityFeedService,
-    private pointsService: PointsService
+    private pointsService: PointsService,
+    private recommendationContext: UserRecommendationContextService
   ) {}
 
   private generateSlug(name: string): string {
@@ -261,9 +267,44 @@ export class TournamentsService {
       );
     }
     andConditions.push(...locationConditions);
+    // "Gợi ý cho bạn": same filters, ranked per viewer. Anonymous viewers
+    // fall back to the default order below.
+    const recommendationContext =
+      query.sortBy === 'recommended' && userId
+        ? await this.recommendationContext.build(userId, {
+            lat: query.lat,
+            lng: query.lng,
+          })
+        : null;
+    if (recommendationContext) {
+      // Never suggest what the viewer organizes or already entered.
+      andConditions.push(
+        { hostId: { not: userId } },
+        { players: { none: { userId } } },
+        {
+          registrationRequests: {
+            none: {
+              userId,
+              status: {
+                in: [
+                  TournamentRegistrationStatus.PENDING,
+                  TournamentRegistrationStatus.APPROVED,
+                ],
+              },
+            },
+          },
+        }
+      );
+      if (!query.sportType?.length && recommendationContext.soleSport) {
+        andConditions.push({ sportType: recommendationContext.soleSport });
+      }
+    }
     if (andConditions.length) where.AND = andConditions;
 
-    const sortBy = query.sortBy ?? 'createdAt';
+    const sortBy =
+      !query.sortBy || query.sortBy === 'recommended'
+        ? 'createdAt'
+        : query.sortBy;
     const sortOrder = query.sortOrder ?? 'desc';
 
     const tournaments = await this.prisma.tournament.findMany({
@@ -309,10 +350,40 @@ export class TournamentsService {
           )
         : new Set<string>();
 
-    return tournaments.map((t) => ({
+    const withFavorites = tournaments.map((t) => ({
       ...t,
       isFavorite: favoriteSet.has(t.id),
     }));
+    if (!recommendationContext) return withFavorites;
+    const friendCounts = await this.countFriendPlayers(
+      tournaments.map((t) => t.id),
+      recommendationContext.friendIds
+    );
+    return sortByRecommendation(
+      withFavorites.map((t) => ({
+        ...t,
+        recommendation: scoreTournament(t, recommendationContext, {
+          friendPlayers: friendCounts.get(t.id) ?? 0,
+        }),
+      }))
+    );
+  }
+
+  /** Friends (see UserRecommendationContext) registered per tournament. */
+  private async countFriendPlayers(
+    tournamentIds: string[],
+    friendIds: Set<string>
+  ): Promise<Map<string, number>> {
+    if (tournamentIds.length === 0 || friendIds.size === 0) return new Map();
+    const rows = await this.prisma.tournamentPlayer.groupBy({
+      by: ['tournamentId'],
+      where: {
+        tournamentId: { in: tournamentIds },
+        userId: { in: [...friendIds] },
+      },
+      _count: { _all: true },
+    });
+    return new Map(rows.map((r) => [r.tournamentId, r._count._all]));
   }
 
   async findOne(idOrSlug: string) {

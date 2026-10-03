@@ -146,6 +146,35 @@ export class ScoreBuilder {
   }
 }
 
+/**
+ * Best match between recurring weekly slots (club activity, class lessons)
+ * and the viewer's habits. Neutral without history, low without slots.
+ */
+export function weeklySlotsScore(
+  ctx: UserRecommendationContext,
+  slots: { dayOfWeek: number; startTime: string; endTime: string }[]
+): number {
+  if (!ctx.hasHistory) return 0.5;
+  if (slots.length === 0) return 0.3;
+  let best = 0;
+  for (const slot of slots) {
+    const start = parseHour(slot.startTime);
+    const end = Math.max(start + 1, parseHour(slot.endTime));
+    let hour = 0;
+    for (let h = start; h < Math.min(end, 24); h++) {
+      hour = Math.max(hour, ctx.hourAffinity[h]);
+    }
+    const day = ctx.dayAffinity[slot.dayOfWeek] ?? 0;
+    best = Math.max(best, 0.5 * day + 0.5 * hour);
+  }
+  return best;
+}
+
+function parseHour(time: string): number {
+  const hour = Number.parseInt(time.split(':')[0] ?? '', 10);
+  return Number.isFinite(hour) ? Math.min(23, Math.max(0, hour)) : 0;
+}
+
 /** Sorts in place by score, best first; ties keep the incoming order. */
 export function sortByRecommendation<
   T extends { recommendation: Recommendation },

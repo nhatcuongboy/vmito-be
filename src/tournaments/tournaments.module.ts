@@ -18,6 +18,7 @@ import { ActivitiesModule } from '../activities/activities.module';
 import { PointsModule } from '../points/points.module';
 import { TournamentSchedulerService } from './tournament-scheduler.service';
 
+import { RecommendationsModule } from '../recommendations/recommendations.module';
 @Module({
   imports: [
     PrismaModule,
@@ -28,6 +29,7 @@ import { TournamentSchedulerService } from './tournament-scheduler.service';
     FavoritesModule,
     ActivitiesModule,
     PointsModule,
+    RecommendationsModule,
   ],
   controllers: [
     TournamentsController,
