@@ -29,6 +29,7 @@ import { FeeService } from '../fee/fee.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { FavoritesService } from '../favorites/favorites.service';
 import { calculatePlayerPointDifferentials } from './player-statistics.utils';
+import { liveWaitTime } from '../common/wait-time.utils';
 
 @Injectable()
 export class PlayersService {
@@ -168,7 +169,11 @@ export class PlayersService {
       throw new NotFoundException('Player not found');
     }
 
-    return player;
+    // The stored column is stale; derive the live value like GET /sessions/:id.
+    return {
+      ...player,
+      currentWaitTime: liveWaitTime(player, player.session.status),
+    };
   }
 
   async update(id: string, updatePlayerDto: UpdatePlayerDto) {
@@ -1452,9 +1457,12 @@ export class PlayersService {
 
     // Leaving WAITING for INACTIVE ends this wait stint — bank it into
     // totalWaitTime now, same as a match start does, since nothing else
-    // will once waitingSince is cleared below.
+    // will once waitingSince is cleared below. Only a running session
+    // accrues wait — a PREPARING clock is restarted at start anyway.
     const waitTimeMinutes =
-      existingPlayer.status === 'WAITING' && existingPlayer.waitingSince
+      session.status === 'IN_PROGRESS' &&
+      existingPlayer.status === 'WAITING' &&
+      existingPlayer.waitingSince
         ? Math.floor(
             (Date.now() - new Date(existingPlayer.waitingSince).getTime()) /
               60000
@@ -2016,7 +2024,7 @@ export class PlayersService {
       playerNumber: player.playerNumber,
       name: player.name,
       status: player.status,
-      currentWaitTime: player.currentWaitTime,
+      currentWaitTime: liveWaitTime(player, player.session.status),
       totalWaitTime: player.totalWaitTime,
       matchesPlayed: player.matchesPlayed,
       currentCourtId: player.currentCourt?.courtNumber,

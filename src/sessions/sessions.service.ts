@@ -6,7 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { calculateWaitTime } from '../common/wait-time.utils';
+import { liveWaitTime } from '../common/wait-time.utils';
 import {
   CreateSessionDto,
   SessionLocationType,
@@ -1318,9 +1318,8 @@ export class SessionsService {
       // clients called while a page was open (see wait-time.utils.ts); derive
       // it from waitingSince instead so it's correct with no client polling.
       // Falls back to the stored value for rows predating that column.
-      currentWaitTime: p.waitingSince
-        ? calculateWaitTime(p.waitingSince)
-        : p.currentWaitTime,
+      // Zero unless the session is IN_PROGRESS — see liveWaitTime.
+      currentWaitTime: liveWaitTime(p, session.status),
     }));
 
     const approvedPlayers = allPlayers.filter(
@@ -2372,6 +2371,12 @@ export class SessionsService {
         },
       },
     });
+    if (
+      status === SessionStatus.IN_PROGRESS &&
+      existingSession.status !== SessionStatus.IN_PROGRESS
+    ) {
+      await this.restartWaitClocks(id);
+    }
 
     this.sessionsGateway.notifySessionUpdate(id);
     return session;
@@ -2564,6 +2569,7 @@ export class SessionsService {
     if (!changed.count) {
       throw new BadRequestException('Session has already been started');
     }
+    await this.restartWaitClocks(id);
     const session = await this.prisma.session.findUniqueOrThrow({
       where: { id },
     });
@@ -2643,9 +2649,23 @@ export class SessionsService {
         endWarningSentAt: null,
       },
     });
+    await this.restartWaitClocks(id);
 
     this.sessionsGateway.notifySessionUpdate(id);
     return session;
+  }
+
+  /**
+   * Players get a `waitingSince` as soon as they join, even while the session
+   * is PREPARING. Waiting only counts once play starts, so every running
+   * clock restarts at the start instant. Nothing is banked into
+   * totalWaitTime: time before the start was never real waiting.
+   */
+  private async restartWaitClocks(sessionId: string) {
+    await this.prisma.player.updateMany({
+      where: { sessionId, waitingSince: { not: null } },
+      data: { waitingSince: new Date(), currentWaitTime: 0 },
+    });
   }
 
   async end(id: string) {
@@ -2730,6 +2750,8 @@ export class SessionsService {
             data: {
               status: 'FINISHED',
               currentWaitTime: 0,
+              // Stop the clock, or a FINISHED row would keep "waiting".
+              waitingSince: null,
               totalWaitTime: updatedTotalWaitTime,
               currentCourtId: null,
             },
@@ -3241,9 +3263,7 @@ export class SessionsService {
 
     return waitingPlayers.map((p) => ({
       ...p,
-      currentWaitTime: p.waitingSince
-        ? calculateWaitTime(p.waitingSince)
-        : p.currentWaitTime,
+      currentWaitTime: liveWaitTime(p, session.status),
     }));
   }
 
@@ -3286,37 +3306,63 @@ export class SessionsService {
 
     // Handle reset functionality
     if (resetType && playerIds && Array.isArray(playerIds)) {
-      let updateData: { currentWaitTime?: number; totalWaitTime?: number } = {};
-
-      switch (resetType) {
-        case 'current':
-          updateData = { currentWaitTime: 0 };
-          break;
-        case 'total':
-          updateData = { totalWaitTime: 0 };
-          break;
-        case 'both':
-          updateData = { currentWaitTime: 0, totalWaitTime: 0 };
-          break;
-        default:
-          updateData = { currentWaitTime: 0 };
+      if (resetType === 'total') {
+        result = await this.prisma.player.updateMany({
+          where: { sessionId: id, id: { in: playerIds } },
+          data: { totalWaitTime: 0 },
+        });
+      } else {
+        // The current wait is derived from `waitingSince` (see
+        // wait-time.utils.ts), so zeroing the stored counter alone did
+        // nothing — restarting the clock is the reset. Wait only accrues
+        // while the session runs, so there is nothing to reset otherwise.
+        if (session.status !== 'IN_PROGRESS') {
+          throw new BadRequestException(
+            'Wait times can only be reset while the session is in progress'
+          );
+        }
+        const players = await this.prisma.player.findMany({
+          where: { sessionId: id, id: { in: playerIds } },
+          select: { id: true, waitingSince: true },
+        });
+        const now = new Date();
+        // Per-player, not updateMany: the stint banked into totalWaitTime
+        // differs per player. Banking it (rather than discarding it) keeps
+        // the total honest — the player really did wait those minutes.
+        await this.prisma.$transaction(
+          players.map((player) => {
+            const elapsed = player.waitingSince
+              ? Math.floor(
+                  (now.getTime() - player.waitingSince.getTime()) / 60000
+                )
+              : 0;
+            return this.prisma.player.update({
+              where: { id: player.id },
+              data: {
+                currentWaitTime: 0,
+                // Only a running clock restarts; INACTIVE/PLAYING stay null.
+                ...(player.waitingSince ? { waitingSince: now } : {}),
+                totalWaitTime:
+                  resetType === 'both' ? 0 : { increment: elapsed },
+              },
+            });
+          })
+        );
+        result = { count: players.length };
       }
 
-      result = await this.prisma.player.updateMany({
-        where: {
-          sessionId: id,
-          id: { in: playerIds },
-        },
-        data: updateData,
-      });
-
-      updatedPlayers = await this.prisma.player.findMany({
+      const resetPlayers = await this.prisma.player.findMany({
         where: {
           sessionId: id,
           id: { in: playerIds },
         },
         orderBy: [{ waitingSince: 'asc' }, { playerNumber: 'asc' }],
       });
+      updatedPlayers = resetPlayers.map((p) => ({
+        ...p,
+        currentWaitTime: liveWaitTime(p, session.status),
+      }));
+      this.sessionsGateway.notifySessionUpdate(id);
     } else {
       // Regular wait time update for all waiting players
       result = await this.prisma.player.updateMany({
@@ -3371,13 +3417,10 @@ export class SessionsService {
     });
 
     // Calculate currentWaitTime dynamically from waitingSince
-    const now = Date.now();
-    const waitingPlayers = waitingPlayersRaw.map((p) => {
-      const currentWaitTime = p.waitingSince
-        ? Math.floor((now - new Date(p.waitingSince).getTime()) / 60000)
-        : p.currentWaitTime; // Fallback to stored value for backward compatibility
-      return { ...p, currentWaitTime };
-    });
+    const waitingPlayers = waitingPlayersRaw.map((p) => ({
+      ...p,
+      currentWaitTime: liveWaitTime(p, session.status),
+    }));
 
     // Sort by calculated wait time (descending)
     waitingPlayers.sort((a, b) => b.currentWaitTime - a.currentWaitTime);
