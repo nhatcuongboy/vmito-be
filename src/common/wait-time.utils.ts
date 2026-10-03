@@ -38,3 +38,19 @@ export function enrichPlayersWithWaitTime<
 >(players: T[]): (T & { currentWaitTime: number })[] {
   return players.map(enrichPlayerWithWaitTime);
 }
+
+/**
+ * The current wait a client should see. Wait only accrues while the session
+ * is IN_PROGRESS: players get a `waitingSince` the moment they join, even in
+ * a PREPARING session, and that clock is restarted on start — so reading it
+ * before then (or after the session ends) would report time nobody waited.
+ */
+export function liveWaitTime(
+  player: { waitingSince?: Date | null; currentWaitTime?: number },
+  sessionStatus: string
+): number {
+  if (sessionStatus !== 'IN_PROGRESS') return 0;
+  return player.waitingSince
+    ? calculateWaitTime(player.waitingSince)
+    : (player.currentWaitTime ?? 0);
+}

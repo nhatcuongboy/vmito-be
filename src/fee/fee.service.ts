@@ -233,10 +233,15 @@ export class FeeService {
         createdByUserId: true,
         isClubMember: true,
         clubId: true,
+        registrationStatus: true,
       },
     });
 
     if (!player) return;
+
+    // Pending join requests are billed only once the host approves them
+    // (approval calls this method again).
+    if (player.registrationStatus !== RegistrationStatus.APPROVED) return;
 
     const { amount, clubFeeApplied } =
       await this.calculatePaymentAmountForPlayer(feeConfig, player, session);
@@ -526,8 +531,8 @@ export class FeeService {
     const players = await this.prisma.player.findMany({
       where: {
         sessionId,
-        // Exclude players the host rejected — they must not be billed.
-        registrationStatus: { not: RegistrationStatus.REJECTED },
+        // Only approved players are billed — pending/rejected must not be.
+        registrationStatus: RegistrationStatus.APPROVED,
       },
       select: {
         id: true,
