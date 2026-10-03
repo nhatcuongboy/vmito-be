@@ -649,7 +649,7 @@ export class SessionsService {
     // viewers fall back to the default upcoming order.
     const isRecommended = filters?.sortBy === 'recommended' && !!userId;
     const recommendationContext = isRecommended
-      ? await this.recommendationContext.build(userId!, {
+      ? await this.recommendationContext.build(userId, {
           lat: filters?.lat,
           lng: filters?.lng,
         })

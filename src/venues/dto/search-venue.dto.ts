@@ -171,7 +171,8 @@ export class SearchVenueDto {
     | 'distance'
     | 'numberOfCourts'
     | 'hourlyRateFixed'
-    | 'relevance' = 'name';
+    | 'relevance'
+    | 'recommended' = 'name';
 
   @ApiProperty({ required: false, enum: ['asc', 'desc'], default: 'asc' })
   @IsOptional()

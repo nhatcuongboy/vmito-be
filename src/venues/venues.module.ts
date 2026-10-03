@@ -5,11 +5,12 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { AddressMappingService } from './address-mapping.service';
 import { VenueAddressMigrationService } from './venue-address-migration.service';
 import { FavoritesModule } from '../favorites/favorites.module';
+import { RecommendationsModule } from '../recommendations/recommendations.module';
 import { VenuePricingService } from '../venue-rentals/venue-pricing.service';
 import { VenueAccessService } from './venue-access.service';
 
 @Module({
-  imports: [PrismaModule, FavoritesModule],
+  imports: [PrismaModule, FavoritesModule, RecommendationsModule],
   controllers: [VenuesController],
   providers: [
     VenuesService,

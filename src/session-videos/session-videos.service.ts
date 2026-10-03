@@ -26,8 +26,25 @@ export class SessionVideosService {
     private readonly access: SessionAccessService
   ) {}
 
+  /**
+   * Host/admin (manage tab) or an APPROVED player of the session (their own
+   * overview tab). Anyone else — including the public — gets 403.
+   */
   async list(sessionId: string, userId: string, role?: string) {
-    await this.assertHost(sessionId, userId, role);
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: {
+        hostId: true,
+        players: {
+          where: { userId, registrationStatus: 'APPROVED' },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+    if (!session) throw new NotFoundException('Session not found');
+    const isPlayer = session.players.length > 0;
+    if (!isPlayer) this.access.assertHostOrAdmin(session.hostId, userId, role);
     return this.prisma.sessionVideo.findMany({
       where: { sessionId },
       orderBy: { createdAt: 'asc' },

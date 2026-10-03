@@ -1,9 +1,10 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsDateString,
   IsEnum,
   IsIn,
+  IsNumber,
   Matches,
   IsOptional,
   IsString,
@@ -53,8 +54,19 @@ export class BrowseTournamentsDto {
   dateTo?: string;
 
   @IsOptional()
-  @IsIn(['startDate', 'createdAt', 'name'])
-  sortBy?: 'startDate' | 'createdAt' | 'name';
+  @IsIn(['startDate', 'createdAt', 'name', 'recommended'])
+  sortBy?: 'startDate' | 'createdAt' | 'name' | 'recommended';
+
+  // Viewer position, used only by `sortBy=recommended` for distance.
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  lat?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  lng?: number;
 
   @IsOptional()
   @IsIn(['asc', 'desc'])

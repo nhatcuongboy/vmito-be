@@ -14,6 +14,7 @@ import {
   VenueStatus,
   Role,
   VenueManagerRole,
+  ViewTargetType,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { FavoritesService } from '../favorites/favorites.service';
@@ -52,6 +53,22 @@ import {
 
 export { VENUE_PUBLIC_OMIT };
 
+import { UserRecommendationContextService } from '../recommendations/user-recommendation-context.service';
+import {
+  Recommendation,
+  UserRecommendationContext,
+} from '../recommendations/recommendation.types';
+import {
+  levelScore,
+  sortByRecommendation,
+} from '../recommendations/recommendation.utils';
+import {
+  ScorableVenue,
+  scoreVenue,
+} from '../recommendations/scorers/venue.scorer';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 @Injectable()
 export class VenuesService {
   constructor(
@@ -59,7 +76,8 @@ export class VenuesService {
     private addressMapping: AddressMappingService,
     private favoritesService: FavoritesService,
     private pricingService: VenuePricingService,
-    private venueAccess: VenueAccessService
+    private venueAccess: VenueAccessService,
+    private recommendationContext: UserRecommendationContextService
   ) {}
 
   /**
@@ -174,6 +192,12 @@ export class VenuesService {
 
     // Auto-set sortBy to 'relevance' if keyword is provided and sortBy is not explicitly set
     const sortBy = rawSortBy || (keyword ? 'relevance' : 'name');
+    // "Gợi ý cho bạn": same filters, ranked per viewer. Anonymous viewers
+    // get the name order (buildOrderBy's fallback).
+    const isRecommended = sortBy === 'recommended' && !!userId;
+    const recommendationContext = isRecommended
+      ? await this.recommendationContext.build(userId, { lat, lng })
+      : null;
 
     const skip = (page - 1) * limit;
     const andConditions: Prisma.VenueWhereInput[] = [];
@@ -184,6 +208,11 @@ export class VenuesService {
 
     if (sportType?.length) {
       andConditions.push({ sportTypes: { hasSome: sportType } });
+    } else if (recommendationContext?.soleSport) {
+      // A one-sport player is not shown the other sport unless they ask.
+      andConditions.push({
+        sportTypes: { has: recommendationContext.soleSport },
+      });
     }
 
     // Keyword search (name OR address)
@@ -310,7 +339,8 @@ export class VenuesService {
     // Fetch the matching set before pagination so distance can be calculated
     // and ranked globally, rather than only within an already name-paginated
     // page of venues.
-    const requiresInMemoryPagination = isRelevanceSort || isDistanceSort;
+    const requiresInMemoryPagination =
+      isRelevanceSort || isDistanceSort || isRecommended;
 
     const [venues, total] = await Promise.all([
       this.prisma.venue.findMany({
@@ -426,6 +456,14 @@ export class VenuesService {
       // Distance is calculated in memory, so paginate only after the global
       // distance ordering above has been established.
       result = result.slice(skip, skip + limit);
+    } else if (recommendationContext) {
+      const scores = await this.recommendVenues(result, recommendationContext);
+      result = sortByRecommendation(
+        result.map((venue) => ({
+          ...venue,
+          recommendation: scores.get(venue.id)!,
+        }))
+      ).slice(skip, skip + limit);
     }
 
     const favoriteSet = favoriteOnly
@@ -1514,6 +1552,88 @@ export class VenuesService {
   /** Strips administrative prefixes for search matching without changing stored values. */
   private normalizeAdminUnit(value: string): string {
     return value.replace(/^(Quận|Huyện|Thị xã|Thành phố)\s+/i, '').trim();
+  }
+
+  /** Scores [venues]; see `recommendations/scorers/venue.scorer`. */
+  private async recommendVenues(
+    venues: ScorableVenue[],
+    ctx: UserRecommendationContext
+  ): Promise<Map<string, Recommendation>> {
+    const ids = venues.map((venue) => venue.id);
+    const now = new Date();
+    const weekAhead = new Date(now.getTime() + 7 * DAY_MS);
+    const monthAgo = new Date(now.getTime() - 30 * DAY_MS);
+    const [upcoming, views, recent] = await Promise.all([
+      this.prisma.session.findMany({
+        where: {
+          venueId: { in: ids },
+          status: 'PREPARING',
+          isInternal: false,
+          allowNewPlayers: true,
+          OR: [
+            { startTime: { gte: now, lte: weekAhead } },
+            {
+              startTime: null,
+              scheduledStartTime: { gte: now, lte: weekAhead },
+            },
+          ],
+        },
+        select: { venueId: true, requiredLevels: true },
+      }),
+      this.prisma.viewCount.findMany({
+        where: { targetType: ViewTargetType.VENUE, targetId: { in: ids } },
+        select: { targetId: true, count: true },
+      }),
+      this.prisma.session.groupBy({
+        by: ['venueId'],
+        where: {
+          venueId: { in: ids },
+          OR: [
+            { startTime: { gte: monthAgo } },
+            { startTime: null, scheduledStartTime: { gte: monthAgo } },
+          ],
+        },
+        _count: { _all: true },
+      }),
+    ]);
+
+    // Only sessions the viewer could join count as "có kèo hợp trình".
+    const openSessions = new Map<string, number>();
+    for (const session of upcoming) {
+      if (!session.venueId || levelScore(ctx, session.requiredLevels) < 0.5) {
+        continue;
+      }
+      openSessions.set(
+        session.venueId,
+        (openSessions.get(session.venueId) ?? 0) + 1
+      );
+    }
+    const viewCounts = new Map(views.map((v) => [v.targetId, v.count]));
+    const recentCounts = new Map<string, number>();
+    for (const row of recent) {
+      if (row.venueId) recentCounts.set(row.venueId, row._count._all);
+    }
+    const maxViews = Math.max(0, ...viewCounts.values());
+    const maxRecent = Math.max(0, ...recentCounts.values());
+
+    return new Map(
+      venues.map((venue) => {
+        // Views are heavy-tailed, so compare them on a log scale.
+        const views =
+          maxViews > 0
+            ? Math.log1p(viewCounts.get(venue.id) ?? 0) / Math.log1p(maxViews)
+            : 0;
+        const sessions =
+          maxRecent > 0 ? (recentCounts.get(venue.id) ?? 0) / maxRecent : 0;
+        return [
+          venue.id,
+          scoreVenue(venue, ctx, {
+            openSessions: openSessions.get(venue.id) ?? 0,
+            popularity: 0.5 * views + 0.5 * sessions,
+          }),
+        ];
+      })
+    );
   }
 
   private buildOrderBy(

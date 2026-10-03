@@ -63,7 +63,7 @@ export class BrowseClassesDto {
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) maxTuition?: number;
   @IsOptional() @Type(() => Number) @IsNumber() lat?: number;
   @IsOptional() @Type(() => Number) @IsNumber() lng?: number;
-  @IsOptional() @IsString() sortBy?: 'distance' | 'newest';
+  @IsOptional() @IsString() sortBy?: 'distance' | 'newest' | 'recommended';
   @IsOptional() @Transform(toBoolean) @IsBoolean() favoriteOnly?: boolean;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;

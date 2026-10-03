@@ -39,6 +39,16 @@ import { VALID_LEVELS } from '../common/constants/level.constants';
 import { FavoritesService } from '../favorites/favorites.service';
 import { ActivityFeedService } from '../activities/activity-feed.service';
 import { ClubActivityPeriodValue } from './dto/browse-clubs.dto';
+import { UserRecommendationContextService } from '../recommendations/user-recommendation-context.service';
+import { sortByRecommendation } from '../recommendations/recommendation.utils';
+import {
+  ScorableClub,
+  scoreClub,
+} from '../recommendations/scorers/club.scorer';
+
+/** Clubs considered by `sortBy=recommended`, most active first. */
+const RECOMMENDATION_CANDIDATES = 300;
+const RECENT_ACTIVITY_DAYS = 30;
 
 // Club schedules store "HH:mm" strings; lexicographic compare == chronological
 // because they're zero-padded 24h. "Evening" runs to end-of-day — clubs have
@@ -58,7 +68,8 @@ export class ClubsService {
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
     private readonly favoritesService: FavoritesService,
-    private readonly activityFeedService: ActivityFeedService
+    private readonly activityFeedService: ActivityFeedService,
+    private readonly recommendationContext: UserRecommendationContextService
   ) {}
 
   private stripHtmlTags(html: string | null | undefined): string {
@@ -306,8 +317,12 @@ export class ClubsService {
       activePeriods,
     } = query;
     const skip = (page - 1) * limit;
+    // "Gợi ý cho bạn": same filters, ranked per viewer. Anonymous viewers
+    // fall back to the default most-active order.
+    const isRecommended = sortBy === 'recommended' && !!userId;
     const isDistanceSort =
       sortBy === 'distance' && lat !== undefined && lng !== undefined;
+    const rankInMemory = isRecommended || isDistanceSort;
 
     let favoriteIds: string[] | undefined;
     if (favoriteOnly) {
@@ -425,15 +440,32 @@ export class ClubsService {
       andConditions.push({ schedules: { some: scheduleWhere } });
     }
 
+    if (isRecommended) {
+      // Never suggest a club the viewer hosts, belongs to or asked to join.
+      andConditions.push(
+        { hostId: { not: userId } },
+        { members: { none: { userId } } },
+        {
+          joinRequests: {
+            none: { userId, status: JoinRequestStatus.PENDING },
+          },
+        }
+      );
+    }
+
     const where: Prisma.ClubWhereInput = { AND: andConditions };
 
     const [clubs, total] = await Promise.all([
       this.prisma.club.findMany({
         where,
-        // Distance is calculated after fetching, so apply pagination only
-        // after the complete result set has been ranked by distance.
-        skip: isDistanceSort ? undefined : skip,
-        take: isDistanceSort ? undefined : limit,
+        // Distance and recommendation rank after fetching, so pagination
+        // applies only once the candidates are ordered.
+        skip: rankInMemory ? undefined : skip,
+        take: rankInMemory
+          ? isRecommended
+            ? RECOMMENDATION_CANDIDATES
+            : undefined
+          : limit,
         orderBy: isDistanceSort
           ? undefined
           : [{ sessionCount: 'desc' }, { createdAt: 'desc' }],
@@ -478,6 +510,9 @@ export class ClubsService {
     const guestProfileCounts = await this.getActiveGuestProfileCounts(
       clubs.map((club) => club.id)
     );
+    const recommendations = isRecommended
+      ? await this.recommendClubs(clubs, userId, lat, lng)
+      : null;
 
     // Post-fetch: distance calculation
     let result = clubs.map((club) => ({
@@ -498,6 +533,7 @@ export class ClubsService {
       schedules: club.schedules,
       defaultVenue: club.defaultVenue,
       createdAt: club.createdAt,
+      recommendation: recommendations?.get(club.id),
       distance:
         lat !== undefined &&
         lng !== undefined &&
@@ -528,6 +564,13 @@ export class ClubsService {
         return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
       });
       result = result.slice(skip, skip + limit);
+    } else if (isRecommended) {
+      result = sortByRecommendation(
+        result.map((club) => ({
+          ...club,
+          recommendation: club.recommendation!,
+        }))
+      ).slice(skip, skip + limit);
     }
 
     const favoriteSet = favoriteOnly
@@ -540,13 +583,71 @@ export class ClubsService {
           )
         : new Set<string>();
 
+    // Recommendation only ranks a capped candidate set; report that size so
+    // pagination never promises pages it cannot serve.
+    const reportedTotal = isRecommended ? clubs.length : total;
     return {
       items: result.map((c) => ({ ...c, isFavorite: favoriteSet.has(c.id) })),
-      total,
+      total: reportedTotal,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
+      totalPages: Math.ceil(reportedTotal / limit),
     };
+  }
+
+  /** Scores [clubs] for [userId]; see `recommendations/scorers/club.scorer`. */
+  private async recommendClubs(
+    clubs: (ScorableClub & { id: string })[],
+    userId: string,
+    lat: number | undefined,
+    lng: number | undefined
+  ) {
+    const clubIds = clubs.map((club) => club.id);
+    const ctx = await this.recommendationContext.build(userId, { lat, lng });
+    const since = new Date(
+      Date.now() - RECENT_ACTIVITY_DAYS * 24 * 60 * 60 * 1000
+    );
+    // Empty `in` lists match nothing, so these stay correct (and cheap) for
+    // a viewer without friends or an empty candidate set.
+    const [friendRows, recentRows] = await Promise.all([
+      this.prisma.clubMember.groupBy({
+        by: ['clubId'],
+        where: {
+          clubId: { in: clubIds },
+          userId: { in: [...ctx.friendIds] },
+          status: MemberStatus.ACTIVE,
+        },
+        _count: { _all: true },
+      }),
+      this.prisma.session.groupBy({
+        by: ['clubId'],
+        where: {
+          clubId: { in: clubIds },
+          OR: [
+            { startTime: { gte: since } },
+            { startTime: null, scheduledStartTime: { gte: since } },
+          ],
+        },
+        _count: { _all: true },
+      }),
+    ]);
+    const friends = new Map<string, number>();
+    for (const row of friendRows) friends.set(row.clubId, row._count._all);
+    const recent = new Map<string, number>();
+    for (const row of recentRows) {
+      if (row.clubId) recent.set(row.clubId, row._count._all);
+    }
+    const maxRecentSessions = Math.max(0, ...recent.values());
+    return new Map(
+      clubs.map((club) => [
+        club.id,
+        scoreClub(club, ctx, {
+          friendMembers: friends.get(club.id) ?? 0,
+          recentSessions: recent.get(club.id) ?? 0,
+          maxRecentSessions,
+        }),
+      ])
+    );
   }
 
   private calculateDistance(
