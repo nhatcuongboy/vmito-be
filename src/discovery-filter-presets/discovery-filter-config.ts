@@ -23,7 +23,14 @@ const fields: Record<DiscoveryFilterTab, string[]> = {
 };
 
 const sorts: Record<DiscoveryFilterTab, string[]> = {
-  sessions: ['dateAsc', 'dateDesc', 'newest', 'priceAsc', 'priceDesc'],
+  sessions: [
+    'recommended',
+    'dateAsc',
+    'dateDesc',
+    'newest',
+    'priceAsc',
+    'priceDesc',
+  ],
   venues: [
     'distance',
     'createdAt',
