@@ -51,6 +51,7 @@ import { PlayerProfilesModule } from './player-profiles/player-profiles.module';
 import { ChatModule } from './chat/chat.module';
 import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { DiscoveryFilterPresetsModule } from './discovery-filter-presets/discovery-filter-presets.module';
+import { SessionVideosModule } from './session-videos/session-videos.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { UserOrIpThrottlerGuard } from './common/guards/user-or-ip-throttler.guard';
 import configuration from './config';
@@ -113,6 +114,7 @@ import configuration from './config';
     ChatModule,
     AuditLogsModule,
     DiscoveryFilterPresetsModule,
+    SessionVideosModule,
   ],
   controllers: [AppController],
   providers: [
