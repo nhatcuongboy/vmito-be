@@ -126,10 +126,10 @@ export class PostsController {
     return this.postsService.update(id, req.user.userId, updatePostDto);
   }
 
-  @Delete(':id')
-  remove(@Param('id') id: string, @Request() req: AuthenticatedRequest) {
-    return this.postsService.remove(id, req.user.userId);
-  }
+ @Delete(':id')
+ remove(@Param('id') id: string, @Request() req: AuthenticatedRequest) {
+    return this.postsService.remove(id, req.user.userId, req.user.role);
+ }
 
   @Post(':id/images')
   @UseInterceptors(FilesInterceptor('images', 10))
