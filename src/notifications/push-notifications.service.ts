@@ -10,6 +10,7 @@ import {
 } from 'firebase-admin/app';
 import { getMessaging, Message, Messaging } from 'firebase-admin/messaging';
 import { PrismaService } from '../prisma/prisma.service';
+import { localizePush, normalizePushLocale } from './push-localization';
 
 export type PushContent = Pick<
   Notification,
@@ -68,7 +69,7 @@ export class PushNotificationsService {
     );
     const devices = await this.prisma.notificationDevice.findMany({
       where: { userId: { in: [...byUserId.keys()] } },
-      select: { token: true, userId: true },
+      select: { token: true, userId: true, locale: true },
     });
     const messages: Message[] = [];
     const tokens: string[] = [];
@@ -76,7 +77,13 @@ export class PushNotificationsService {
     for (const device of devices) {
       const notification = byUserId.get(device.userId);
       if (!notification) continue;
-      messages.push(this.buildMessage(device.token, notification));
+      const { title, message } = localizePush(
+        notification,
+        normalizePushLocale(device.locale)
+      );
+      messages.push(
+        this.buildMessage(device.token, { ...notification, title, message })
+      );
       tokens.push(device.token);
     }
     await this.sendMessages(messages, tokens);
