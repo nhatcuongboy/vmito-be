@@ -154,7 +154,12 @@ export class PaymentRemindersService {
       NotificationType.PAYMENT,
       'Nhắc nhở thanh toán',
       `Bạn có một khoản thanh toán ${formatVnd(reminder.amount)} đang chờ xử lý.`,
-      { reminderId: reminder.id, route: 'reminders' },
+      {
+        reminderId: reminder.id,
+        route: 'reminders',
+        action: 'payment_reminder_pending',
+        amount: reminder.amount,
+      },
       {
         dedupeKey: this.pendingNotificationDedupeKey(reminder),
         conflictMode: 'COALESCE',
@@ -229,7 +234,13 @@ export class PaymentRemindersService {
       NotificationType.PAYMENT,
       'Nhắc nhở thanh toán',
       `Bạn có ${pendingPayments.length} khoản thanh toán chưa hoàn tất, tổng cộng ${formatVnd(totalAmount)}.`,
-      { reminderId: reminder.id, route: 'reminders' },
+      {
+        reminderId: reminder.id,
+        route: 'reminders',
+        action: 'payment_reminder_aggregate',
+        amount: totalAmount,
+        count: pendingPayments.length,
+      },
       {
         dedupeKey: this.pendingNotificationDedupeKey(reminder),
         conflictMode: 'COALESCE',
@@ -262,7 +273,13 @@ export class PaymentRemindersService {
       NotificationType.PAYMENT,
       'Nhắc nhở thanh toán',
       `Bạn có một lời nhắc thanh toán ${formatVnd(dto.amount)}: ${dto.note}`,
-      { reminderId: reminder.id, route: 'reminders' },
+      {
+        reminderId: reminder.id,
+        route: 'reminders',
+        action: 'payment_reminder_custom',
+        amount: dto.amount,
+        note: dto.note,
+      },
       {
         dedupeKey: this.pendingNotificationDedupeKey(reminder),
         conflictMode: 'COALESCE',
@@ -317,7 +334,12 @@ export class PaymentRemindersService {
       NotificationType.PAYMENT,
       'Nhắc nhở thanh toán',
       `Nhắc lại: bạn có một khoản thanh toán ${formatVnd(amount)} đang chờ xử lý.`,
-      { reminderId, route: 'reminders' },
+      {
+        reminderId,
+        route: 'reminders',
+        action: 'payment_reminder_again',
+        amount,
+      },
       {
         dedupeKey: this.pendingNotificationDedupeKey(reminder),
         conflictMode: 'COALESCE',
@@ -364,7 +386,12 @@ export class PaymentRemindersService {
       NotificationType.PAYMENT,
       'Đã xác nhận thu tiền',
       `Khoản thanh toán ${formatVnd(reminder.amount)} đã được xác nhận là đã thu.`,
-      { reminderId, route: 'reminders' },
+      {
+        reminderId,
+        route: 'reminders',
+        action: 'payment_collected',
+        amount: reminder.amount,
+      },
       {
         dedupeKey: `payment-reminder:${reminderId}:collected`,
         conflictMode: 'ONCE',
@@ -410,7 +437,12 @@ export class PaymentRemindersService {
       NotificationType.PAYMENT,
       'Đã gửi minh chứng thanh toán',
       `Người dùng đã gửi minh chứng đã trả cho khoản ${formatVnd(reminder.amount)}, vui lòng xác nhận.`,
-      { reminderId, route: 'reminders' },
+      {
+        reminderId,
+        route: 'reminders',
+        action: 'payment_proof_submitted',
+        amount: reminder.amount,
+      },
       {
         dedupeKey: `payment-reminder:${reminderId}:proof-submitted`,
         conflictMode: 'COALESCE',
@@ -479,7 +511,12 @@ export class PaymentRemindersService {
       dto.hostNotes
         ? `Minh chứng đã trả bị từ chối: ${dto.hostNotes}. Vui lòng gửi lại.`
         : 'Minh chứng đã trả bị từ chối, vui lòng gửi lại.',
-      { reminderId, route: 'reminders' },
+      {
+        reminderId,
+        route: 'reminders',
+        action: 'payment_proof_rejected',
+        ...(dto.hostNotes ? { hostNotes: dto.hostNotes } : {}),
+      },
       {
         dedupeKey: `payment-reminder:${reminderId}:proof-rejected`,
         conflictMode: 'COALESCE',

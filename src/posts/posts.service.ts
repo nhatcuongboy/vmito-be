@@ -516,17 +516,17 @@ export class PostsService {
     return this.normalizePost(updatedPost, userId);
   }
 
-  async remove(id: string, userId: string) {
-    const post = await this.prisma.post.findUnique({
-      where: { id },
-      include: { images: true },
-    });
-    if (!post) {
-      throw new NotFoundException('Post not found');
-    }
-    if (post.authorId !== userId) {
-      throw new ForbiddenException('You can only delete your own posts');
-    }
+  async remove(id: string, userId: string, role?: string) {
+   const post = await this.prisma.post.findUnique({
+     where: { id },
+     include: { images: true },
+   });
+   if (!post) {
+     throw new NotFoundException('Post not found');
+   }
+    if (post.authorId !== userId && role !== 'ADMIN') {
+     throw new ForbiddenException('You can only delete your own posts');
+   }
 
     // Delete post-only images from Cloudinary. Images selected from the user's
     // shared gallery are owned by user_images and should remain reusable.
