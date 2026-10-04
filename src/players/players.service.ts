@@ -1184,7 +1184,17 @@ export class PlayersService {
             startTime: true,
             hostName: true,
             host: { select: { id: true, name: true } },
-            venue: { select: { name: true } },
+            venue: {
+              select: {
+                name: true,
+                address: true,
+                newAddress: true,
+                district: true,
+                city: true,
+                newDistrict: true,
+                newCity: true,
+              },
+            },
           },
         },
         user: {
@@ -1201,8 +1211,20 @@ export class PlayersService {
     // session so the client can approve/reject them as one group
     const groupId = player.createdByUserId ?? player.userId;
     let relatedPlayerIds = [player.id];
+    // Full rows for the registration screen, so it renders from this one call
+    // (the public session payload deliberately omits phone/createdByUserId).
+    let relatedPlayers: Array<
+      Prisma.PlayerGetPayload<{
+        include: { user: { select: { id: true; name: true; image: true } } };
+      }>
+    > = [];
+    let submitter: {
+      id: string;
+      name: string | null;
+      image: string | null;
+    } | null = null;
     if (groupId) {
-      const siblings = await this.prisma.player.findMany({
+      relatedPlayers = await this.prisma.player.findMany({
         where: {
           sessionId: player.sessionId,
           registrationStatus: 'PENDING',
@@ -1211,10 +1233,18 @@ export class PlayersService {
             { createdByUserId: null, userId: groupId },
           ],
         },
-        select: { id: true },
+        include: {
+          user: { select: { id: true, name: true, image: true } },
+        },
         orderBy: { createdAt: 'asc' },
       });
-      relatedPlayerIds = siblings.map((s) => s.id);
+      relatedPlayerIds = relatedPlayers.map((s) => s.id);
+      // The submitter's own slot may already be decided, so look the account up
+      // directly instead of reading it off the pending siblings.
+      submitter = await this.prisma.user.findUnique({
+        where: { id: groupId },
+        select: { id: true, name: true, image: true },
+      });
     }
 
     // Count past sessions the requester has actually played, to help the
@@ -1229,7 +1259,13 @@ export class PlayersService {
         })
       : 0;
 
-    return { ...player, relatedPlayerIds, sessionsPlayedCount };
+    return {
+      ...player,
+      relatedPlayerIds,
+      relatedPlayers,
+      submitter,
+      sessionsPlayedCount,
+    };
   }
 
   async batchUpdatePlayerStatus(
