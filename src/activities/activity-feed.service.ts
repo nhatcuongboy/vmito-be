@@ -5,14 +5,45 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { ActivityType, Prisma, SportType } from '@prisma/client';
+import {
+  ActivityType,
+  ClubJoinPolicy,
+  Prisma,
+  SportType,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ActivityMetadata,
+  ClubMetadata,
   TournamentFinishedCategory,
   TournamentPodiumSide,
 } from './activity-metadata.types';
 import { NewsfeedEngagementBoostService } from '../newsfeed-engagement-boost/newsfeed-engagement-boost.service';
+
+/** The club fields every activity post needs to link back and to be gated. */
+interface ClubActivitySource {
+  id: string;
+  slug?: string | null;
+  name: string;
+  logo?: string | null;
+  isPublic: boolean;
+}
+
+interface ClubActivityDetails extends ClubActivitySource {
+  joinPolicy: ClubJoinPolicy;
+  requiredLevels: number[];
+  schedules: Array<{
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    isActive: boolean;
+  }>;
+  defaultVenue?: {
+    name: string;
+    address?: string | null;
+    numberOfCourts?: number | null;
+  } | null;
+}
 
 /**
  * Creates auto-generated "activity" posts on the newsfeed when domain
@@ -56,44 +87,23 @@ export class ActivityFeedService {
   }
 
   async postClubCreated(
-    club: {
-      id: string;
-      slug?: string | null;
-      name: string;
-      logo?: string | null;
-      defaultVenue?: {
-        name: string;
-        address?: string | null;
-        numberOfCourts?: number | null;
-      } | null;
-    },
+    club: ClubActivityDetails,
     actorId: string
   ): Promise<void> {
+    // Private clubs are hidden from Discover and show a stub page to anyone
+    // without an invite, so the feed must not advertise them either.
+    if (!club.isPublic) return;
     await this.safeCreate(actorId, ActivityType.CLUB_CREATED, {
-      clubId: club.id,
-      clubSlug: club.slug ?? null,
-      clubName: club.name,
-      logo: club.logo ?? null,
-      venueName: club.defaultVenue?.name ?? null,
-      venueAddress: club.defaultVenue?.address ?? null,
-      numberOfCourts: club.defaultVenue?.numberOfCourts ?? null,
+      ...this.clubMetadata(club),
+      ...this.clubJoinMetadata(club),
     });
   }
 
   async postClubUpdated(
-    club: {
-      id: string;
-      slug?: string | null;
-      name: string;
-      logo?: string | null;
-      defaultVenue?: {
-        name: string;
-        address?: string | null;
-        numberOfCourts?: number | null;
-      } | null;
-    },
+    club: ClubActivityDetails,
     actorId: string
   ): Promise<void> {
+    if (!club.isPublic) return;
     try {
       // Debounce: at most one CLUB_UPDATED post per author/club per 6 hours.
       if (
@@ -108,13 +118,8 @@ export class ActivityFeedService {
         return;
       }
       await this.createActivityPost(actorId, ActivityType.CLUB_UPDATED, {
-        clubId: club.id,
-        clubSlug: club.slug ?? null,
-        clubName: club.name,
-        logo: club.logo ?? null,
-        venueName: club.defaultVenue?.name ?? null,
-        venueAddress: club.defaultVenue?.address ?? null,
-        numberOfCourts: club.defaultVenue?.numberOfCourts ?? null,
+        ...this.clubMetadata(club),
+        ...this.clubJoinMetadata(club),
       });
     } catch (error) {
       this.logActivityError(ActivityType.CLUB_UPDATED, error);
@@ -122,14 +127,12 @@ export class ActivityFeedService {
   }
 
   async postClubMemberJoined(
-    club: {
-      id: string;
-      slug?: string | null;
-      name: string;
-      logo?: string | null;
-    },
+    club: ClubActivitySource,
     userId: string
   ): Promise<void> {
+    // Joining through an invite link is how a private club is meant to be
+    // shared, so this is the path most likely to leak one.
+    if (!club.isPublic) return;
     await this.safeCreate(userId, ActivityType.CLUB_MEMBER_JOINED, {
       clubId: club.id,
       clubSlug: club.slug ?? null,
@@ -494,6 +497,35 @@ export class ActivityFeedService {
     return {
       champion: toSide(winner),
       runnerUp: loser ? toSide(loser) : null,
+    };
+  }
+
+  private clubMetadata(club: ClubActivityDetails): ClubMetadata {
+    return {
+      clubId: club.id,
+      clubSlug: club.slug ?? null,
+      clubName: club.name,
+      logo: club.logo ?? null,
+      venueName: club.defaultVenue?.name ?? null,
+      venueAddress: club.defaultVenue?.address ?? null,
+      numberOfCourts: club.defaultVenue?.numberOfCourts ?? null,
+    };
+  }
+
+  private clubJoinMetadata(
+    club: ClubActivityDetails
+  ): Pick<ClubMetadata, 'schedules' | 'joinPolicy' | 'requiredLevels'> {
+    return {
+      // Inactive slots are switched off, not deleted — a reader shouldn't see them.
+      schedules: club.schedules
+        .filter((s) => s.isActive)
+        .map(({ dayOfWeek, startTime, endTime }) => ({
+          dayOfWeek,
+          startTime,
+          endTime,
+        })),
+      joinPolicy: club.joinPolicy,
+      requiredLevels: club.requiredLevels,
     };
   }
 

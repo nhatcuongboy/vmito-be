@@ -1,6 +1,6 @@
 // Metadata shapes stored in Post.metadata (Json) per ActivityType.
 // Keep these in sync with the FE mirror in vmito-fe/src/types/post.ts.
-import { SportType } from '@prisma/client';
+import { ClubJoinPolicy, SportType } from '@prisma/client';
 
 export interface SessionCreatedMetadata {
   sessionId: string;
@@ -33,6 +33,12 @@ export interface SessionResultsMetadata {
   sportType: SportType;
 }
 
+export interface ClubScheduleMetadata {
+  dayOfWeek: number; // 0 = CN … 6 = T7, same as ClubSchedule
+  startTime: string; // "19:00"
+  endTime: string;
+}
+
 export interface ClubMetadata {
   clubId: string;
   clubSlug?: string | null;
@@ -41,6 +47,11 @@ export interface ClubMetadata {
   venueName?: string | null;
   venueAddress?: string | null;
   numberOfCourts?: number | null;
+  // Snapshot of what a reader needs to decide whether to join. Only on
+  // CLUB_CREATED / CLUB_UPDATED; absent on older posts and CLUB_MEMBER_JOINED.
+  schedules?: ClubScheduleMetadata[];
+  joinPolicy?: ClubJoinPolicy;
+  requiredLevels?: number[]; // empty = every level
 }
 
 export interface TournamentCreatedMetadata {
