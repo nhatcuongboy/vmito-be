@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
   Inject,
@@ -17,6 +18,7 @@ import {
 } from '../sessions/sessions.gateway';
 import { GeminiService } from '../ai/gemini.service';
 import { PointsService } from '../points/points.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { Language, DEFAULT_LANGUAGE } from '../common/constants/language.enum';
 import {
   LEVEL_SHORT_LABELS,
@@ -26,6 +28,16 @@ import {
   assertNotBookedElsewhere,
   findPlayersBookedElsewhere,
 } from './court-pre-selection.helper';
+
+/** What a court call needs to know about the court being called to. */
+interface CallableCourt {
+  id: string;
+  sessionId: string;
+  hostId: string;
+  sessionName: string;
+  courtName: string | null;
+  courtNumber: number;
+}
 
 export interface PreSelectedPlayerInfo {
   playerId: string;
@@ -46,12 +58,15 @@ export interface PreSelectedPlayerInfo {
 
 @Injectable()
 export class CourtsService {
+  private readonly logger = new Logger(CourtsService.name);
+
   constructor(
     private prisma: PrismaService,
     @Inject(forwardRef(() => SessionsGateway))
     private sessionsGateway: SessionsGateway,
     private geminiService: GeminiService,
-    private pointsService: PointsService
+    private pointsService: PointsService,
+    private notificationsService: NotificationsService
   ) {}
 
   async findOne(id: string) {
@@ -297,38 +312,130 @@ export class CourtsService {
       }
     );
 
+    await this.announcePlayersSelected(
+      {
+        id,
+        sessionId: court.sessionId,
+        hostId: court.session.hostId,
+        sessionName: court.session.name,
+        courtName: result.courtName,
+        courtNumber: result.courtNumber,
+      },
+      finalPlayerIds
+    );
+
+    return result;
+  }
+
+  /**
+   * Calls the players of a court that just became READY.
+   *
+   * Every path that fills a court must go through here, or the players on it
+   * are never called: the court-call modal, spoken announcement and push are
+   * all driven by this.
+   */
+  private async announcePlayersSelected(
+    court: CallableCourt,
+    playerIds: string[]
+  ) {
     // Emit realtime event with playerIds so clients can filter relevant notifications
     this.sessionsGateway.notifyEvent(
       court.sessionId,
       SessionEventType.PLAYERS_SELECTED,
-      { courtId: id, playerIds: finalPlayerIds }
+      { courtId: court.id, playerIds }
     );
+
+    const recipients = await this.findCallRecipients(court, playerIds);
+    const courtDisplayName = court.courtName || `Sân ${court.courtNumber}`;
 
     // Also emit to each selected player's user room so the court-call modal
     // shows even when the player is not on the session page.
-    const selectedPlayersWithUser = await this.prisma.player.findMany({
-      where: { id: { in: finalPlayerIds }, userId: { not: null } },
-      select: { id: true, userId: true },
-    });
-
-    const courtDisplayName = result.courtName || `Sân ${result.courtNumber}`;
-    for (const p of selectedPlayersWithUser) {
-      if (p.userId && p.userId !== court.session.hostId) {
-        this.sessionsGateway.notifyUser(
-          p.userId,
-          SessionEventType.PLAYERS_SELECTED,
-          {
-            sessionId: court.sessionId,
-            courtId: id,
-            courtName: courtDisplayName,
-            courtNumber: result.courtNumber,
-            playerIds: finalPlayerIds,
-          }
-        );
-      }
+    for (const userId of recipients) {
+      this.sessionsGateway.notifyUser(
+        userId,
+        SessionEventType.PLAYERS_SELECTED,
+        {
+          sessionId: court.sessionId,
+          courtId: court.id,
+          courtName: courtDisplayName,
+          courtNumber: court.courtNumber,
+          playerIds,
+        }
+      );
     }
 
-    return result;
+    // The push reaches players whose app is backgrounded or closed, where the
+    // socket event above never arrives. It also leaves a feed entry. Off the
+    // request path: the host must not wait on FCM to see the court update.
+    void this.pushCourtCall(court, courtDisplayName, recipients).catch(
+      (error) =>
+        this.logger.error(
+          `Failed to push court call for court ${court.id}`,
+          error
+        )
+    );
+  }
+
+  /**
+   * Tells the players of a court that was just emptied that their call is
+   * off, so an open call dialog and its spoken repeats stop. Its own event
+   * rather than a user-targeted `players_deselected`: that name already means
+   * "refetch" to every screen that listens for it.
+   */
+  private async cancelCourtCall(court: CallableCourt, playerIds: string[]) {
+    const recipients = await this.findCallRecipients(court, playerIds);
+    for (const userId of recipients) {
+      this.sessionsGateway.notifyUser(
+        userId,
+        SessionEventType.COURT_CALL_CANCELLED,
+        { sessionId: court.sessionId, courtId: court.id }
+      );
+    }
+  }
+
+  /** Linked accounts of [playerIds]; the host is never called to a court. */
+  private async findCallRecipients(
+    court: CallableCourt,
+    playerIds: string[]
+  ): Promise<string[]> {
+    const players = await this.prisma.player.findMany({
+      where: { id: { in: playerIds }, userId: { not: null } },
+      select: { userId: true },
+    });
+    return players
+      .map((p) => p.userId)
+      .filter(
+        (userId): userId is string => !!userId && userId !== court.hostId
+      );
+  }
+
+  private async pushCourtCall(
+    court: CallableCourt,
+    courtDisplayName: string,
+    userIds: string[]
+  ) {
+    // The `players_selected` action is what the push templates, the app and
+    // the web feed already localise; `courtNumber` routes the push onto the
+    // time-sensitive court-call channel.
+    await Promise.allSettled(
+      userIds.map((userId) =>
+        this.notificationsService.createForUser(
+          userId,
+          'SESSION',
+          'Your turn!',
+          `Please go to ${courtDisplayName}. Your match is starting soon.`,
+          {
+            action: 'players_selected',
+            userId,
+            sessionId: court.sessionId,
+            sessionName: court.sessionName,
+            courtId: court.id,
+            courtName: courtDisplayName,
+            courtNumber: court.courtNumber,
+          }
+        )
+      )
+    );
   }
 
   async deselectPlayers(id: string) {
@@ -405,6 +512,24 @@ export class CourtsService {
       SessionEventType.PLAYERS_DESELECTED,
       { courtId: id, playerIds: playersToDeselect }
     );
+
+    // Best-effort: the court is already empty, so a failed notice must not
+    // fail the deselect.
+    try {
+      await this.cancelCourtCall(
+        {
+          id,
+          sessionId: court.sessionId,
+          hostId: court.session.hostId,
+          sessionName: court.session.name,
+          courtName: court.courtName,
+          courtNumber: court.courtNumber,
+        },
+        playersToDeselect
+      );
+    } catch (error) {
+      this.logger.error(`Failed to cancel court call for court ${id}`, error);
+    }
 
     return result;
   }
@@ -568,6 +693,9 @@ export class CourtsService {
       }
     }
 
+    // Players moved onto the court from its pre-selected list, if any.
+    let promotedPlayerIds: string[] = [];
+
     const result = await this.prisma.$transaction(
       async (tx) => {
         const match = await tx.match.update({
@@ -638,6 +766,7 @@ export class CourtsService {
 
               if (availablePlayers.length === preSelectedPlayerIds.length) {
                 nextCourtStatus = 'READY';
+                promotedPlayerIds = preSelectedPlayerIds;
 
                 const sortedPreSelectedData = [...preSelectedData].sort(
                   (a, b) => a.position - b.position
@@ -712,6 +841,32 @@ export class CourtsService {
       SessionEventType.MATCH_ENDED,
       { courtId: id, matchId: result.match.id }
     );
+
+    // The court was refilled from the pre-selected list, so these players are
+    // up next. They get the same call as a manual selection; without it only
+    // the first match of a session ever calls anyone.
+    // Best-effort like the points below: the match is already over, so a
+    // failed announcement must not turn into a failed request.
+    if (promotedPlayerIds.length > 0) {
+      try {
+        await this.announcePlayersSelected(
+          {
+            id,
+            sessionId: court.sessionId,
+            hostId: court.session.hostId,
+            sessionName: court.session.name,
+            courtName: court.courtName,
+            courtNumber: court.courtNumber,
+          },
+          promotedPlayerIds
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to announce pre-selected players of court ${id}`,
+          error
+        );
+      }
+    }
 
     // Ranking points are best-effort and never block ending a match.
     void this.pointsService.awardSessionMatch(result.match.id);
