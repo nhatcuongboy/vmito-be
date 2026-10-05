@@ -1139,12 +1139,104 @@ export class PlayersService {
       this.prisma.player.count({ where }),
     ]);
 
+    const registrations = await this.loadRegistrationSummaries(data);
+
     return {
-      data,
+      data: data.map((row) => ({
+        ...row,
+        registration: registrations.get(row.id) ?? null,
+      })),
       total,
       page,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  /**
+   * What the list needs to show a registration as one unit: who registered it
+   * and the status of every slot in it. Only PENDING rows are listed, so once
+   * the registrant's own slot is decided a guest row would otherwise carry no
+   * trace of who brought them. A registration is the slots one account
+   * created in one session (`createdByUserId`, or the account's own slot).
+   */
+  private async loadRegistrationSummaries(
+    rows: Array<{
+      id: string;
+      sessionId: string;
+      userId: string | null;
+      createdByUserId: string | null;
+    }>
+  ) {
+    const groupOf = (row: {
+      userId: string | null;
+      createdByUserId: string | null;
+    }) => row.createdByUserId ?? row.userId;
+    const summaries = new Map<
+      string,
+      {
+        registrant: {
+          id: string;
+          name: string | null;
+          image: string | null;
+        } | null;
+        slots: Array<{
+          id: string;
+          name: string | null;
+          userId: string | null;
+          registrationStatus: string;
+        }>;
+      }
+    >();
+    const groupIds = [
+      ...new Set(rows.map(groupOf).filter((id): id is string => !!id)),
+    ];
+    if (groupIds.length === 0) return summaries;
+
+    const [slots, registrants] = await Promise.all([
+      this.prisma.player.findMany({
+        where: {
+          sessionId: { in: [...new Set(rows.map((row) => row.sessionId))] },
+          OR: [
+            { createdByUserId: { in: groupIds } },
+            { createdByUserId: null, userId: { in: groupIds } },
+          ],
+        },
+        select: {
+          id: true,
+          sessionId: true,
+          name: true,
+          userId: true,
+          createdByUserId: true,
+          registrationStatus: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.user.findMany({
+        where: { id: { in: groupIds } },
+        select: { id: true, name: true, image: true },
+      }),
+    ]);
+    const registrantById = new Map(registrants.map((user) => [user.id, user]));
+
+    for (const row of rows) {
+      const groupId = groupOf(row);
+      if (!groupId) continue;
+      summaries.set(row.id, {
+        registrant: registrantById.get(groupId) ?? null,
+        slots: slots
+          .filter(
+            (slot) =>
+              slot.sessionId === row.sessionId && groupOf(slot) === groupId
+          )
+          .map(({ id, name, userId, registrationStatus }) => ({
+            id,
+            name,
+            userId,
+            registrationStatus,
+          })),
+      });
+    }
+    return summaries;
   }
 
   /** Same scope as {@link findPendingRequests}. */
@@ -1227,7 +1319,6 @@ export class PlayersService {
       relatedPlayers = await this.prisma.player.findMany({
         where: {
           sessionId: player.sessionId,
-          registrationStatus: 'PENDING',
           OR: [
             { createdByUserId: groupId },
             { createdByUserId: null, userId: groupId },
@@ -1238,7 +1329,12 @@ export class PlayersService {
         },
         orderBy: { createdAt: 'asc' },
       });
-      relatedPlayerIds = relatedPlayers.map((s) => s.id);
+      // Every status, so the registration screen can show decided slots too;
+      // `relatedPlayerIds` stays PENDING-only because the web approves/rejects
+      // that list as one group.
+      relatedPlayerIds = relatedPlayers
+        .filter((s) => s.registrationStatus === 'PENDING')
+        .map((s) => s.id);
       // The submitter's own slot may already be decided, so look the account up
       // directly instead of reading it off the pending siblings.
       submitter = await this.prisma.user.findUnique({
