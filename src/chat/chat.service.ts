@@ -471,21 +471,42 @@ export class ChatService {
     if (!this.hasCurrentConsent(current) || !this.hasCurrentConsent(target)) {
       throw new BadRequestException('Both users must be ready for direct chat');
     }
-    await this.assertNotBlocked(userId, targetUserId);
     const [participantAId, participantBId] = this.sortedPair(
       userId,
       targetUserId
     );
-    const existing = await this.prisma.chatConversation.findUnique({
-      where: {
-        participantAId_participantBId: { participantAId, participantBId },
-      },
-    });
+    // Independent reads, so overlap them: this endpoint sits on the critical
+    // path of every "Nhắn tin" tap.
+    const [, existing] = await Promise.all([
+      this.assertNotBlocked(userId, targetUserId),
+      this.prisma.chatConversation.findUnique({
+        where: {
+          participantAId_participantBId: { participantAId, participantBId },
+        },
+      }),
+    ]);
     if (
       existing?.status === ChatConversationStatus.DECLINED &&
       existing.recipientId !== userId
     ) {
       throw new ForbiddenException('Recipient declined this conversation');
+    }
+    if (existing?.status === ChatConversationStatus.ACTIVE) {
+      // Re-opening a conversation that already exists: the Stream channel and
+      // infrastructure are in place and the row needs no change, so answer
+      // now. Refreshing the Stream display names/images is housekeeping that
+      // must not hold up the response.
+      void Promise.all([
+        this.stream.upsertUser(current),
+        this.stream.upsertUser(target),
+      ]).catch((error: unknown) =>
+        this.logger.warn(
+          `Stream user refresh failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        )
+      );
+      return this.conversationResponse(existing);
     }
     await this.stream.ensureInfrastructure();
     await Promise.all([
@@ -500,7 +521,7 @@ export class ChatService {
         participantAId,
         participantBId,
       ]);
-    } else if (existing?.status !== ChatConversationStatus.ACTIVE) {
+    } else {
       await this.stream.createActiveChannel({
         channelId,
         firstUserId: participantAId,
