@@ -6,6 +6,7 @@ import { SessionsModule } from '../sessions/sessions.module';
 import { AiModule } from '../ai/ai.module';
 import { SessionAccessModule } from '../common/session-access/session-access.module';
 import { PointsModule } from '../points/points.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { PointsModule } from '../points/points.module';
     AiModule,
     SessionAccessModule,
     PointsModule,
+    NotificationsModule,
   ],
   controllers: [CourtsController],
   providers: [CourtsService],

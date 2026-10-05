@@ -35,6 +35,7 @@ export enum SessionEventType {
   MATCH_ENDED = 'match_ended',
   PLAYERS_SELECTED = 'players_selected',
   PLAYERS_DESELECTED = 'players_deselected',
+  COURT_CALL_CANCELLED = 'court_call_cancelled',
   REGISTRATION_REQUEST = 'registration_request',
   REGISTRATION_STATUS_UPDATED = 'registration_status_updated',
   NOTIFICATION_RECEIVED = 'notification_received',

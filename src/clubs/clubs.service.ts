@@ -930,10 +930,7 @@ export class ClubsService {
           data: { useCount: { increment: 1 } },
         }),
       ]);
-      await this.activityFeedService.postClubMemberJoined(
-        { id: clubId, slug: club.slug, name: club.name, logo: club.logo },
-        userId
-      );
+      await this.activityFeedService.postClubMemberJoined(club, userId);
       return {
         status: 'joined',
         message: `You have successfully joined ${club.name}`,
@@ -970,10 +967,7 @@ export class ClubsService {
         },
       });
 
-      await this.activityFeedService.postClubMemberJoined(
-        { id: clubId, slug: club.slug, name: club.name, logo: club.logo },
-        userId
-      );
+      await this.activityFeedService.postClubMemberJoined(club, userId);
 
       return {
         status: 'joined',
@@ -1561,16 +1555,7 @@ export class ClubsService {
       }
     );
 
-    await this.activityFeedService.postClubCreated(
-      {
-        id: club.id,
-        slug: club.slug,
-        name: club.name,
-        logo: club.logo,
-        defaultVenue: club.defaultVenue,
-      },
-      hostId
-    );
+    await this.activityFeedService.postClubCreated(club, hostId);
 
     return club;
   }
@@ -1725,16 +1710,7 @@ export class ClubsService {
         });
       });
 
-      await this.activityFeedService.postClubUpdated(
-        {
-          id: updatedClub.id,
-          slug: updatedClub.slug,
-          name: updatedClub.name,
-          logo: updatedClub.logo,
-          defaultVenue: updatedClub.defaultVenue,
-        },
-        userId
-      );
+      await this.activityFeedService.postClubUpdated(updatedClub, userId);
 
       return updatedClub;
     }
@@ -1810,16 +1786,7 @@ export class ClubsService {
       },
     });
 
-    await this.activityFeedService.postClubUpdated(
-      {
-        id: updatedClub.id,
-        slug: updatedClub.slug,
-        name: updatedClub.name,
-        logo: updatedClub.logo,
-        defaultVenue: updatedClub.defaultVenue,
-      },
-      userId
-    );
+    await this.activityFeedService.postClubUpdated(updatedClub, userId);
 
     return updatedClub;
   }
@@ -2215,10 +2182,7 @@ export class ClubsService {
     });
 
     if (!('status' in result)) {
-      await this.activityFeedService.postClubMemberJoined(
-        { id: club.id, slug: club.slug, name: club.name, logo: club.logo },
-        request.userId
-      );
+      await this.activityFeedService.postClubMemberJoined(club, request.userId);
     }
 
     return result;
