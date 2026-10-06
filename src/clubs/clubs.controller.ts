@@ -17,6 +17,7 @@ import {
   CreateClubFeeDto,
   UpsertClubMonthlyMemberDto,
   BrowseClubsDto,
+  ClubMembersQueryDto,
   UpdateMemberRoleDto,
   RejectJoinRequestDto,
   JoinRequestDto,
@@ -202,14 +203,20 @@ export class ClubsController {
   // Member Endpoints
   // ===========================================
 
+  @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get(':id/members')
-  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
-  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
-  async getClubMembers(
+  async getClubMembersPaginated(
     @Param('id') clubId: string,
-    @CurrentUser() user: JwtUser
+    @Query() query: ClubMembersQueryDto,
+    @CurrentUser() user?: AuthenticatedUser
   ) {
-    return this.clubsService.getClubMembers(clubId, user.userId, user.role);
+    return this.clubsService.getClubMembersPaginated(
+      clubId,
+      query.page ?? 1,
+      query.limit ?? 20,
+      user?.userId,
+    );
   }
 
   @Post(':id/members/:userId')

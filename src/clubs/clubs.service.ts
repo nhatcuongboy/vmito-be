@@ -866,6 +866,85 @@ export class ClubsService {
   }
 
   /**
+   * Get club members with server-side pagination (public).
+   * Returns members sorted by role (owner first, then admin, moderator, member, guest)
+   * then by name.
+   */
+  async getClubMembersPaginated(
+    clubId: string,
+    page: number,
+    limit: number,
+    _userId?: string,
+  ) {
+    const where = { clubId, status: MemberStatus.ACTIVE };
+
+    const [total, members] = await this.prisma.$transaction([
+      this.prisma.clubMember.count({ where }),
+      this.prisma.clubMember.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              image: true,
+              gender: true,
+              level: true,
+            },
+          },
+        },
+        orderBy: [
+          { role: 'asc' },
+          { createdAt: 'asc' },
+        ],
+      }),
+    ]);
+
+    // Also fetch guest profiles (standalone, not linked to a user)
+    const guestProfiles = await this.prisma.hostPlayerProfile.findMany({
+      where: {
+        clubId,
+        status: PlayerProfileStatus.ACTIVE,
+        linkedUserId: null,
+      },
+      select: {
+        id: true,
+        name: true,
+        gender: true,
+        level: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return {
+      items: members.map((m) => ({
+        id: m.id,
+        role: m.role,
+        userId: m.userId,
+        name: m.user.name,
+        image: m.user.image,
+        gender: m.user.gender,
+        level: m.user.level,
+        createdAt: m.createdAt,
+      })),
+      guests: guestProfiles.map((g) => ({
+        id: g.id,
+        name: g.name,
+        gender: g.gender,
+        level: g.level,
+        createdAt: g.createdAt,
+      })),
+      total: total + guestProfiles.length,
+      page,
+      limit,
+      totalPages: Math.ceil((total + guestProfiles.length) / limit),
+    };
+  }
+
+  /**
    * Request to join a club
    */
   async requestToJoinClub(
