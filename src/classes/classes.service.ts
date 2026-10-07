@@ -11,6 +11,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ActivityFeedService } from '../activities/activity-feed.service';
 import { FavoritesService } from '../favorites/favorites.service';
 import { VALID_LEVELS } from '../common/constants/level.constants';
 import {
@@ -50,7 +51,8 @@ export class ClassesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly favorites: FavoritesService,
-    private readonly recommendationContext: UserRecommendationContextService
+    private readonly recommendationContext: UserRecommendationContextService,
+    private readonly activityFeedService: ActivityFeedService
   ) {}
 
   private readonly publicInclude = {
@@ -558,7 +560,7 @@ export class ClassesService {
         'tuitionAmount is required unless tuitionPeriod is CONTACT'
       );
     }
-    return this.prisma.class.update({
+    const updated = await this.prisma.class.update({
       where: { id },
       data: {
         ...(dto.name !== undefined
@@ -627,6 +629,8 @@ export class ClassesService {
       },
       include: this.publicInclude,
     });
+    await this.activityFeedService.postClassUpdated(updated, userId);
+    return updated;
   }
 
   async updateStatus(
@@ -638,11 +642,15 @@ export class ClassesService {
     const item = await this.prisma.class.findUnique({ where: { id } });
     if (!item) throw new NotFoundException('Class not found');
     this.assertOwner(item, userId, role);
-    return this.prisma.class.update({
+    const updated = await this.prisma.class.update({
       where: { id },
       data: { status },
       include: this.publicInclude,
     });
+    if (item.status !== ClassStatus.PUBLISHED) {
+      await this.activityFeedService.postClassCreated(updated);
+    }
+    return updated;
   }
 
   async remove(id: string, userId: string, role: string) {

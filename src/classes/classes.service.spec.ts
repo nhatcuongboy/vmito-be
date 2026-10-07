@@ -2,6 +2,8 @@ import { ClassesService } from './classes.service';
 import { ClassTuitionPeriod, SportType } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { FavoritesService } from '../favorites/favorites.service';
+import type { UserRecommendationContextService } from '../recommendations/user-recommendation-context.service';
+import type { ActivityFeedService } from '../activities/activity-feed.service';
 
 describe('ClassesService location persistence', () => {
   it('uses locationText for search but never sends it to Prisma', async () => {
@@ -26,7 +28,12 @@ describe('ClassesService location persistence', () => {
         create: classCreate,
       },
     } as unknown as PrismaService;
-    const service = new ClassesService(prisma, {} as FavoritesService);
+    const service = new ClassesService(
+      prisma,
+      {} as FavoritesService,
+      {} as UserRecommendationContextService,
+      {} as ActivityFeedService
+    );
 
     await service.create(
       {
@@ -71,7 +78,12 @@ describe('ClassesService location persistence', () => {
         }),
       },
     } as unknown as PrismaService;
-    const service = new ClassesService(prisma, {} as FavoritesService);
+    const service = new ClassesService(
+      prisma,
+      {} as FavoritesService,
+      {} as UserRecommendationContextService,
+      {} as ActivityFeedService
+    );
 
     await service.create(
       {

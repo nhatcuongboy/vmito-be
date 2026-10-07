@@ -874,7 +874,7 @@ export class ClubsService {
     clubId: string,
     page: number,
     limit: number,
-    _userId?: string,
+    _userId?: string
   ) {
     const where = { clubId, status: MemberStatus.ACTIVE };
 
@@ -895,10 +895,7 @@ export class ClubsService {
             },
           },
         },
-        orderBy: [
-          { role: 'asc' },
-          { createdAt: 'asc' },
-        ],
+        orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
       }),
     ]);
 
@@ -1789,7 +1786,7 @@ export class ClubsService {
         });
       });
 
-      await this.activityFeedService.postClubUpdated(updatedClub, userId);
+      await this.postClubUpdateActivity(club, updatedClub, dto, userId);
 
       return updatedClub;
     }
@@ -1865,9 +1862,51 @@ export class ClubsService {
       },
     });
 
-    await this.activityFeedService.postClubUpdated(updatedClub, userId);
+    await this.postClubUpdateActivity(club, updatedClub, dto, userId);
 
     return updatedClub;
+  }
+
+  /**
+   * Picks the newsfeed post for a club edit: a new logo / cover photo gets its
+   * own post, and the generic "club updated" post is only kept when something
+   * other than the media changed.
+   */
+  private async postClubUpdateActivity(
+    previous: { logo: string | null; image: string | null },
+    updated: Parameters<ActivityFeedService['postClubCoverPhotoUpdated']>[0],
+    dto: UpdateClubDto,
+    actorId: string
+  ): Promise<void> {
+    const isLogoChanged =
+      dto.logo !== undefined && (dto.logo || null) !== previous.logo;
+    const isCoverChanged =
+      dto.image !== undefined && (dto.image || null) !== previous.image;
+
+    if (isLogoChanged && updated.logo) {
+      await this.activityFeedService.postClubAvatarUpdated(updated, actorId);
+    }
+    if (isCoverChanged && updated.image) {
+      await this.activityFeedService.postClubCoverPhotoUpdated(
+        updated,
+        actorId
+      );
+    }
+
+    const mediaKeys = new Set([
+      'logo',
+      'logoPublicId',
+      'image',
+      'imagePublicId',
+      'images',
+      'imagePublicIds',
+    ]);
+    const hasOtherChanges = Object.entries(dto).some(
+      ([key, value]) => value !== undefined && !mediaKeys.has(key)
+    );
+    if (hasOtherChanges || (!isLogoChanged && !isCoverChanged)) {
+      await this.activityFeedService.postClubUpdated(updated, actorId);
+    }
   }
 
   /**

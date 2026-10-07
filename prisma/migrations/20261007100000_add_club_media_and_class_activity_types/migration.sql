@@ -1,0 +1,5 @@
+-- AlterEnum
+ALTER TYPE "public"."ActivityType" ADD VALUE 'CLUB_AVATAR_UPDATED';
+ALTER TYPE "public"."ActivityType" ADD VALUE 'CLUB_COVER_PHOTO_UPDATED';
+ALTER TYPE "public"."ActivityType" ADD VALUE 'CLASS_CREATED';
+ALTER TYPE "public"."ActivityType" ADD VALUE 'CLASS_UPDATED';
