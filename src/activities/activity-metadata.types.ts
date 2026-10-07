@@ -47,6 +47,9 @@ export interface ClubMetadata {
   venueName?: string | null;
   venueAddress?: string | null;
   numberOfCourts?: number | null;
+  // Plain-text excerpt (≤160 chars) of the club description, not the stored
+  // HTML. Only on CLUB_CREATED / CLUB_UPDATED.
+  description?: string | null;
   // Snapshot of what a reader needs to decide whether to join. Only on
   // CLUB_CREATED / CLUB_UPDATED; absent on older posts and CLUB_MEMBER_JOINED.
   schedules?: ClubScheduleMetadata[];

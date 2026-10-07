@@ -18,6 +18,7 @@ import {
   TournamentFinishedCategory,
   TournamentPodiumSide,
 } from './activity-metadata.types';
+import { toDescriptionExcerpt } from './utils/description-excerpt.util';
 import { NewsfeedEngagementBoostService } from '../newsfeed-engagement-boost/newsfeed-engagement-boost.service';
 
 /** The club fields every activity post needs to link back and to be gated. */
@@ -30,6 +31,7 @@ interface ClubActivitySource {
 }
 
 interface ClubActivityDetails extends ClubActivitySource {
+  description?: string | null;
   joinPolicy: ClubJoinPolicy;
   requiredLevels: number[];
   schedules: Array<{
@@ -509,6 +511,7 @@ export class ActivityFeedService {
       venueName: club.defaultVenue?.name ?? null,
       venueAddress: club.defaultVenue?.address ?? null,
       numberOfCourts: club.defaultVenue?.numberOfCourts ?? null,
+      description: toDescriptionExcerpt(club.description),
     };
   }
 
