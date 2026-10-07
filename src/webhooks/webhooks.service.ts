@@ -5,6 +5,7 @@ import { GeminiService } from '../ai/gemini.service';
 import { SessionsService } from '../sessions/sessions.service';
 import { ExtractedSessionDto } from '../ai/dto/extract-session.dto';
 import { ApifyPostItem, ApifyWebhookPayload } from './dto/apify-webhook.dto';
+import { buildNonAiExtraction } from './utils/non-ai-extraction.util';
 
 export interface IngestResult {
   received: number;
@@ -36,6 +37,11 @@ export class WebhooksService {
    * crawled session. Dedup is enforced downstream via the post permalink and,
    * for cross-group copies, a fingerprint of the author and normalized text.
    *
+   * The extraction step is controlled by `CRAWLER_USE_AI`: when false the
+   * Gemini call is skipped and a deterministic (regex-based) extractor is used
+   * instead, so the pipeline keeps working without an AI provider at the cost
+   * of lower recall/precision.
+   *
    * This completeness bar applies to the crawl path only. Sessions a host
    * creates by hand go through SessionsService.create, which has its own
    * validation and, unlike these rows, stays editable afterwards.
@@ -53,13 +59,15 @@ export class WebhooksService {
     payload: ApifyWebhookPayload,
     accountId?: string
   ): Promise<IngestResult> {
+    const useAi = this.configService.get<boolean>('crawler.useAi') ?? true;
     const runId = (payload?.resource as Record<string, unknown>)?.id as
       | string
       | undefined;
     const eventType = payload?.eventType ?? 'unknown';
     this.logger.log(
       `[Apify] Webhook received | account=${accountId ?? 'default'} | event=${eventType}` +
-        (runId ? ` | runId=${runId}` : '')
+        (runId ? ` | runId=${runId}` : '') +
+        ` | ai=${useAi}`
     );
 
     const items = await this.resolveItems(payload, accountId);
@@ -91,8 +99,9 @@ export class WebhooksService {
       }
 
       try {
-        const extracted =
-          await this.geminiService.extractSessionFromArticle(content);
+        const extracted = useAi
+          ? await this.geminiService.extractSessionFromArticle(content)
+          : buildNonAiExtraction(content);
 
         // Gate 1: the model classifies post intent. Class ads, court-rental
         // listings, equipment sales, and tournament announcements come back

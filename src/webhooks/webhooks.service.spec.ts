@@ -135,8 +135,48 @@ describe('WebhooksService Apify ingest gates', () => {
     });
     expect(extractSessionFromArticle).toHaveBeenCalledTimes(1);
     expect(createCrawledSession).toHaveBeenCalledTimes(1);
-    expect(createCrawledSession.mock.calls[0][3].crawlFingerprint).toMatch(
-      /^[a-f0-9]{64}$/
+    const calls = createCrawledSession.mock.calls as unknown as Array<
+      [ExtractedSessionDto, string, string, { crawlFingerprint: string }]
+    >;
+    expect(calls[0][3].crawlFingerprint).toMatch(/^[a-f0-9]{64}$/);
+  });
+});
+
+describe('WebhooksService without AI (CRAWLER_USE_AI=false)', () => {
+  let service: WebhooksService;
+  let extractSessionFromArticle: jest.Mock;
+  let createCrawledSession: jest.Mock;
+
+  beforeEach(() => {
+    extractSessionFromArticle = jest.fn();
+    createCrawledSession = jest.fn().mockResolvedValue({ id: 'session-1' });
+
+    service = new WebhooksService(
+      { get: jest.fn().mockReturnValue(false) } as never,
+      { extractSessionFromArticle } as never,
+      { createCrawledSession } as never
     );
+  });
+
+  it('skips Gemini and builds the session from the deterministic extractor', async () => {
+    const result = await service.ingestApifyPosts({
+      items: [
+        {
+          text: 'Tuyển vãng lai cầu lông tối nay 19h-21h tại Sân ABC Quận 7. Liên hệ 0901 234 567',
+          postUrl: 'https://facebook.com/groups/badminton/posts/1',
+        },
+      ],
+    } as never);
+
+    expect(extractSessionFromArticle).not.toHaveBeenCalled();
+    expect(result.imported).toBe(1);
+    expect(createCrawledSession).toHaveBeenCalledTimes(1);
+
+    const calls = createCrawledSession.mock.calls as unknown as Array<
+      [ExtractedSessionDto]
+    >;
+    expect(calls[0][0].isRecruitmentPost).toBe(true);
+    expect(calls[0][0].hostPhone).toBe('0901234567');
+    expect(calls[0][0].venue?.name).toContain('Sân ABC');
   });
 });
