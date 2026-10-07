@@ -1,6 +1,6 @@
 // Metadata shapes stored in Post.metadata (Json) per ActivityType.
 // Keep these in sync with the FE mirror in vmito-fe/src/types/post.ts.
-import { ClubJoinPolicy, SportType } from '@prisma/client';
+import { ClassTuitionPeriod, ClubJoinPolicy, SportType } from '@prisma/client';
 
 export interface SessionCreatedMetadata {
   sessionId: string;
@@ -47,6 +47,9 @@ export interface ClubMetadata {
   venueName?: string | null;
   venueAddress?: string | null;
   numberOfCourts?: number | null;
+  // Plain-text excerpt (≤160 chars) of the club description, not the stored
+  // HTML. Only on CLUB_CREATED / CLUB_UPDATED.
+  description?: string | null;
   // Snapshot of what a reader needs to decide whether to join. Only on
   // CLUB_CREATED / CLUB_UPDATED; absent on older posts and CLUB_MEMBER_JOINED.
   schedules?: ClubScheduleMetadata[];
@@ -91,6 +94,29 @@ export interface CoverPhotoUpdatedMetadata {
   coverPhoto: string;
 }
 
+// Club avatar = Club.logo, club cover = Club.image. Same shape as ClubMetadata
+// so the feed card can reuse the club preview; `logo` / `coverPhoto` carry the
+// image that just changed.
+export interface ClubMediaUpdatedMetadata extends ClubMetadata {
+  coverPhoto?: string | null;
+}
+
+export interface ClassMetadata {
+  classId: string;
+  classSlug?: string | null;
+  className: string;
+  coverPhoto?: string | null;
+  sportType: SportType;
+  // Venue name, or the custom location name for classes without a venue.
+  locationName?: string | null;
+  // Plain-text excerpt (≤160 chars) of the description.
+  description?: string | null;
+  tuitionPeriod: ClassTuitionPeriod;
+  tuitionAmount?: number | null;
+  requiredLevels?: number[]; // empty = every level
+  schedules?: ClubScheduleMetadata[];
+}
+
 // Intentionally excludes the rating value — ratings are private.
 export interface UserRatedMetadata {
   ratedUserId: string;
@@ -103,6 +129,8 @@ export type ActivityMetadata =
   | SessionCreatedMetadata
   | SessionResultsMetadata
   | ClubMetadata
+  | ClubMediaUpdatedMetadata
+  | ClassMetadata
   | TournamentCreatedMetadata
   | TournamentFinishedMetadata
   | AvatarUpdatedMetadata

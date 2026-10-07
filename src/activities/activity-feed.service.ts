@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common';
 import {
   ActivityType,
+  ClassStatus,
+  ClassTuitionPeriod,
   ClubJoinPolicy,
   Prisma,
   SportType,
@@ -14,10 +16,13 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ActivityMetadata,
+  ClassMetadata,
+  ClubMediaUpdatedMetadata,
   ClubMetadata,
   TournamentFinishedCategory,
   TournamentPodiumSide,
 } from './activity-metadata.types';
+import { toDescriptionExcerpt } from './utils/description-excerpt.util';
 import { NewsfeedEngagementBoostService } from '../newsfeed-engagement-boost/newsfeed-engagement-boost.service';
 
 /** The club fields every activity post needs to link back and to be gated. */
@@ -30,6 +35,7 @@ interface ClubActivitySource {
 }
 
 interface ClubActivityDetails extends ClubActivitySource {
+  description?: string | null;
   joinPolicy: ClubJoinPolicy;
   requiredLevels: number[];
   schedules: Array<{
@@ -43,6 +49,28 @@ interface ClubActivityDetails extends ClubActivitySource {
     address?: string | null;
     numberOfCourts?: number | null;
   } | null;
+}
+
+interface ClassActivityDetails {
+  id: string;
+  slug?: string | null;
+  name: string;
+  hostId: string;
+  status: ClassStatus;
+  description?: string | null;
+  coverPhoto?: string | null;
+  sportType: SportType;
+  tuitionPeriod: ClassTuitionPeriod;
+  tuitionAmount?: number | null;
+  requiredLevels: number[];
+  customLocationName?: string | null;
+  venue?: { name: string } | null;
+  schedules: Array<{
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    isActive: boolean;
+  }>;
 }
 
 /**
@@ -123,6 +151,87 @@ export class ActivityFeedService {
       });
     } catch (error) {
       this.logActivityError(ActivityType.CLUB_UPDATED, error);
+    }
+  }
+
+  async postClubAvatarUpdated(
+    club: ClubActivityDetails,
+    actorId: string
+  ): Promise<void> {
+    await this.postClubMediaUpdated(
+      ActivityType.CLUB_AVATAR_UPDATED,
+      club,
+      actorId,
+      club.logo ?? null,
+      null
+    );
+  }
+
+  async postClubCoverPhotoUpdated(
+    club: ClubActivityDetails & { image?: string | null },
+    actorId: string
+  ): Promise<void> {
+    await this.postClubMediaUpdated(
+      ActivityType.CLUB_COVER_PHOTO_UPDATED,
+      club,
+      actorId,
+      club.logo ?? null,
+      club.image ?? null
+    );
+  }
+
+  /** A class goes on the feed once, when it is first published. */
+  async postClassCreated(item: ClassActivityDetails): Promise<void> {
+    if (item.status !== ClassStatus.PUBLISHED) return;
+    try {
+      if (
+        await this.hasRecentActivity(
+          ActivityType.CLASS_CREATED,
+          item.hostId,
+          'classId',
+          item.id,
+          // Ever: a class that is paused and re-published is not "new" again.
+          24 * 365 * 100
+        )
+      ) {
+        return;
+      }
+      await this.createActivityPost(
+        item.hostId,
+        ActivityType.CLASS_CREATED,
+        this.classMetadata(item)
+      );
+    } catch (error) {
+      this.logActivityError(ActivityType.CLASS_CREATED, error);
+    }
+  }
+
+  async postClassUpdated(
+    item: ClassActivityDetails,
+    actorId: string
+  ): Promise<void> {
+    // Draft / paused / closed classes are not advertised on the feed.
+    if (item.status !== ClassStatus.PUBLISHED) return;
+    try {
+      // Debounce: at most one CLASS_UPDATED post per author/class per 6 hours.
+      if (
+        await this.hasRecentActivity(
+          ActivityType.CLASS_UPDATED,
+          actorId,
+          'classId',
+          item.id,
+          6
+        )
+      ) {
+        return;
+      }
+      await this.createActivityPost(
+        actorId,
+        ActivityType.CLASS_UPDATED,
+        this.classMetadata(item)
+      );
+    } catch (error) {
+      this.logActivityError(ActivityType.CLASS_UPDATED, error);
     }
   }
 
@@ -500,6 +609,60 @@ export class ActivityFeedService {
     };
   }
 
+  private async postClubMediaUpdated(
+    activityType: ActivityType,
+    club: ClubActivityDetails,
+    actorId: string,
+    logo: string | null,
+    coverPhoto: string | null
+  ): Promise<void> {
+    if (!club.isPublic) return;
+    try {
+      // Debounce: at most one post of this type per author/club per 6 hours.
+      if (
+        await this.hasRecentActivity(
+          activityType,
+          actorId,
+          'clubId',
+          club.id,
+          6
+        )
+      ) {
+        return;
+      }
+      const metadata: ClubMediaUpdatedMetadata = {
+        ...this.clubMetadata(club),
+        logo,
+        coverPhoto,
+      };
+      await this.createActivityPost(actorId, activityType, metadata);
+    } catch (error) {
+      this.logActivityError(activityType, error);
+    }
+  }
+
+  private classMetadata(item: ClassActivityDetails): ClassMetadata {
+    return {
+      classId: item.id,
+      classSlug: item.slug ?? null,
+      className: item.name,
+      coverPhoto: item.coverPhoto ?? null,
+      sportType: item.sportType,
+      locationName: item.venue?.name ?? item.customLocationName ?? null,
+      description: toDescriptionExcerpt(item.description),
+      tuitionPeriod: item.tuitionPeriod,
+      tuitionAmount: item.tuitionAmount ?? null,
+      requiredLevels: item.requiredLevels,
+      schedules: item.schedules
+        .filter((s) => s.isActive)
+        .map(({ dayOfWeek, startTime, endTime }) => ({
+          dayOfWeek,
+          startTime,
+          endTime,
+        })),
+    };
+  }
+
   private clubMetadata(club: ClubActivityDetails): ClubMetadata {
     return {
       clubId: club.id,
@@ -509,6 +672,7 @@ export class ActivityFeedService {
       venueName: club.defaultVenue?.name ?? null,
       venueAddress: club.defaultVenue?.address ?? null,
       numberOfCourts: club.defaultVenue?.numberOfCourts ?? null,
+      description: toDescriptionExcerpt(club.description),
     };
   }
 
