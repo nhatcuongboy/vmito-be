@@ -219,6 +219,20 @@ export class ClubsController {
     );
   }
 
+  /**
+   * Full member list for club managers (all statuses, with email/phone and
+   * attendance). Split from the public paginated `:id/members`.
+   */
+  @Get(':id/members/manage')
+  @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
+  @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
+  async getClubMembers(
+    @Param('id') clubId: string,
+    @CurrentUser() user: JwtUser
+  ) {
+    return this.clubsService.getClubMembers(clubId, user.userId, user.role);
+  }
+
   @Post(':id/members/:userId')
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)
   @Roles(Role.HOST, Role.ADMIN, Role.PLAYER)
