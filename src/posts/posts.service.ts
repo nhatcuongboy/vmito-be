@@ -14,6 +14,7 @@ import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { NewsfeedEngagementBoostService } from '../newsfeed-engagement-boost/newsfeed-engagement-boost.service';
+import { hydrateClubActivityPosts } from '../activities/club-activity-hydrator';
 
 export type PostCount = {
   likes?: number;
@@ -309,12 +310,17 @@ export class PostsService {
       this.prisma.post.count({ where }),
     ]);
 
+    // hasMore counts the fetched rows: hydration may drop club posts whose club
+    // is gone or private, which must not end pagination early.
+    const hasMore = skip + posts.length < total;
+    const visiblePosts = await hydrateClubActivityPosts(this.prisma, posts);
+
     return {
-      posts: posts.map((post) => this.normalizePost(post, userId)),
+      posts: visiblePosts.map((post) => this.normalizePost(post, userId)),
       total,
       page,
       limit,
-      hasMore: skip + posts.length < total,
+      hasMore,
     };
   }
 
@@ -390,12 +396,15 @@ export class PostsService {
       this.prisma.post.count({ where }),
     ]);
 
+    const hasMore = skip + posts.length < total;
+    const visiblePosts = await hydrateClubActivityPosts(this.prisma, posts);
+
     return {
-      posts: posts.map((post) => this.normalizePost(post, viewerId)),
+      posts: visiblePosts.map((post) => this.normalizePost(post, viewerId)),
       total,
       page,
       limit,
-      hasMore: skip + posts.length < total,
+      hasMore,
     };
   }
 
@@ -447,7 +456,12 @@ export class PostsService {
       }
     }
 
-    return this.normalizePost(post, userId);
+    const [visiblePost] = await hydrateClubActivityPosts(this.prisma, [post]);
+    if (!visiblePost) {
+      throw new NotFoundException('Post not found');
+    }
+
+    return this.normalizePost(visiblePost, userId);
   }
 
   async reportPost(postId: string, reporterId: string, reason?: string) {
