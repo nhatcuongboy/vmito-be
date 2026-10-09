@@ -9,7 +9,6 @@ import {
   ActivityType,
   ClassStatus,
   ClassTuitionPeriod,
-  ClubJoinPolicy,
   Prisma,
   SportType,
 } from '@prisma/client';
@@ -18,38 +17,17 @@ import {
   ActivityMetadata,
   ClassMetadata,
   ClubMediaUpdatedMetadata,
-  ClubMetadata,
   TournamentFinishedCategory,
   TournamentPodiumSide,
 } from './activity-metadata.types';
 import { toDescriptionExcerpt } from './utils/description-excerpt.util';
+import {
+  buildClubJoinMetadata,
+  buildClubMetadata,
+  ClubActivityDetails,
+  ClubActivitySource,
+} from './utils/club-activity-metadata.util';
 import { NewsfeedEngagementBoostService } from '../newsfeed-engagement-boost/newsfeed-engagement-boost.service';
-
-/** The club fields every activity post needs to link back and to be gated. */
-interface ClubActivitySource {
-  id: string;
-  slug?: string | null;
-  name: string;
-  logo?: string | null;
-  isPublic: boolean;
-}
-
-interface ClubActivityDetails extends ClubActivitySource {
-  description?: string | null;
-  joinPolicy: ClubJoinPolicy;
-  requiredLevels: number[];
-  schedules: Array<{
-    dayOfWeek: number;
-    startTime: string;
-    endTime: string;
-    isActive: boolean;
-  }>;
-  defaultVenue?: {
-    name: string;
-    address?: string | null;
-    numberOfCourts?: number | null;
-  } | null;
-}
 
 interface ClassActivityDetails {
   id: string;
@@ -122,8 +100,8 @@ export class ActivityFeedService {
     // without an invite, so the feed must not advertise them either.
     if (!club.isPublic) return;
     await this.safeCreate(actorId, ActivityType.CLUB_CREATED, {
-      ...this.clubMetadata(club),
-      ...this.clubJoinMetadata(club),
+      ...buildClubMetadata(club),
+      ...buildClubJoinMetadata(club),
     });
   }
 
@@ -146,8 +124,8 @@ export class ActivityFeedService {
         return;
       }
       await this.createActivityPost(actorId, ActivityType.CLUB_UPDATED, {
-        ...this.clubMetadata(club),
-        ...this.clubJoinMetadata(club),
+        ...buildClubMetadata(club),
+        ...buildClubJoinMetadata(club),
       });
     } catch (error) {
       this.logActivityError(ActivityType.CLUB_UPDATED, error);
@@ -631,7 +609,7 @@ export class ActivityFeedService {
         return;
       }
       const metadata: ClubMediaUpdatedMetadata = {
-        ...this.clubMetadata(club),
+        ...buildClubMetadata(club),
         logo,
         coverPhoto,
       };
@@ -660,36 +638,6 @@ export class ActivityFeedService {
           startTime,
           endTime,
         })),
-    };
-  }
-
-  private clubMetadata(club: ClubActivityDetails): ClubMetadata {
-    return {
-      clubId: club.id,
-      clubSlug: club.slug ?? null,
-      clubName: club.name,
-      logo: club.logo ?? null,
-      venueName: club.defaultVenue?.name ?? null,
-      venueAddress: club.defaultVenue?.address ?? null,
-      numberOfCourts: club.defaultVenue?.numberOfCourts ?? null,
-      description: toDescriptionExcerpt(club.description),
-    };
-  }
-
-  private clubJoinMetadata(
-    club: ClubActivityDetails
-  ): Pick<ClubMetadata, 'schedules' | 'joinPolicy' | 'requiredLevels'> {
-    return {
-      // Inactive slots are switched off, not deleted — a reader shouldn't see them.
-      schedules: club.schedules
-        .filter((s) => s.isActive)
-        .map(({ dayOfWeek, startTime, endTime }) => ({
-          dayOfWeek,
-          startTime,
-          endTime,
-        })),
-      joinPolicy: club.joinPolicy,
-      requiredLevels: club.requiredLevels,
     };
   }
 
