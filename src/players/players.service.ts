@@ -44,6 +44,7 @@ export class PlayersService {
 
   private async resolveClubMembershipForPlayer(input: {
     sessionClubId?: string | null;
+    sessionStartTime?: Date | null;
     userId?: string | null;
     profileId?: string | null;
     isClubMember?: boolean;
@@ -97,7 +98,7 @@ export class PlayersService {
       }
     }
 
-    if (!input.sessionClubId || !input.userId) {
+    if (!input.sessionClubId || !input.userId || !input.sessionStartTime) {
       return {
         isClubMember: false,
         clubId: null,
@@ -105,17 +106,38 @@ export class PlayersService {
       };
     }
 
-    const clubMember = await this.prisma.clubMember.findUnique({
-      where: {
-        clubId_userId: {
-          clubId: input.sessionClubId,
-          userId: input.userId,
+    // The club fixed fee is for the host's monthly fixed members of the
+    // session's month only — the same rule the host add-player picker
+    // applies. An ordinary ACTIVE member who self-registers pays the
+    // session fee. Month is derived exactly like ClubsService
+    // .getPerSessionFee so both sides agree on the boundary.
+    const month = input.sessionStartTime.getMonth() + 1;
+    const year = input.sessionStartTime.getFullYear();
+    const [clubMember, monthlyMember] = await Promise.all([
+      this.prisma.clubMember.findUnique({
+        where: {
+          clubId_userId: {
+            clubId: input.sessionClubId,
+            userId: input.userId,
+          },
         },
-      },
-      select: { status: true },
-    });
+        select: { status: true },
+      }),
+      this.prisma.clubMonthlyMember.findUnique({
+        where: {
+          clubId_userId_month_year: {
+            clubId: input.sessionClubId,
+            userId: input.userId,
+            month,
+            year,
+          },
+        },
+        select: { id: true },
+      }),
+    ]);
 
-    const isClubMember = clubMember?.status === MemberStatus.ACTIVE;
+    const isClubMember =
+      clubMember?.status === MemberStatus.ACTIVE && monthlyMember !== null;
     return {
       isClubMember,
       clubId: isClubMember ? input.sessionClubId : null,
@@ -201,6 +223,7 @@ export class PlayersService {
 
     const clubMembership = await this.resolveClubMembershipForPlayer({
       sessionClubId: existingPlayer.session.clubId,
+      sessionStartTime: existingPlayer.session.startTime,
       userId: existingPlayer.userId,
       isClubMember: updatePlayerDto.isClubMember,
       clubId: updatePlayerDto.clubId,
@@ -335,6 +358,7 @@ export class PlayersService {
         name: true,
         hostId: true,
         clubId: true,
+        startTime: true,
         requiredLevels: true,
         players: {
           select: { playerNumber: true },
@@ -417,6 +441,7 @@ export class PlayersService {
 
     const clubMembership = await this.resolveClubMembershipForPlayer({
       sessionClubId: session.clubId,
+      sessionStartTime: session.startTime,
       userId: playerUserId,
       profileId: resolvedProfileId,
       isClubMember: createPlayerDto.isClubMember,
@@ -572,9 +597,10 @@ export class PlayersService {
         let playerUserId = playerData.userId || null;
 
         if (resolvedProfileId) {
-          const existingProfile = await this.prisma.hostPlayerProfile.findUnique({
-            where: { id: resolvedProfileId },
-          });
+          const existingProfile =
+            await this.prisma.hostPlayerProfile.findUnique({
+              where: { id: resolvedProfileId },
+            });
           if (existingProfile) {
             playerName = existingProfile.name;
             playerGender = existingProfile.gender;
@@ -598,6 +624,7 @@ export class PlayersService {
 
         const clubMembership = await this.resolveClubMembershipForPlayer({
           sessionClubId: session.clubId,
+          sessionStartTime: session.startTime,
           userId: playerUserId,
           profileId: resolvedProfileId,
           isClubMember: playerData.isClubMember,
@@ -832,14 +859,15 @@ export class PlayersService {
 
     // Validate access for internal sessions
     if (session.isInternal) {
-      const isHostOrAdmin = session.hostId === currentUserId || role === 'ADMIN';
+      const isHostOrAdmin =
+        session.hostId === currentUserId || role === 'ADMIN';
       const isAlreadyInSession = session.players?.some(
         (p: { userId?: string | null }) => p.userId === currentUserId
       );
       const matchesAccessCode = Boolean(
         accessCode &&
-          session.accessCode &&
-          accessCode.trim().toUpperCase() === session.accessCode.toUpperCase()
+        session.accessCode &&
+        accessCode.trim().toUpperCase() === session.accessCode.toUpperCase()
       );
 
       if (!isHostOrAdmin && !isAlreadyInSession && !matchesAccessCode) {
@@ -921,6 +949,7 @@ export class PlayersService {
 
         const clubMembership = await this.resolveClubMembershipForPlayer({
           sessionClubId: fullSession.clubId,
+          sessionStartTime: fullSession.startTime,
           userId: playerData.userId || currentUserId,
           isClubMember: playerData.isClubMember,
           clubId: playerData.clubId,
@@ -1673,6 +1702,7 @@ export class PlayersService {
 
     const clubMembership = await this.resolveClubMembershipForPlayer({
       sessionClubId: session.clubId,
+      sessionStartTime: session.startTime,
       userId: updateData.userId ?? existingPlayer.userId,
       isClubMember: updateData.isClubMember,
       clubId: updateData.clubId,

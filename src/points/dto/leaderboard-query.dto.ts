@@ -52,3 +52,22 @@ export class AchievementsQueryDto {
   @IsIn(Object.values(SportType))
   sport?: SportType;
 }
+
+export class PointTransactionsQueryDto {
+  @IsOptional()
+  @IsIn(Object.values(SportType))
+  sport?: SportType;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit?: number;
+
+  /** Id of the last transaction the client already has. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  cursor?: string;
+}

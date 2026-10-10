@@ -27,6 +27,25 @@ const MATCH_REASONS = [...WIN_REASONS, ...DRAW_REASONS, ...LOSS_REASONS];
 
 const PERIODS: LeaderboardPeriod[] = ['week', 'month', 'year', 'all'];
 
+/** Page size of the history embedded in the achievements summary. */
+const SUMMARY_TRANSACTIONS = 20;
+
+const TRANSACTION_SELECT = {
+  id: true,
+  points: true,
+  reason: true,
+  refType: true,
+  refId: true,
+  occurredAt: true,
+} satisfies Prisma.PointTransactionSelect;
+
+// `id` breaks ties between rows sharing a timestamp, so the summary's first
+// page and the pages after it never overlap or skip a row.
+const TRANSACTION_ORDER: Prisma.PointTransactionOrderByWithRelationInput[] = [
+  { occurredAt: 'desc' },
+  { id: 'desc' },
+];
+
 @Injectable()
 export class LeaderboardService {
   constructor(private readonly prisma: PrismaService) {}
@@ -198,16 +217,9 @@ export class LeaderboardService {
       Promise.all(PERIODS.map((p) => this.getUserRank(userId, s, p))),
       this.prisma.pointTransaction.findMany({
         where: { userId, sport: s },
-        orderBy: { occurredAt: 'desc' },
-        take: 20,
-        select: {
-          id: true,
-          points: true,
-          reason: true,
-          refType: true,
-          refId: true,
-          occurredAt: true,
-        },
+        orderBy: TRANSACTION_ORDER,
+        take: SUMMARY_TRANSACTIONS,
+        select: TRANSACTION_SELECT,
       }),
     ]);
 
@@ -236,6 +248,31 @@ export class LeaderboardService {
         tournamentRunnerUps: countFor(['TOURNAMENT_RUNNER_UP']),
       },
       recentTransactions,
+    };
+  }
+
+  /**
+   * Older point transactions, newest first. `cursor` is the id of the last
+   * row the client already has, so the achievements summary (which carries the
+   * first page) can hand over to this endpoint without a separate cursor.
+   */
+  async getUserPointTransactions(
+    userId: string,
+    query: { sport?: SportType; limit?: number; cursor?: string }
+  ) {
+    const limit = query.limit ?? SUMMARY_TRANSACTIONS;
+    const rows = await this.prisma.pointTransaction.findMany({
+      where: { userId, sport: query.sport ?? 'BADMINTON' },
+      orderBy: TRANSACTION_ORDER,
+      take: limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      select: TRANSACTION_SELECT,
+    });
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    return {
+      items,
+      nextCursor: hasMore ? items[items.length - 1].id : null,
     };
   }
 }

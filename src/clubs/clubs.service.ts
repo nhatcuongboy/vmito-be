@@ -2488,6 +2488,62 @@ export class ClubsService {
     });
   }
 
+  async getClubCurrentFees(clubId: string, userId?: string) {
+    const club = await this.prisma.club.findUnique({
+      where: { id: clubId },
+      select: { status: true, isPublic: true },
+    });
+
+    if (!club || club.status === ClubStatus.PENDING || !club.isPublic) {
+      throw new NotFoundException('Club not found');
+    }
+
+    // Same month derivation as getPerSessionFee, so the card shows the fee
+    // that would actually be charged.
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const year = now.getFullYear();
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+
+    const select = {
+      month: true,
+      year: true,
+      maleFeeMonthly: true,
+      femaleFeeMonthly: true,
+      maleFeePerSession: true,
+      femaleFeePerSession: true,
+      notes: true,
+    } as const;
+
+    const [current, next, monthlyMember] = await Promise.all([
+      this.prisma.clubFeeConfig.findUnique({
+        where: { clubId_month_year: { clubId, month, year } },
+        select,
+      }),
+      this.prisma.clubFeeConfig.findUnique({
+        where: {
+          clubId_month_year: { clubId, month: nextMonth, year: nextYear },
+        },
+        select,
+      }),
+      userId
+        ? this.prisma.clubMonthlyMember.findUnique({
+            where: {
+              clubId_userId_month_year: { clubId, userId, month, year },
+            },
+            select: { id: true },
+          })
+        : null,
+    ]);
+
+    return {
+      current,
+      next,
+      isMonthlyMember: monthlyMember !== null,
+    };
+  }
+
   async getClubFeeForMonth(
     clubId: string,
     hostId: string,
