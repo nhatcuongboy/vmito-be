@@ -633,6 +633,7 @@ export class SessionsService {
       page?: number;
       limit?: number;
       hostId?: string;
+      clubId?: string;
       sortBy?: string;
       sortOrder?: 'asc' | 'desc';
       sessionType?: 'all' | 'regular' | 'facebook';
@@ -860,6 +861,14 @@ export class SessionsService {
     if (filters?.hostId) {
       andConditions.push({
         hostId: filters.hostId,
+      });
+    }
+
+    // Club filter: sessions a host linked to one of their clubs, for the
+    // club page's "Kèo sắp tới". Internal sessions stay hidden as above.
+    if (filters?.clubId) {
+      andConditions.push({
+        clubId: filters.clubId,
       });
     }
 
