@@ -926,6 +926,8 @@ export class ClubsService {
         gender: m.user.gender,
         level: m.user.level,
         createdAt: m.createdAt,
+        attendanceCount: m.attendanceCount,
+        lastAttendedAt: m.lastAttendedAt,
       })),
       guests: guestProfiles.map((g) => ({
         id: g.id,
