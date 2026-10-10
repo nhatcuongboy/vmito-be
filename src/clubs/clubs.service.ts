@@ -933,6 +933,11 @@ export class ClubsService {
       orderBy: { createdAt: 'asc' },
     });
 
+    const attendance = await this.getAttendanceByUser(
+      clubId,
+      members.map((m) => m.userId)
+    );
+
     return {
       items: members.map((m) => ({
         id: m.id,
@@ -943,8 +948,8 @@ export class ClubsService {
         gender: m.user.gender,
         level: m.user.level,
         createdAt: m.createdAt,
-        attendanceCount: m.attendanceCount,
-        lastAttendedAt: m.lastAttendedAt,
+        attendanceCount: attendance.get(m.userId)?.attendanceCount ?? 0,
+        lastAttendedAt: attendance.get(m.userId)?.lastAttendedAt ?? null,
       })),
       guests: guestProfiles.map((g) => ({
         id: g.id,
@@ -1985,7 +1990,7 @@ export class ClubsService {
   async getClubMembers(clubId: string, hostId: string, userRole?: Role) {
     await this.ensureManagedClub(clubId, hostId, userRole);
 
-    return this.prisma.clubMember.findMany({
+    const members = await this.prisma.clubMember.findMany({
       where: { clubId },
       include: {
         user: {
@@ -2002,6 +2007,52 @@ export class ClubsService {
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    const attendance = await this.getAttendanceByUser(
+      clubId,
+      members.map((m) => m.userId)
+    );
+    return members.map((m) => ({
+      ...m,
+      attendanceCount: attendance.get(m.userId)?.attendanceCount ?? 0,
+      lastAttendedAt: attendance.get(m.userId)?.lastAttendedAt ?? null,
+    }));
+  }
+
+  /**
+   * Finished club sessions each user took part in.
+   *
+   * Counted from the sessions themselves because `club_members.attendanceCount`
+   * only moves when a player carries `Player.clubId` at session end, and that
+   * field marks a fee override, so for most members it never leaves 0.
+   */
+  private async getAttendanceByUser(clubId: string, userIds: string[]) {
+    if (userIds.length === 0) {
+      return new Map<
+        string,
+        { attendanceCount: number; lastAttendedAt: Date | null }
+      >();
+    }
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        userId: string;
+        attendanceCount: number;
+        lastAttendedAt: Date | null;
+      }>
+    >(Prisma.sql`
+      SELECT p."userId" AS "userId",
+             COUNT(DISTINCT p."sessionId")::int AS "attendanceCount",
+             MAX(COALESCE(s."endTime", s."startTime", s."scheduledStartTime"))
+               AS "lastAttendedAt"
+      FROM players p
+      JOIN sessions s ON s.id = p."sessionId"
+      WHERE s."clubId" = ${clubId}
+        AND s.status = 'FINISHED'
+        AND p."registrationStatus" = 'APPROVED'
+        AND p."userId" IN (${Prisma.join(userIds)})
+      GROUP BY p."userId"
+    `);
+    return new Map(rows.map((row) => [row.userId, row]));
   }
 
   /**
