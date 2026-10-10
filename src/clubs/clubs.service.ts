@@ -41,6 +41,7 @@ import { ActivityFeedService } from '../activities/activity-feed.service';
 import { ClubActivityPeriodValue } from './dto/browse-clubs.dto';
 import { UserRecommendationContextService } from '../recommendations/user-recommendation-context.service';
 import { sortByRecommendation } from '../recommendations/recommendation.utils';
+import { scoreClubSearchRelevance } from './utils/club-search-relevance';
 import {
   ScorableClub,
   scoreClub,
@@ -322,7 +323,10 @@ export class ClubsService {
     const isRecommended = sortBy === 'recommended' && !!userId;
     const isDistanceSort =
       sortBy === 'distance' && lat !== undefined && lng !== undefined;
-    const rankInMemory = isRecommended || isDistanceSort;
+    // "Phù hợp nhất": only meaningful with a keyword, otherwise it is the
+    // default most-active order.
+    const isRelevanceSort = sortBy === 'relevance' && !!search?.trim();
+    const rankInMemory = isRecommended || isDistanceSort || isRelevanceSort;
 
     let favoriteIds: string[] | undefined;
     if (favoriteOnly) {
@@ -466,6 +470,7 @@ export class ClubsService {
             ? RECOMMENDATION_CANDIDATES
             : undefined
           : limit,
+        // Relevance keeps this order as its tie-break, so it still needs one.
         orderBy: isDistanceSort
           ? undefined
           : [{ sessionCount: 'desc' }, { createdAt: 'desc' }],
@@ -564,6 +569,18 @@ export class ClubsService {
         return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
       });
       result = result.slice(skip, skip + limit);
+    } else if (isRelevanceSort) {
+      // Array.sort is stable, so equal scores keep the most-active-first
+      // order the query returned.
+      const scores = new Map(
+        result.map((club) => [
+          club.id,
+          scoreClubSearchRelevance(club.name, search!),
+        ])
+      );
+      result = result
+        .sort((a, b) => scores.get(b.id)! - scores.get(a.id)!)
+        .slice(skip, skip + limit);
     } else if (isRecommended) {
       result = sortByRecommendation(
         result.map((club) => ({
