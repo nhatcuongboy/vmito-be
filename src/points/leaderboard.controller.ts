@@ -10,6 +10,7 @@ import { PointsAdminService } from './points-admin.service';
 import {
   AchievementsQueryDto,
   LeaderboardQueryDto,
+  PointTransactionsQueryDto,
 } from './dto/leaderboard-query.dto';
 
 @ApiTags('leaderboard')
@@ -47,6 +48,18 @@ export class LeaderboardController {
     @Query() query: AchievementsQueryDto
   ) {
     return this.leaderboardService.getUserAchievements(userId, query.sport);
+  }
+
+  @Public()
+  @Get('users/:userId/point-transactions')
+  @ApiOperation({
+    summary: "Paginated point history for a user's achievements",
+  })
+  getUserPointTransactions(
+    @Param('userId') userId: string,
+    @Query() query: PointTransactionsQueryDto
+  ) {
+    return this.leaderboardService.getUserPointTransactions(userId, query);
   }
 
   @UseGuards(AdminGuard)

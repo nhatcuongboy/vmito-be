@@ -215,7 +215,7 @@ export class ClubsController {
       clubId,
       query.page ?? 1,
       query.limit ?? 20,
-      user?.userId,
+      user?.userId
     );
   }
 
@@ -369,6 +369,21 @@ export class ClubsController {
   // ===========================================
   // Fee Configuration Endpoints
   // ===========================================
+
+  /**
+   * Read-only fixed fee for this month and next, for anyone who can see the
+   * club. The manager endpoints below return the full history and stay
+   * host-only.
+   */
+  @Public()
+  @UseGuards(OptionalJwtAuthGuard)
+  @Get(':id/fees/current')
+  async getClubCurrentFees(
+    @Param('id') clubId: string,
+    @CurrentUser() user?: AuthenticatedUser
+  ) {
+    return this.clubsService.getClubCurrentFees(clubId, user?.userId);
+  }
 
   @Get(':id/fees')
   @UseGuards(JwtAuthGuard, RolesGuard, PlayerVipGuard)

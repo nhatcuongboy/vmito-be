@@ -41,6 +41,7 @@ import { ActivityFeedService } from '../activities/activity-feed.service';
 import { ClubActivityPeriodValue } from './dto/browse-clubs.dto';
 import { UserRecommendationContextService } from '../recommendations/user-recommendation-context.service';
 import { sortByRecommendation } from '../recommendations/recommendation.utils';
+import { scoreClubSearchRelevance } from './utils/club-search-relevance';
 import {
   ScorableClub,
   scoreClub,
@@ -322,7 +323,10 @@ export class ClubsService {
     const isRecommended = sortBy === 'recommended' && !!userId;
     const isDistanceSort =
       sortBy === 'distance' && lat !== undefined && lng !== undefined;
-    const rankInMemory = isRecommended || isDistanceSort;
+    // "Phù hợp nhất": only meaningful with a keyword, otherwise it is the
+    // default most-active order.
+    const isRelevanceSort = sortBy === 'relevance' && !!search?.trim();
+    const rankInMemory = isRecommended || isDistanceSort || isRelevanceSort;
 
     let favoriteIds: string[] | undefined;
     if (favoriteOnly) {
@@ -466,6 +470,7 @@ export class ClubsService {
             ? RECOMMENDATION_CANDIDATES
             : undefined
           : limit,
+        // Relevance keeps this order as its tie-break, so it still needs one.
         orderBy: isDistanceSort
           ? undefined
           : [{ sessionCount: 'desc' }, { createdAt: 'desc' }],
@@ -564,6 +569,18 @@ export class ClubsService {
         return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
       });
       result = result.slice(skip, skip + limit);
+    } else if (isRelevanceSort) {
+      // Array.sort is stable, so equal scores keep the most-active-first
+      // order the query returned.
+      const scores = new Map(
+        result.map((club) => [
+          club.id,
+          scoreClubSearchRelevance(club.name, search!),
+        ])
+      );
+      result = result
+        .sort((a, b) => scores.get(b.id)! - scores.get(a.id)!)
+        .slice(skip, skip + limit);
     } else if (isRecommended) {
       result = sortByRecommendation(
         result.map((club) => ({
@@ -926,6 +943,8 @@ export class ClubsService {
         gender: m.user.gender,
         level: m.user.level,
         createdAt: m.createdAt,
+        attendanceCount: m.attendanceCount,
+        lastAttendedAt: m.lastAttendedAt,
       })),
       guests: guestProfiles.map((g) => ({
         id: g.id,
@@ -2467,6 +2486,62 @@ export class ClubsService {
       where: { clubId },
       orderBy: [{ year: 'desc' }, { month: 'desc' }],
     });
+  }
+
+  async getClubCurrentFees(clubId: string, userId?: string) {
+    const club = await this.prisma.club.findUnique({
+      where: { id: clubId },
+      select: { status: true, isPublic: true },
+    });
+
+    if (!club || club.status === ClubStatus.PENDING || !club.isPublic) {
+      throw new NotFoundException('Club not found');
+    }
+
+    // Same month derivation as getPerSessionFee, so the card shows the fee
+    // that would actually be charged.
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const year = now.getFullYear();
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+
+    const select = {
+      month: true,
+      year: true,
+      maleFeeMonthly: true,
+      femaleFeeMonthly: true,
+      maleFeePerSession: true,
+      femaleFeePerSession: true,
+      notes: true,
+    } as const;
+
+    const [current, next, monthlyMember] = await Promise.all([
+      this.prisma.clubFeeConfig.findUnique({
+        where: { clubId_month_year: { clubId, month, year } },
+        select,
+      }),
+      this.prisma.clubFeeConfig.findUnique({
+        where: {
+          clubId_month_year: { clubId, month: nextMonth, year: nextYear },
+        },
+        select,
+      }),
+      userId
+        ? this.prisma.clubMonthlyMember.findUnique({
+            where: {
+              clubId_userId_month_year: { clubId, userId, month, year },
+            },
+            select: { id: true },
+          })
+        : null,
+    ]);
+
+    return {
+      current,
+      next,
+      isMonthlyMember: monthlyMember !== null,
+    };
   }
 
   async getClubFeeForMonth(
