@@ -694,6 +694,14 @@ export class SessionsService {
       { isInternal: false },
     ];
 
+    // Sessions whose host closed registration can't be joined, so discovery
+    // skips them. Saved (favorite) sessions stay visible: the user chose them,
+    // and the club page / host profile list a specific owner's sessions, where
+    // a closed one should still show (the client badges it).
+    if (!filters?.favoriteOnly && !filters?.clubId && !filters?.hostId) {
+      andConditions.push({ registrationOpen: true });
+    }
+
     if (favoriteIds) {
       andConditions.push({ id: { in: favoriteIds } });
     }
@@ -931,6 +939,7 @@ export class SessionsService {
       andConditions.push({
         hostId: { not: userId },
         allowNewPlayers: true,
+        registrationOpen: true,
         NOT: {
           players: {
             some: {
@@ -1553,6 +1562,7 @@ export class SessionsService {
       requirePlayerInfo = true,
       allowGuestJoin = true,
       allowNewPlayers = true,
+      registrationOpen = true,
       allowZaloContact = false,
       requiredLevels = [],
       startTime,
@@ -1648,6 +1658,7 @@ export class SessionsService {
         requirePlayerInfo,
         allowGuestJoin,
         allowNewPlayers,
+        registrationOpen,
         allowZaloContact,
         isInternal,
         accessCode,
@@ -2170,6 +2181,7 @@ export class SessionsService {
         requirePlayerInfo: updateSessionDto.requirePlayerInfo,
         allowGuestJoin: updateSessionDto.allowGuestJoin,
         allowNewPlayers: updateSessionDto.allowNewPlayers,
+        registrationOpen: updateSessionDto.registrationOpen,
         allowZaloContact: updateSessionDto.allowZaloContact,
         isInternal: updatedIsInternal,
         accessCode: updatedAccessCode,
@@ -3930,6 +3942,7 @@ export class SessionsService {
       requirePlayerInfo = true,
       allowGuestJoin = true,
       allowNewPlayers = true,
+      registrationOpen = true,
       allowZaloContact = false,
       requiredLevels = [],
       startTime,
@@ -4019,6 +4032,7 @@ export class SessionsService {
         requirePlayerInfo,
         allowGuestJoin,
         allowNewPlayers,
+        registrationOpen,
         allowZaloContact,
         isInternal,
         accessCode,
@@ -4321,6 +4335,7 @@ export class SessionsService {
       status: 'PREPARING',
       endTime: { gt: now },
       allowNewPlayers: true,
+      registrationOpen: true,
       isInternal: false,
       NOT: {
         players: {
@@ -4535,6 +4550,7 @@ export class SessionsService {
       status: 'PREPARING',
       endTime: { gt: now },
       allowNewPlayers: true,
+      registrationOpen: true,
       isInternal: false,
       // Exclude current session
       NOT: {
@@ -4728,6 +4744,7 @@ export class SessionsService {
       status: 'PREPARING',
       endTime: { gt: now },
       allowNewPlayers: true,
+      registrationOpen: true,
       isInternal: false,
       NOT: {
         id: currentSession.id,

@@ -1570,6 +1570,7 @@ export class VenuesService {
           status: 'PREPARING',
           isInternal: false,
           allowNewPlayers: true,
+          registrationOpen: true,
           OR: [
             { startTime: { gte: now, lte: weekAhead } },
             {

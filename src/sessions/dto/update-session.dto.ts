@@ -101,6 +101,15 @@ export class UpdateSessionDto {
   @IsOptional()
   allowNewPlayers?: boolean;
 
+  @ApiProperty({
+    required: false,
+    description:
+      'Whether players can self-register. When false only the host can add players.',
+  })
+  @IsBoolean()
+  @IsOptional()
+  registrationOpen?: boolean;
+
   @IsBoolean()
   @IsOptional()
   allowZaloContact?: boolean;
