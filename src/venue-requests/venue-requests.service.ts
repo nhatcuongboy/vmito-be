@@ -149,6 +149,16 @@ export class VenueRequestsService {
 
     const payload = this.sanitizePayload(dto.payload);
     this.validateCreatePayload(payload);
+    // The admin edit form only carries venue fields; keep the submitter's
+    // photos unless the edit explicitly sends its own set.
+    if (!payload.suggestedImages) {
+      const previous = this.sanitizePayload(
+        request.payload as VenueRequestPayloadDto
+      );
+      if (previous.suggestedImages) {
+        payload.suggestedImages = previous.suggestedImages;
+      }
+    }
 
     return this.prisma.venueRequest.update({
       where: { id },
@@ -182,8 +192,17 @@ export class VenueRequestsService {
         .filter(Boolean)
         .join(', ');
       const fallbackAddress = composedAddress || payload.street || '';
+      // Photos attached to a CREATE suggestion seed the new venue's gallery.
+      // They are optional, and an empty admin selection simply means none.
+      const gallery = this.dedupeImages(
+        this.selectSuggestedImages(payload, dto.applyImagePublicIds)
+      );
       const createdVenue = await this.venuesService.create({
         ...createPayload,
+        ...(gallery.length > 0 && {
+          images: gallery.map((image) => image.url),
+          imagePublicIds: gallery.map((image) => image.publicId ?? ''),
+        }),
         name: payload.name!,
         address: payload.address || fallbackAddress,
         city: payload.city,
@@ -299,14 +318,7 @@ export class VenueRequestsService {
     payload: VenueRequestPayloadDto,
     applyImagePublicIds?: string[]
   ) {
-    const suggested = payload.suggestedImages ?? [];
-    // If the admin passed a selection, keep only those; otherwise apply all.
-    const selected = applyImagePublicIds
-      ? suggested.filter(
-          (image) =>
-            image.publicId && applyImagePublicIds.includes(image.publicId)
-        )
-      : suggested;
+    const selected = this.selectSuggestedImages(payload, applyImagePublicIds);
 
     if (selected.length === 0) {
       throw new BadRequestException('No images selected to apply');
@@ -331,6 +343,29 @@ export class VenueRequestsService {
     }
 
     await this.venuesService.update(venueId, { images, imagePublicIds });
+  }
+
+  // If the admin passed a selection, keep only those; otherwise apply all.
+  private selectSuggestedImages(
+    payload: VenueRequestPayloadDto,
+    applyImagePublicIds?: string[]
+  ) {
+    const suggested = payload.suggestedImages ?? [];
+    if (!applyImagePublicIds) return suggested;
+    return suggested.filter(
+      (image) => image.publicId && applyImagePublicIds.includes(image.publicId)
+    );
+  }
+
+  private dedupeImages(images: { url: string; publicId?: string }[]) {
+    const seen = new Set<string>();
+    return images.filter((image) => {
+      const key = image.publicId || image.url;
+      if (seen.has(key) || seen.has(image.url)) return false;
+      seen.add(key);
+      seen.add(image.url);
+      return true;
+    });
   }
 
   async reject(id: string, adminUserId: string, adminNote: string) {
