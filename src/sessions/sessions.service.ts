@@ -695,8 +695,10 @@ export class SessionsService {
     ];
 
     // Sessions whose host closed registration can't be joined, so discovery
-    // skips them. Saved (favorite) sessions stay visible: the user chose them.
-    if (!filters?.favoriteOnly) {
+    // skips them. Saved (favorite) sessions stay visible: the user chose them,
+    // and the club page / host profile list a specific owner's sessions, where
+    // a closed one should still show (the client badges it).
+    if (!filters?.favoriteOnly && !filters?.clubId && !filters?.hostId) {
       andConditions.push({ registrationOpen: true });
     }
 
