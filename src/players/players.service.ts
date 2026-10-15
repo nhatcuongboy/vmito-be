@@ -831,6 +831,7 @@ export class PlayersService {
         isCrawled: true,
         isInternal: true,
         accessCode: true,
+        registrationOpen: true,
         host: {
           select: {
             role: true,
@@ -855,6 +856,19 @@ export class PlayersService {
       throw new ForbiddenException(
         'Crawled (vãng lai) sessions are view-only; registration is disabled.'
       );
+    }
+
+    // Host closed self-registration. Host/admin may still register; pending
+    // requests already queued are untouched (approval is a separate path).
+    if (
+      !session.registrationOpen &&
+      session.hostId !== currentUserId &&
+      role !== 'ADMIN'
+    ) {
+      throw new ForbiddenException({
+        message: 'Host has closed registration for this session',
+        code: 'SESSION_REGISTRATION_CLOSED',
+      });
     }
 
     // Validate access for internal sessions
@@ -2060,12 +2074,21 @@ export class PlayersService {
         numberOfCourts: true,
         maxPlayersPerCourt: true,
         allowNewPlayers: true,
+        registrationOpen: true,
         requirePlayerInfo: true,
       },
     });
 
     if (!session) {
       throw new NotFoundException('Session not found');
+    }
+
+    // QR join skips host approval, so it must honour a closed registration.
+    if (!session.registrationOpen) {
+      throw new ForbiddenException({
+        message: 'Host has closed registration for this session',
+        code: 'SESSION_REGISTRATION_CLOSED',
+      });
     }
 
     if (!session.allowNewPlayers) {

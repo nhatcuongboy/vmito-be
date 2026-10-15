@@ -591,6 +591,9 @@ model Session {
   allowGuestJoin  Boolean @default(true) // Allow joining without account
   allowNewPlayers Boolean @default(true) // Allow new players to join via session QR
 
+  // Host can stop self-registration while slots remain; host-added players are unaffected
+  registrationOpen Boolean @default(true)
+
   // Contact settings
   allowZaloContact Boolean @default(false) // Allow players to contact host via Zalo
 

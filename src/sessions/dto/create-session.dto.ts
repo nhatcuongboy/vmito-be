@@ -213,6 +213,16 @@ export class CreateSessionDto {
   @IsOptional()
   allowNewPlayers?: boolean;
 
+  @ApiProperty({
+    required: false,
+    description:
+      'Whether players can self-register. When false only the host can add players.',
+    default: true,
+  })
+  @IsBoolean()
+  @IsOptional()
+  registrationOpen?: boolean;
+
   @IsBoolean()
   @IsOptional()
   allowZaloContact?: boolean;
