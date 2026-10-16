@@ -55,6 +55,9 @@ export interface ClubMetadata {
   schedules?: ClubScheduleMetadata[];
   joinPolicy?: ClubJoinPolicy;
   requiredLevels?: number[]; // empty = every level
+  // Club cover (Club.image) as a banner on the card. Only on CLUB_CREATED /
+  // CLUB_UPDATED; media-update posts use this field for the image that changed.
+  coverPhoto?: string | null;
 }
 
 export interface TournamentCreatedMetadata {
@@ -97,9 +100,7 @@ export interface CoverPhotoUpdatedMetadata {
 // Club avatar = Club.logo, club cover = Club.image. Same shape as ClubMetadata
 // so the feed card can reuse the club preview; `logo` / `coverPhoto` carry the
 // image that just changed.
-export interface ClubMediaUpdatedMetadata extends ClubMetadata {
-  coverPhoto?: string | null;
-}
+export type ClubMediaUpdatedMetadata = ClubMetadata;
 
 export interface ClassMetadata {
   classId: string;

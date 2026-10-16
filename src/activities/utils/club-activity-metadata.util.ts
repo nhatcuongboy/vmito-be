@@ -13,6 +13,7 @@ export interface ClubActivitySource {
 
 export interface ClubActivityDetails extends ClubActivitySource {
   description?: string | null;
+  image?: string | null;
   joinPolicy: ClubJoinPolicy;
   requiredLevels: number[];
   schedules: Array<{
@@ -43,8 +44,12 @@ export function buildClubMetadata(club: ClubActivityDetails): ClubMetadata {
 
 export function buildClubJoinMetadata(
   club: ClubActivityDetails
-): Pick<ClubMetadata, 'schedules' | 'joinPolicy' | 'requiredLevels'> {
+): Pick<
+  ClubMetadata,
+  'schedules' | 'joinPolicy' | 'requiredLevels' | 'coverPhoto'
+> {
   return {
+    coverPhoto: club.image ?? null,
     // Inactive slots are switched off, not deleted — a reader shouldn't see them.
     schedules: club.schedules
       .filter((s) => s.isActive)
