@@ -1009,6 +1009,10 @@ export class PlayersService {
       );
     }
 
+    if (registrationStatus === 'PENDING') {
+      this.notificationsService.syncBadges([session.hostId]);
+    }
+
     // Notify Host if there are pending registrations and host is not an ADMIN
     if (registrationStatus === 'PENDING' && session.host?.role !== 'ADMIN') {
       const pendingPlayerNames = createdPlayers
@@ -1115,6 +1119,10 @@ export class PlayersService {
       SessionEventType.PLAYER_UPDATED,
       { playerId, registrationStatus: status }
     );
+
+    if (existingPlayer.registrationStatus === 'PENDING') {
+      this.notificationsService.syncBadges([session.hostId]);
+    }
 
     // Notify User specifically about their status update
     if (existingPlayer.userId) {
@@ -1479,6 +1487,10 @@ export class PlayersService {
         );
       }
     }
+
+    this.notificationsService.syncBadges(
+      players.map((player) => player.session.hostId)
+    );
 
     return { updated: players.length, status };
   }
@@ -2563,6 +2575,7 @@ export class PlayersService {
       SessionEventType.NOTIFICATION_RECEIVED,
       { sessionId, playerIds, type: 'JOIN_REQUEST_WITHDRAWN' }
     );
+    this.notificationsService.syncBadges([pendingPlayers[0].session.hostId]);
 
     return { deleted: result.count };
   }
@@ -2624,6 +2637,7 @@ export class PlayersService {
       SessionEventType.NOTIFICATION_RECEIVED,
       { sessionId, playerIds: [playerId], type: 'JOIN_REQUEST_WITHDRAWN' }
     );
+    this.notificationsService.syncBadges([player.session.hostId]);
 
     return { deleted: result.count };
   }

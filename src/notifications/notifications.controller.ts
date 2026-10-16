@@ -63,6 +63,15 @@ export class NotificationsController {
     return this.notificationsService.getUnreadCount(user.userId);
   }
 
+  /**
+   * The bell / app-icon number and its parts, computed once on the server so
+   * web, app and push can never show different totals.
+   */
+  @Get('badge-count')
+  async getBadgeCount(@CurrentUser() user: AuthenticatedUser) {
+    return this.notificationsService.getBadgeCount(user.userId);
+  }
+
   /** Register or refresh the current mobile installation's FCM token. */
   @Post('devices')
   async registerDevice(

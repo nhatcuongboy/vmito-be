@@ -10,6 +10,7 @@ import {
 } from 'firebase-admin/app';
 import { getMessaging, Message, Messaging } from 'firebase-admin/messaging';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationUnreadCountService } from './notification-unread-count.service';
 import { localizePush, normalizePushLocale } from './push-localization';
 
 export type PushContent = Pick<
@@ -17,6 +18,9 @@ export type PushContent = Pick<
   'id' | 'type' | 'title' | 'message' | 'data'
 >;
 type PushNotification = PushContent & Pick<Notification, 'userId'>;
+
+/** `data.action` of a silent badge-only push; vmito_app handles it. */
+export const BADGE_SYNC_ACTION = 'badge_sync';
 
 const INVALID_TOKEN_CODES = new Set([
   'messaging/registration-token-not-registered',
@@ -30,7 +34,8 @@ export class PushNotificationsService {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly unreadCounts: NotificationUnreadCountService
   ) {
     const app = this.initializeFirebaseApp();
     if (app) this.messaging = getMessaging(app);
@@ -71,6 +76,9 @@ export class PushNotificationsService {
       where: { userId: { in: [...byUserId.keys()] } },
       select: { token: true, userId: true, locale: true },
     });
+    const badgeCounts = await this.unreadCounts.badgeTotalsForUsers(
+      devices.map((device) => device.userId)
+    );
     const messages: Message[] = [];
     const tokens: string[] = [];
 
@@ -82,11 +90,51 @@ export class PushNotificationsService {
         normalizePushLocale(device.locale)
       );
       messages.push(
-        this.buildMessage(device.token, { ...notification, title, message })
+        this.buildMessage(
+          device.token,
+          { ...notification, title, message },
+          badgeCounts.get(device.userId)
+        )
       );
       tokens.push(device.token);
     }
     await this.sendMessages(messages, tokens);
+  }
+
+  /**
+   * Pushes each user's current badge total to their devices without showing
+   * anything, so the app icon follows changes that create no inbox row (a new
+   * join request to review, a read on another device). iOS applies
+   * `aps.badge` itself; Android has no system badge field for a silent
+   * message, so the app's background handler applies `data.badge`.
+   * Best-effort: a stale icon is corrected on the next app open.
+   */
+  async syncBadges(userIds: string[]): Promise<void> {
+    if (!this.messaging || userIds.length === 0) return;
+    try {
+      const devices = await this.prisma.notificationDevice.findMany({
+        where: { userId: { in: [...new Set(userIds)] } },
+        select: { token: true, userId: true, platform: true },
+      });
+      if (devices.length === 0) return;
+      const totals = await this.unreadCounts.badgeTotalsForUsers(
+        devices.map((device) => device.userId)
+      );
+      const messages: Message[] = [];
+      const tokens: string[] = [];
+      for (const device of devices) {
+        const badge = totals.get(device.userId);
+        if (badge == null) continue;
+        messages.push(
+          this.buildBadgeMessage(device.token, device.platform, badge)
+        );
+        tokens.push(device.token);
+      }
+      await this.sendMessages(messages, tokens);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`FCM badge sync failed: ${message}`);
+    }
   }
 
   /** Deliver one shared campaign payload to an already paged token batch. */
@@ -135,7 +183,17 @@ export class PushNotificationsService {
     }
   }
 
-  private buildMessage(token: string, notification: PushContent): Message {
+  /**
+   * [badgeCount] is the user's in-app bell total (unread + pending approvals) including this push. It is
+   * left undefined for broadcast campaigns (one shared payload, no per-user
+   * lookup) and when the count lookup failed; iOS then keeps the current badge
+   * and the app re-syncs it on the next foreground.
+   */
+  private buildMessage(
+    token: string,
+    notification: PushContent,
+    badgeCount?: number
+  ): Message {
     const customData = this.serializeData(notification.data);
     const isCourtCall =
       customData.action === 'court_call' || customData.courtNumber != null;
@@ -157,6 +215,7 @@ export class PushNotificationsService {
         notification: {
           channelId: isCourtCall ? 'court_calls' : 'vmito_notifications',
           sound: 'default',
+          ...(badgeCount != null ? { notificationCount: badgeCount } : {}),
         },
       },
       apns: {
@@ -168,11 +227,35 @@ export class PushNotificationsService {
         payload: {
           aps: {
             sound: 'default',
+            ...(badgeCount != null ? { badge: badgeCount } : {}),
             ...(isCourtCall ? { interruptionLevel: 'time-sensitive' } : {}),
           },
         },
       },
     };
+  }
+
+  private buildBadgeMessage(
+    token: string,
+    platform: string,
+    badge: number
+  ): Message {
+    const data = { action: BADGE_SYNC_ACTION, badge: String(badge) };
+    if (platform === 'ios') {
+      return {
+        token,
+        data,
+        apns: {
+          // A badge-only notification is still the `alert` push type; with no
+          // alert or sound it changes the icon and nothing else.
+          headers: { 'apns-priority': '5', 'apns-push-type': 'alert' },
+          payload: { aps: { badge } },
+        },
+      };
+    }
+    // Data-only so nothing is shown; `normal` priority because FCM
+    // deprioritizes apps whose high-priority messages show no notification.
+    return { token, data, android: { priority: 'normal' } };
   }
 
   private serializeData(data: Prisma.JsonValue): Record<string, string> {

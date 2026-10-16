@@ -8,6 +8,7 @@ import {
   ClosureStatus,
   NotificationType,
   Prisma,
+  Role,
   SportType,
   VenueRequestStatus,
   VenueRequestType,
@@ -91,7 +92,7 @@ export class VenueRequestsService {
       if (!venue) throw new NotFoundException('Venue not found');
     }
 
-    return this.prisma.venueRequest.create({
+    const request = await this.prisma.venueRequest.create({
       data: {
         type: dto.type,
         submittedByUserId: userId,
@@ -100,6 +101,23 @@ export class VenueRequestsService {
       },
       include: VENUE_REQUEST_INCLUDE,
     });
+    this.syncAdminBadges();
+    return request;
+  }
+
+  /**
+   * Admins review every venue request, so a new or settled one changes each
+   * admin's pending count. Fire-and-forget: never fails the request itself.
+   */
+  private syncAdminBadges() {
+    void this.prisma.user
+      .findMany({ where: { role: Role.ADMIN }, select: { id: true } })
+      .then((admins) =>
+        this.notificationsService.syncBadges(admins.map((admin) => admin.id))
+      )
+      .catch((err: unknown) =>
+        this.logger.warn(`Venue request badge sync failed: ${String(err)}`)
+      );
   }
 
   async findMine(userId: string, query: QueryVenueRequestsDto) {
@@ -383,6 +401,7 @@ export class VenueRequestsService {
     });
 
     await this.sendRejectionNotification(updatedRequest, adminNote.trim());
+    this.syncAdminBadges();
 
     return updatedRequest;
   }
@@ -406,6 +425,9 @@ export class VenueRequestsService {
     venueId: string,
     venueName: string
   ) {
+    // Every approve branch ends here, so this is where the request leaves
+    // the admins' pending count.
+    this.syncAdminBadges();
     if (!request.submittedByUserId) return;
 
     try {

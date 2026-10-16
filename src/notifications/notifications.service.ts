@@ -20,6 +20,11 @@ import {
   RegisterNotificationDeviceDto,
 } from './dto';
 import { PushNotificationsService } from './push-notifications.service';
+import {
+  broadcastWhereForUser,
+  latestDate,
+  NotificationUnreadCountService,
+} from './notification-unread-count.service';
 
 export type NotificationConflictMode = 'ONCE' | 'COALESCE';
 
@@ -58,7 +63,8 @@ export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessionsGateway: SessionsGateway,
-    private readonly pushNotifications: PushNotificationsService
+    private readonly pushNotifications: PushNotificationsService,
+    private readonly badgeCounts: NotificationUnreadCountService
   ) {}
 
   async create(userId: string, dto: CreateNotificationDto) {
@@ -472,6 +478,20 @@ export class NotificationsService {
     return { count: direct + broadcasts };
   }
 
+  getBadgeCount(userId: string) {
+    return this.badgeCounts.badgeCountsForUser(userId);
+  }
+
+  /**
+   * Fire-and-forget icon refresh for users whose badge changed without a
+   * push of its own (see `PushNotificationsService.syncBadges`). Never awaited
+   * by callers' business logic and never throws.
+   */
+  syncBadges(userIds: Array<string | null | undefined>) {
+    const ids = userIds.filter((id): id is string => Boolean(id));
+    void this.pushNotifications.syncBadges(ids);
+  }
+
   async registerDevice(userId: string, dto: RegisterNotificationDeviceDto) {
     if (dto.deviceId) {
       await this.prisma.notificationDevice.deleteMany({
@@ -501,10 +521,12 @@ export class NotificationsService {
       where: { id, userId },
     });
     if (direct) {
-      return this.prisma.notification.update({
+      const updated = await this.prisma.notification.update({
         where: { id },
         data: { isRead: true },
       });
+      if (!direct.isRead) this.syncBadges([userId]);
+      return updated;
     }
     const broadcast = await this.findEligibleBroadcast(id, userId);
     await this.prisma.broadcastNotificationUserState.upsert({
@@ -512,6 +534,7 @@ export class NotificationsService {
       create: { broadcastId: id, userId, readAt: new Date() },
       update: { readAt: new Date() },
     });
+    if (!broadcast.isRead) this.syncBadges([userId]);
     return { ...broadcast, isRead: true };
   }
 
@@ -528,6 +551,7 @@ export class NotificationsService {
         update: { broadcastReadThroughAt: now },
       }),
     ]);
+    this.syncBadges([userId]);
     return { message: 'All notifications marked as read' };
   }
 
@@ -538,6 +562,7 @@ export class NotificationsService {
     });
     if (direct) {
       await this.prisma.notification.delete({ where: { id } });
+      this.syncBadges([userId]);
       return { message: 'Notification deleted successfully' };
     }
     await this.findEligibleBroadcast(id, userId);
@@ -546,6 +571,7 @@ export class NotificationsService {
       create: { broadcastId: id, userId, deletedAt: new Date() },
       update: { deletedAt: new Date() },
     });
+    this.syncBadges([userId]);
     return { message: 'Notification deleted successfully' };
   }
 
@@ -559,6 +585,7 @@ export class NotificationsService {
         update: { broadcastDeletedThroughAt: now },
       }),
     ]);
+    this.syncBadges([userId]);
     return { message: 'All notifications deleted successfully' };
   }
 
@@ -672,20 +699,13 @@ export class NotificationsService {
     type?: NotificationType,
     unreadOnly = false
   ): Prisma.BroadcastNotificationWhereInput {
-    return {
-      deletedAt: null,
-      ...(type && { type }),
-      audienceCutoffAt: { gte: userCreatedAt },
-      ...(deletedThroughAt ? { createdAt: { gt: deletedThroughAt } } : {}),
-      userStates: {
-        none: {
-          userId,
-          ...(unreadOnly
-            ? { OR: [{ readAt: { not: null } }, { deletedAt: { not: null } }] }
-            : { deletedAt: { not: null } }),
-        },
-      },
-    };
+    return broadcastWhereForUser(
+      userId,
+      userCreatedAt,
+      deletedThroughAt,
+      type,
+      unreadOnly
+    );
   }
 
   private async findEligibleBroadcast(id: string, userId: string) {
@@ -750,9 +770,6 @@ export class NotificationsService {
   }
 
   private latestDate(...dates: Array<Date | null | undefined>) {
-    return dates.reduce<Date | undefined>(
-      (latest, date) => (date && (!latest || date > latest) ? date : latest),
-      undefined
-    );
+    return latestDate(...dates);
   }
 }

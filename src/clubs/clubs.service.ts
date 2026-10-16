@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -65,6 +66,8 @@ const CLUB_PERIOD_WINDOWS: Record<
 
 @Injectable()
 export class ClubsService {
+  private readonly logger = new Logger(ClubsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
@@ -1012,7 +1015,7 @@ export class ClubsService {
       if (club.maxMembers && club._count.members >= club.maxMembers) {
         throw new BadRequestException('This club has reached maximum capacity');
       }
-      await this.prisma.$transaction([
+      const [, settled] = await this.prisma.$transaction([
         this.prisma.clubMember.create({
           data: { clubId, userId, status: MemberStatus.ACTIVE },
         }),
@@ -1025,6 +1028,7 @@ export class ClubsService {
           data: { useCount: { increment: 1 } },
         }),
       ]);
+      if (settled.count > 0) this.syncReviewerBadges(clubId);
       await this.activityFeedService.postClubMemberJoined(club, userId);
       return {
         status: 'joined',
@@ -1093,6 +1097,8 @@ export class ClubsService {
       },
     });
 
+    this.syncReviewerBadges(clubId);
+
     return {
       status: 'pending',
       message: `Your request to join ${joinRequest.club.name} has been submitted`,
@@ -1120,6 +1126,7 @@ export class ClubsService {
       where: { id: request.id },
     });
 
+    this.syncReviewerBadges(clubId);
     return { message: 'Join request cancelled successfully' };
   }
 
@@ -2318,6 +2325,7 @@ export class ClubsService {
       });
     });
 
+    this.syncReviewerBadges(clubId);
     if (!('status' in result)) {
       await this.activityFeedService.postClubMemberJoined(club, request.userId);
     }
@@ -2349,13 +2357,49 @@ export class ClubsService {
       throw new BadRequestException('Request is already processed');
     }
 
-    return this.prisma.clubJoinRequest.update({
+    const rejected = await this.prisma.clubJoinRequest.update({
       where: { id: requestId },
       data: {
         status: JoinRequestStatus.REJECTED,
         response,
       },
     });
+    this.syncReviewerBadges(clubId);
+    return rejected;
+  }
+
+  /**
+   * Refreshes the icon badge of everyone who reviews this club's join
+   * requests (host + ADMIN/MODERATOR members); their pending count changed.
+   * Fire-and-forget: a badge must never fail the club action.
+   */
+  private syncReviewerBadges(clubId: string) {
+    void this.prisma.club
+      .findUnique({
+        where: { id: clubId },
+        select: {
+          hostId: true,
+          members: {
+            where: {
+              status: MemberStatus.ACTIVE,
+              role: { in: [MemberRole.ADMIN, MemberRole.MODERATOR] },
+            },
+            select: { userId: true },
+          },
+        },
+      })
+      .then((club) => {
+        if (!club) return;
+        this.notificationsService.syncBadges([
+          club.hostId,
+          ...club.members.map((member) => member.userId),
+        ]);
+      })
+      .catch((error: unknown) => {
+        this.logger.warn(
+          `Club badge sync failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      });
   }
 
   /**
