@@ -19,6 +19,11 @@ import {
   ExtractScheduleRequestDto,
   ExtractScheduleResponseDto,
 } from './dto/extract-schedule.dto';
+import {
+  ExtractPriceRulesRequestDto,
+  ExtractPriceRulesResponseDto,
+} from './dto/extract-price-rules.dto';
+import { PriceRulesExtractionService } from './price-rules-extraction.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 interface AuthenticatedRequest {
@@ -34,7 +39,10 @@ interface AuthenticatedRequest {
 @Controller('ai')
 @UseGuards(JwtAuthGuard)
 export class AiController {
-  constructor(private readonly geminiService: GeminiService) {}
+  constructor(
+    private readonly geminiService: GeminiService,
+    private readonly priceRulesExtraction: PriceRulesExtractionService
+  ) {}
 
   @Post('extract-session')
   async extractSession(
@@ -67,6 +75,16 @@ export class AiController {
       dto.language
     );
     return { entries };
+  }
+
+  @Post('extract-price-rules')
+  extractPriceRules(
+    @Body() dto: ExtractPriceRulesRequestDto
+  ): Promise<ExtractPriceRulesResponseDto> {
+    if (!dto.text.trim()) {
+      throw new HttpException('text is required', HttpStatus.BAD_REQUEST);
+    }
+    return this.priceRulesExtraction.extract(dto.text, dto.language);
   }
 
   /**

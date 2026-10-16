@@ -8,16 +8,19 @@ import { FavoritesModule } from '../favorites/favorites.module';
 import { RecommendationsModule } from '../recommendations/recommendations.module';
 import { VenuePricingService } from '../venue-rentals/venue-pricing.service';
 import { VenueAccessService } from './venue-access.service';
+import { VenuePriceImportService } from './venue-price-import.service';
+import { VenuePriceImportController } from './venue-price-import.controller';
 
 @Module({
   imports: [PrismaModule, FavoritesModule, RecommendationsModule],
-  controllers: [VenuesController],
+  controllers: [VenuesController, VenuePriceImportController],
   providers: [
     VenuesService,
     AddressMappingService,
     VenueAddressMigrationService,
     VenuePricingService,
     VenueAccessService,
+    VenuePriceImportService,
   ],
   exports: [
     VenuesService,
