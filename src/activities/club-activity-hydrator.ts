@@ -23,6 +23,7 @@ const clubSelect = {
   slug: true,
   name: true,
   logo: true,
+  image: true,
   isPublic: true,
   description: true,
   joinPolicy: true,

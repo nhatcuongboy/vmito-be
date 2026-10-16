@@ -91,3 +91,16 @@ When refactoring for file size:
 - `refactor(session): extract court assignment logic to helper`
 
 This helps track refactoring progress over time.
+### Mobile App Compatibility
+
+The Flutter app (`../vmito_app`) has no force-update gate, so every released
+app version keeps calling this API for months. Every change to a REST
+endpoint, DTO, socket event, push payload or migration must be **additive**:
+add next to the old shape, never remove, rename, retype or change the
+meaning of what old apps use. Note that `ValidationPipe` uses
+`forbidNonWhitelisted`, so removing a DTO field old apps still send breaks
+them with 400, and push fields like `aps.badge` act on old apps the moment
+this deploys (only push can be gated, on `NotificationDevice.appVersion`).
+
+Full rules and the pre-deploy checklist:
+`../vmito_app/docs/BACKEND_COMPATIBILITY.md`.
