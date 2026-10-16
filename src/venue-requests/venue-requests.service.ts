@@ -8,6 +8,7 @@ import {
   ClosureStatus,
   NotificationType,
   Prisma,
+  Role,
   SportType,
   VenueRequestStatus,
   VenueRequestType,
@@ -91,7 +92,7 @@ export class VenueRequestsService {
       if (!venue) throw new NotFoundException('Venue not found');
     }
 
-    return this.prisma.venueRequest.create({
+    const request = await this.prisma.venueRequest.create({
       data: {
         type: dto.type,
         submittedByUserId: userId,
@@ -100,6 +101,23 @@ export class VenueRequestsService {
       },
       include: VENUE_REQUEST_INCLUDE,
     });
+    this.syncAdminBadges();
+    return request;
+  }
+
+  /**
+   * Admins review every venue request, so a new or settled one changes each
+   * admin's pending count. Fire-and-forget: never fails the request itself.
+   */
+  private syncAdminBadges() {
+    void this.prisma.user
+      .findMany({ where: { role: Role.ADMIN }, select: { id: true } })
+      .then((admins) =>
+        this.notificationsService.syncBadges(admins.map((admin) => admin.id))
+      )
+      .catch((err: unknown) =>
+        this.logger.warn(`Venue request badge sync failed: ${String(err)}`)
+      );
   }
 
   async findMine(userId: string, query: QueryVenueRequestsDto) {
@@ -149,6 +167,16 @@ export class VenueRequestsService {
 
     const payload = this.sanitizePayload(dto.payload);
     this.validateCreatePayload(payload);
+    // The admin edit form only carries venue fields; keep the submitter's
+    // photos unless the edit explicitly sends its own set.
+    if (!payload.suggestedImages) {
+      const previous = this.sanitizePayload(
+        request.payload as VenueRequestPayloadDto
+      );
+      if (previous.suggestedImages) {
+        payload.suggestedImages = previous.suggestedImages;
+      }
+    }
 
     return this.prisma.venueRequest.update({
       where: { id },
@@ -182,8 +210,17 @@ export class VenueRequestsService {
         .filter(Boolean)
         .join(', ');
       const fallbackAddress = composedAddress || payload.street || '';
+      // Photos attached to a CREATE suggestion seed the new venue's gallery.
+      // They are optional, and an empty admin selection simply means none.
+      const gallery = this.dedupeImages(
+        this.selectSuggestedImages(payload, dto.applyImagePublicIds)
+      );
       const createdVenue = await this.venuesService.create({
         ...createPayload,
+        ...(gallery.length > 0 && {
+          images: gallery.map((image) => image.url),
+          imagePublicIds: gallery.map((image) => image.publicId ?? ''),
+        }),
         name: payload.name!,
         address: payload.address || fallbackAddress,
         city: payload.city,
@@ -299,14 +336,7 @@ export class VenueRequestsService {
     payload: VenueRequestPayloadDto,
     applyImagePublicIds?: string[]
   ) {
-    const suggested = payload.suggestedImages ?? [];
-    // If the admin passed a selection, keep only those; otherwise apply all.
-    const selected = applyImagePublicIds
-      ? suggested.filter(
-          (image) =>
-            image.publicId && applyImagePublicIds.includes(image.publicId)
-        )
-      : suggested;
+    const selected = this.selectSuggestedImages(payload, applyImagePublicIds);
 
     if (selected.length === 0) {
       throw new BadRequestException('No images selected to apply');
@@ -333,6 +363,29 @@ export class VenueRequestsService {
     await this.venuesService.update(venueId, { images, imagePublicIds });
   }
 
+  // If the admin passed a selection, keep only those; otherwise apply all.
+  private selectSuggestedImages(
+    payload: VenueRequestPayloadDto,
+    applyImagePublicIds?: string[]
+  ) {
+    const suggested = payload.suggestedImages ?? [];
+    if (!applyImagePublicIds) return suggested;
+    return suggested.filter(
+      (image) => image.publicId && applyImagePublicIds.includes(image.publicId)
+    );
+  }
+
+  private dedupeImages(images: { url: string; publicId?: string }[]) {
+    const seen = new Set<string>();
+    return images.filter((image) => {
+      const key = image.publicId || image.url;
+      if (seen.has(key) || seen.has(image.url)) return false;
+      seen.add(key);
+      seen.add(image.url);
+      return true;
+    });
+  }
+
   async reject(id: string, adminUserId: string, adminNote: string) {
     const _request = await this.getPendingRequest(id);
 
@@ -348,6 +401,7 @@ export class VenueRequestsService {
     });
 
     await this.sendRejectionNotification(updatedRequest, adminNote.trim());
+    this.syncAdminBadges();
 
     return updatedRequest;
   }
@@ -371,6 +425,9 @@ export class VenueRequestsService {
     venueId: string,
     venueName: string
   ) {
+    // Every approve branch ends here, so this is where the request leaves
+    // the admins' pending count.
+    this.syncAdminBadges();
     if (!request.submittedByUserId) return;
 
     try {

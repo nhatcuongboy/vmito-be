@@ -6,6 +6,7 @@ import { SessionsGatewayModule } from '../sessions/sessions-gateway.module';
 import { PushNotificationsService } from './push-notifications.service';
 import { NotificationDispatchService } from './notification-dispatch.service';
 import { NotificationMaintenanceService } from './notification-maintenance.service';
+import { NotificationUnreadCountService } from './notification-unread-count.service';
 import { NotificationPushDispatchService } from './notification-push-dispatch.service';
 
 @Module({
@@ -14,6 +15,7 @@ import { NotificationPushDispatchService } from './notification-push-dispatch.se
   providers: [
     NotificationsService,
     PushNotificationsService,
+    NotificationUnreadCountService,
     NotificationDispatchService,
     NotificationPushDispatchService,
     NotificationMaintenanceService,
