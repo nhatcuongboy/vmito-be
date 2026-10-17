@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { GoogleGenAI, Type as GenAIType } from '@google/genai';
+import { GoogleGenAI, Schema, Type as GenAIType } from '@google/genai';
 import {
   ChatMessageDto,
   ExtractedCourt,
@@ -945,6 +945,40 @@ Only use another language if the user explicitly asks you to translate, compare 
       }
     }
     throw lastError;
+  }
+
+  /** Runs a prompt with a JSON response schema and returns the parsed object. */
+  async generateJson<T>(
+    prompt: string,
+    responseSchema: Schema,
+    context: string
+  ): Promise<T> {
+    if (!this.ai) throw new Error('Gemini API key is missing.');
+
+    const response = await this.withRetry(
+      () =>
+        this.ai!.models.generateContent({
+          model: MODEL,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema,
+            temperature: 0.1,
+          },
+        }),
+      context
+    );
+
+    const responseText = response.text ?? '';
+    try {
+      return JSON.parse(responseText) as T;
+    } catch (error) {
+      console.error(`[AI] Failed to parse ${context} JSON:`, {
+        error: error instanceof Error ? error.message : String(error),
+        text: responseText,
+      });
+      throw new Error(`AI returned invalid ${context} JSON.`);
+    }
   }
 
   async generateText(prompt: string, language?: Language): Promise<string> {

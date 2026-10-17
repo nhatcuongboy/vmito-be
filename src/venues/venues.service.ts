@@ -46,6 +46,11 @@ import { VENUE_PUBLIC_OMIT } from './venue-public-omit.constant';
 import { VenuePricingService } from '../venue-rentals/venue-pricing.service';
 import { VenueAccessService } from './venue-access.service';
 import {
+  buildPriceBookData,
+  buildPriceRuleData,
+  validatePriceRule,
+} from './venue-price-rule.util';
+import {
   AddVenueManagerDto,
   UpdateVenueManagerDto,
   UpdateVenueRentalSettingsDto,
@@ -556,16 +561,7 @@ export class VenuesService {
 
     return this.prisma.venuePriceBook.create({
       data: {
-        venueId,
-        name: dto.name,
-        currency: dto.currency || 'VND',
-        effectiveFrom: new Date(dto.effectiveFrom),
-        effectiveTo: dto.effectiveTo ? new Date(dto.effectiveTo) : null,
-        isActive: dto.isActive ?? true,
-        priority: dto.priority ?? 0,
-        notes: dto.notes,
-        priceImageUrl: dto.priceImageUrl,
-        priceImagePublicId: dto.priceImagePublicId,
+        ...buildPriceBookData(venueId, dto),
         courts: courtIds
           ? { connect: courtIds.map((id) => ({ id })) }
           : undefined,
@@ -645,10 +641,10 @@ export class VenuesService {
   ) {
     await this.venueAccess.assertManager(venueId, userId, role);
     await this.ensurePriceBook(venueId, priceBookId);
-    this.validatePriceRule(dto);
+    validatePriceRule(dto);
 
     return this.prisma.venuePriceRule.create({
-      data: this.buildPriceRuleData(priceBookId, dto),
+      data: buildPriceRuleData(priceBookId, dto),
     });
   }
 
@@ -671,7 +667,7 @@ export class VenuesService {
     }
 
     const merged = { ...existing, ...dto };
-    this.validatePriceRule(merged);
+    validatePriceRule(merged);
 
     return this.prisma.venuePriceRule.update({
       where: { id: ruleId },
@@ -1358,58 +1354,6 @@ export class VenuesService {
     }
 
     return priceBook;
-  }
-
-  private validatePriceRule(rule: {
-    dayType?: VenueDayType;
-    daysOfWeek?: number[] | null;
-    specificDate?: Date | string | null;
-    startMinute?: number;
-    endMinute?: number;
-    pricePerHour?: number;
-  }) {
-    if (
-      rule.startMinute === undefined ||
-      rule.endMinute === undefined ||
-      rule.endMinute <= rule.startMinute
-    ) {
-      throw new BadRequestException(
-        'endMinute must be greater than startMinute'
-      );
-    }
-
-    if (rule.dayType === VenueDayType.SPECIFIC_DATE && !rule.specificDate) {
-      throw new BadRequestException(
-        'specificDate is required for SPECIFIC_DATE rules'
-      );
-    }
-
-    if (rule.pricePerHour !== undefined && rule.pricePerHour < 0) {
-      throw new BadRequestException(
-        'pricePerHour must be greater than or equal to 0'
-      );
-    }
-  }
-
-  private buildPriceRuleData(
-    priceBookId: string,
-    dto: CreateVenuePriceRuleDto
-  ): Prisma.VenuePriceRuleUncheckedCreateInput {
-    return {
-      priceBookId,
-      dayType: dto.dayType,
-      daysOfWeek: dto.daysOfWeek || [],
-      specificDate: dto.specificDate ? new Date(dto.specificDate) : null,
-      startMinute: dto.startMinute,
-      endMinute: dto.endMinute,
-      customerType: dto.customerType,
-      isStudent: dto.isStudent ?? false,
-      pricePerHour: dto.pricePerHour,
-      minimumMinutes: dto.minimumMinutes,
-      billingStepMinutes: dto.billingStepMinutes,
-      priority: dto.priority ?? 0,
-      notes: dto.notes,
-    };
   }
 
   private ruleAppliesToDate(
