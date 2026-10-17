@@ -129,6 +129,10 @@ model User {
   // Editorial articles (news / long-form content)
   authoredArticles Article[] @relation("AuthoredArticles")
 
+  // Monthly host awards
+  hostAwardEntries   HostAwardEntry[]    @relation("HostAwardEntries")
+  hostAwardSanctions HostAwardSanction[] @relation("HostAwardSanctions")
+
   @@index([createdAt])
   @@map("users")
 }
@@ -3026,4 +3030,82 @@ model Article {
   @@index([translationGroupId])
   @@index([authorId])
   @@map("articles")
+}
+
+// ===========================================
+// Monthly Host Awards ("Host Tiêu Biểu Tháng")
+// ===========================================
+
+enum HostAwardPeriodStatus {
+  PROVISIONAL // Live, recomputed daily while the month runs
+  PENDING_REVIEW // Month closed and scored, waiting for admin review
+  PUBLISHED // Reviewed and visible as badges
+}
+
+enum HostAwardCategory {
+  OVERALL // Host of the month (top 10 by total score)
+  NEWCOMER_MAGNET // Brought the most new players who stayed
+  MOST_LOVED // Best Bayesian rating
+  MOST_RELIABLE // Most qualified sessions with zero cancellations
+  RISING_STAR // Best score among hosts newer than 90 days
+}
+
+model HostAwardPeriod {
+  id            String                @id @default(cuid())
+  monthKey      String                @unique // "2026-10", Vietnam time
+  status        HostAwardPeriodStatus @default(PROVISIONAL)
+  rulesVersion  Int
+  computedAt    DateTime
+  publishedAt   DateTime?
+  publishedById String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  entries HostAwardEntry[]
+
+  @@map("host_award_periods")
+}
+
+// One row per (host, category) the host was ranked in. OVERALL holds every
+// eligible host so admins can review the whole board; other categories only
+// hold their winner. Badges are derived from rows of PUBLISHED periods.
+model HostAwardEntry {
+  id             String            @id @default(cuid())
+  periodId       String
+  hostId         String
+  category       HostAwardCategory
+  rank           Int
+  score          Float
+  trustFactor    Float
+  metrics        Json
+  flags          Json // [{ code, severity, detail }]
+  excluded       Boolean           @default(false)
+  excludedReason String?
+  reviewedById   String?
+  reviewedAt     DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  period HostAwardPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  host   User            @relation("HostAwardEntries", fields: [hostId], references: [id], onDelete: Cascade)
+
+  @@unique([periodId, hostId, category])
+  @@index([hostId])
+  @@index([periodId, category, rank])
+  @@map("host_award_entries")
+}
+
+// Bars a host from the programme until `until` (null = permanent).
+model HostAwardSanction {
+  id          String    @id @default(cuid())
+  hostId      String
+  reason      String
+  until       DateTime?
+  createdById String
+  createdAt   DateTime  @default(now())
+
+  host User @relation("HostAwardSanctions", fields: [hostId], references: [id], onDelete: Cascade)
+
+  @@index([hostId])
+  @@map("host_award_sanctions")
 }
