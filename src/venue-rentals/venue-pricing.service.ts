@@ -16,6 +16,8 @@ export interface RentalPriceInput {
   endTime: string | Date;
   numberOfCourts: number;
   customerType: VenueCustomerType;
+  /** Specific courts being rented; picks a court-specific price book. */
+  courtIds?: string[];
   requireFuture?: boolean;
 }
 
@@ -48,7 +50,7 @@ export class VenuePricingService {
         hourlyRateWalkIn: true,
         priceBooks: {
           where: { isActive: true },
-          include: { rules: true },
+          include: { rules: true, courts: { select: { id: true } } },
           orderBy: [{ priority: 'desc' }, { effectiveFrom: 'desc' }],
         },
       },
@@ -65,11 +67,24 @@ export class VenuePricingService {
       throw new BadRequestException('numberOfCourts exceeds venue capacity');
     }
 
-    const priceBook = venue.priceBooks.find(
+    // A price book linked to the rented courts wins; otherwise the venue-wide
+    // book (no courts linked), then any effective book as a last resort.
+    const effectiveBooks = venue.priceBooks.filter(
       (book) =>
         book.effectiveFrom <= start &&
         (!book.effectiveTo || book.effectiveTo >= start)
     );
+    const courtIds = input.courtIds ?? [];
+    const priceBook =
+      (courtIds.length
+        ? effectiveBooks.find(
+            (book) =>
+              book.courts.length > 0 &&
+              courtIds.every((id) => book.courts.some((c) => c.id === id))
+          )
+        : undefined) ??
+      effectiveBooks.find((book) => book.courts.length === 0) ??
+      effectiveBooks[0];
     const dayOfWeek = this.getDayOfWeek(startParts.dateKey);
     const rules = (priceBook?.rules || []).filter((rule) =>
       this.ruleApplies(
@@ -231,7 +246,8 @@ export class VenuePricingService {
     customerType: VenueCustomerType,
     timezone: string
   ) {
-    if (rule.customerType !== customerType) return false;
+    // Student prices are display-only; rentals are quoted at the standard rate.
+    if (rule.customerType !== customerType || rule.isStudent) return false;
     if (rule.dayType === VenueDayType.EVERYDAY) return true;
     if (rule.dayType === VenueDayType.WEEKDAY) {
       return rule.daysOfWeek.length

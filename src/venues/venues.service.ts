@@ -74,6 +74,11 @@ import {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+const PRICE_BOOK_COURT_SELECT = {
+  select: { id: true, name: true, code: true },
+  orderBy: { displayOrder: 'asc' },
+} as const;
+
 @Injectable()
 export class VenuesService {
   constructor(
@@ -534,6 +539,7 @@ export class VenuesService {
       where: { venueId },
       include: {
         rules: { orderBy: [{ priority: 'desc' }, { startMinute: 'asc' }] },
+        courts: PRICE_BOOK_COURT_SELECT,
       },
       orderBy: [
         { isActive: 'desc' },
@@ -551,10 +557,19 @@ export class VenuesService {
   ) {
     await this.venueAccess.assertManager(venueId, userId, role);
     await this.ensureVenueExists(venueId);
+    const courtIds = await this.resolvePriceBookCourtIds(venueId, dto.courtIds);
 
     return this.prisma.venuePriceBook.create({
-      data: buildPriceBookData(venueId, dto),
-      include: { rules: true },
+      data: {
+        ...buildPriceBookData(venueId, dto),
+        courts: courtIds
+          ? { connect: courtIds.map((id) => ({ id })) }
+          : undefined,
+      },
+      include: {
+        rules: true,
+        courts: PRICE_BOOK_COURT_SELECT,
+      },
     });
   }
 
@@ -571,6 +586,7 @@ export class VenuesService {
   ) {
     await this.venueAccess.assertManager(venueId, userId, role);
     await this.ensurePriceBook(venueId, priceBookId);
+    const courtIds = await this.resolvePriceBookCourtIds(venueId, dto.courtIds);
 
     return this.prisma.venuePriceBook.update({
       where: { id: priceBookId },
@@ -591,9 +607,11 @@ export class VenuesService {
         notes: dto.notes,
         priceImageUrl: dto.priceImageUrl,
         priceImagePublicId: dto.priceImagePublicId,
+        courts: courtIds ? { set: courtIds.map((id) => ({ id })) } : undefined,
       },
       include: {
         rules: { orderBy: [{ priority: 'desc' }, { startMinute: 'asc' }] },
+        courts: PRICE_BOOK_COURT_SELECT,
       },
     });
   }
@@ -665,6 +683,7 @@ export class VenuesService {
         startMinute: dto.startMinute,
         endMinute: dto.endMinute,
         customerType: dto.customerType,
+        isStudent: dto.isStudent,
         pricePerHour: dto.pricePerHour,
         minimumMinutes: dto.minimumMinutes,
         billingStepMinutes: dto.billingStepMinutes,
@@ -1304,11 +1323,29 @@ export class VenuesService {
     return venue;
   }
 
+  /** Validates that every court belongs to the venue; undefined = untouched. */
+  private async resolvePriceBookCourtIds(
+    venueId: string,
+    courtIds?: string[]
+  ): Promise<string[] | undefined> {
+    if (courtIds === undefined) return undefined;
+    const unique = [...new Set(courtIds)];
+    if (unique.length === 0) return [];
+    const count = await this.prisma.venueCourt.count({
+      where: { venueId, id: { in: unique } },
+    });
+    if (count !== unique.length) {
+      throw new BadRequestException('courtIds must belong to this venue');
+    }
+    return unique;
+  }
+
   private async ensurePriceBook(venueId: string, priceBookId: string) {
     const priceBook = await this.prisma.venuePriceBook.findFirst({
       where: { id: priceBookId, venueId },
       include: {
         rules: { orderBy: [{ priority: 'desc' }, { startMinute: 'asc' }] },
+        courts: PRICE_BOOK_COURT_SELECT,
       },
     });
 
@@ -1325,12 +1362,13 @@ export class VenuesService {
       daysOfWeek: number[];
       specificDate: Date | null;
       customerType: VenueCustomerType;
+      isStudent?: boolean;
     },
     dateKey: string,
     dayOfWeek: number,
     customerType: VenueCustomerType
   ) {
-    if (rule.customerType !== customerType) return false;
+    if (rule.customerType !== customerType || rule.isStudent) return false;
 
     switch (rule.dayType) {
       case VenueDayType.EVERYDAY:

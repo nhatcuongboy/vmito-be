@@ -62,6 +62,7 @@ export const buildPriceRuleData = (
   startMinute: dto.startMinute,
   endMinute: dto.endMinute,
   customerType: dto.customerType,
+  isStudent: dto.isStudent ?? false,
   pricePerHour: dto.pricePerHour,
   minimumMinutes: dto.minimumMinutes,
   billingStepMinutes: dto.billingStepMinutes,
