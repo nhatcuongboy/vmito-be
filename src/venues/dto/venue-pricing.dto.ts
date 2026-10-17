@@ -46,6 +46,13 @@ export class CreateVenuePriceBookDto {
   @IsString()
   @IsOptional()
   priceImagePublicId?: string | null;
+
+  /** Courts this book applies to; empty/omitted = every court of the venue. */
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(200)
+  @IsOptional()
+  courtIds?: string[];
 }
 
 export class UpdateVenuePriceBookDto {
@@ -84,6 +91,13 @@ export class UpdateVenuePriceBookDto {
   @IsString()
   @IsOptional()
   priceImagePublicId?: string | null;
+
+  /** Courts this book applies to; empty/omitted = every court of the venue. */
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(200)
+  @IsOptional()
+  courtIds?: string[];
 }
 
 export class CreateVenuePriceRuleDto {
@@ -114,6 +128,11 @@ export class CreateVenuePriceRuleDto {
 
   @IsEnum(VenueCustomerType)
   customerType!: VenueCustomerType;
+
+  /** Student/pupil price for the given customerType (e.g. fixed + student). */
+  @IsBoolean()
+  @IsOptional()
+  isStudent?: boolean;
 
   @IsInt()
   @Min(0)
@@ -170,6 +189,10 @@ export class UpdateVenuePriceRuleDto {
   @IsEnum(VenueCustomerType)
   @IsOptional()
   customerType?: VenueCustomerType;
+
+  @IsBoolean()
+  @IsOptional()
+  isStudent?: boolean;
 
   @IsInt()
   @Min(0)

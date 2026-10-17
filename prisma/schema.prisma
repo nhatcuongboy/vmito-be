@@ -911,6 +911,8 @@ model VenuePriceBook {
   venue        Venue              @relation(fields: [venueId], references: [id], onDelete: Cascade)
   rules        VenuePriceRule[]
   rentalQuotes VenueRentalQuote[]
+  // Courts this price book applies to. Empty = every court of the venue.
+  courts       VenueCourt[]
 
   @@index([venueId])
   @@index([isActive])
@@ -927,6 +929,7 @@ model VenuePriceRule {
   startMinute        Int
   endMinute          Int
   customerType       VenueCustomerType
+  isStudent          Boolean           @default(false)
   pricePerHour       Int
   minimumMinutes     Int?
   billingStepMinutes Int?
@@ -998,6 +1001,7 @@ model VenueCourt {
   venue       Venue                        @relation(fields: [venueId], references: [id], onDelete: Cascade)
   blocks      VenueCourtBlock[]
   allocations VenueRentalCourtAllocation[]
+  priceBooks  VenuePriceBook[]
 
   @@unique([venueId, code])
   @@index([venueId, status, displayOrder])
