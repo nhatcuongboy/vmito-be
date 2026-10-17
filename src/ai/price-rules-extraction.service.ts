@@ -125,6 +125,7 @@ Return one rule per (day scope × time range × customer type × price):
   - WALK_IN: "vãng lai", "khách lẻ", "walk-in", or when no customer type is given.
   - FIXED: "cố định", "khách cố định", "tháng", "fixed", "long-term".
   - STUDENT: "HSSV", "học sinh", "sinh viên", "student".
+    A student price written in parentheses after another price, such as "VL 100k (HSSV: 90k)", is a separate STUDENT rule for the same time range. There is only one STUDENT price per time range: if several are given for the same range, keep the first and mention the ignored ones in warnings.
   - MEMBER: "thành viên", "hội viên", "member".
   - CUSTOM: any other named customer group (put the group name in notes).
 - pricePerHour: integer VND per court per hour. "80k" = 80000, "1tr2" = 1200000, "80.000đ" = 80000. If the source price is per 30 minutes or per multi-hour block, convert it to per hour and say so in warnings.
