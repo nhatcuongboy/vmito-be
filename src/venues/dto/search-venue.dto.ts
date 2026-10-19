@@ -160,6 +160,7 @@ export class SearchVenueDto {
       'numberOfCourts',
       'hourlyRateFixed',
       'relevance',
+      'popular',
     ],
     default: 'name',
   })
@@ -172,7 +173,8 @@ export class SearchVenueDto {
     | 'numberOfCourts'
     | 'hourlyRateFixed'
     | 'relevance'
-    | 'recommended' = 'name';
+    | 'recommended'
+    | 'popular' = 'name';
 
   @ApiProperty({ required: false, enum: ['asc', 'desc'], default: 'asc' })
   @IsOptional()
