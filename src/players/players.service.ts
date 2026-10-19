@@ -2658,6 +2658,8 @@ export class PlayersService {
       },
       select: {
         id: true,
+        // Lets the app tell the caller's own slot from the guests they added.
+        userId: true,
         name: true,
         phone: true,
         level: true,
