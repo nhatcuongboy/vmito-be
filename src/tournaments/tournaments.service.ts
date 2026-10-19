@@ -1267,6 +1267,28 @@ export class TournamentsService {
       }
     }
 
+    // Announce the tournament on the newsfeed the first time it goes public
+    // (fire-and-forget, self-caught). This fires on publish, not on creation,
+    // because a newly-created tournament is in PREPARING draft state and is not
+    // yet visible to the public.
+    if (updateData.isPublished === true && !existingTournament.isPublished) {
+      const primaryVenue = tournament.tournamentVenues?.find(
+        (tv) => tv.isPrimary
+      );
+      const venueName =
+        tournament.venue?.name ?? primaryVenue?.name ?? null;
+      void this.activityFeedService.postTournamentCreated({
+        id: tournament.id,
+        slug: tournament.slug,
+        name: tournament.name,
+        hostId: tournament.host.id,
+        coverPhoto: tournament.coverPhoto,
+        startDate: tournament.startDate,
+        venueName,
+        sportType: tournament.sportType,
+      });
+    }
+
     // When the tournament transitions to a terminal state, tell every spectator
     // (live overlays / scoreboards) so they can drop their socket and stop
     // consuming resources. Fire only on the actual transition, not on repeats.
