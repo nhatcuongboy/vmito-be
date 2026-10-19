@@ -386,6 +386,21 @@ export class SessionPlayersController {
     return this.playersService.toggleInactive(sessionId, body.playerId);
   }
 
+  @Patch('check-in')
+  @ApiOperation({ summary: 'Check a player in (host only)' })
+  async checkIn(
+    @Param('sessionId') sessionId: string,
+    @Body() body: { playerId: string },
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    await this.sessionAccess.assertSessionHost(
+      sessionId,
+      user.userId,
+      user.role
+    );
+    return this.playersService.checkIn(sessionId, body.playerId);
+  }
+
   @Patch(':playerId/status')
   @ApiOperation({ summary: 'Approve or reject a player registration' })
   updatePlayerStatus(

@@ -223,6 +223,16 @@ export class CreateSessionDto {
   @IsOptional()
   registrationOpen?: boolean;
 
+  @ApiProperty({
+    required: false,
+    description:
+      'Whether players are checked in automatically when the session starts. When false they start INACTIVE until the host checks them in.',
+    default: true,
+  })
+  @IsBoolean()
+  @IsOptional()
+  autoCheckIn?: boolean;
+
   @IsBoolean()
   @IsOptional()
   allowZaloContact?: boolean;
