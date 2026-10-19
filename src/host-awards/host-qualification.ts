@@ -1,5 +1,10 @@
 import { DAY_MS, MINUTE_MS, QUALIFICATION } from './host-awards.constants';
-import { AwardMatch, AwardSession, AwardUser } from './host-awards.types';
+import {
+  AwardMatch,
+  AwardPlayer,
+  AwardSession,
+  AwardUser,
+} from './host-awards.types';
 
 export type SessionRejection =
   | 'MISSING_TIMES'
@@ -13,7 +18,10 @@ export interface SessionVerdict {
   endTime: Date;
   qualified: boolean;
   rejection: SessionRejection | null;
+  /** Accounts that registered themselves and played in a real match. */
   verifiedUserIds: string[];
+  /** Named guests (see `guestKey`) who played in a real match. */
+  guestKeys: string[];
   weight: number;
 }
 
@@ -37,45 +45,75 @@ export function isRealMatch(match: AwardMatch): boolean {
 }
 
 /**
- * Accounts that genuinely played for the host. A slot only counts when the
- * account registered itself (`createdByUserId === userId`) — slots the host
- * created or re-linked to someone else's account never count, which is what
- * stops a host from attaching arbitrary accounts to inflate numbers.
+ * Stable identity of a guest slot: the host's roster profile when linked,
+ * else the name without case, accents or extra spaces, so "Hùng" and
+ * " hung " are one person. A nameless, profile-less slot has no identity and
+ * never counts.
  */
-export function verifiedPlayerUserIds(
+export function guestKey(player: AwardPlayer): string | null {
+  if (player.profileId) return `profile:${player.profileId}`;
+  const name = (player.name ?? '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/đ/gi, 'd')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  return name ? `name:${name}` : null;
+}
+
+export interface CountedPlayers {
+  /** Accounts that registered themselves and played in a real match. */
+  userIds: string[];
+  /** Named guests who played in a real match. */
+  guestKeys: string[];
+}
+
+/**
+ * Who genuinely played for the host in one session.
+ *
+ * Accounts only count when they registered themselves
+ * (`createdByUserId === userId`): slots the host created or re-linked to
+ * someone else's account never count, which stops a host attaching arbitrary
+ * accounts. Guests have no account to check, so they must at least have
+ * played in a real match and carry an identity; admins and the host's own
+ * slots never count.
+ */
+export function countedPlayers(
   session: AwardSession,
   users: Map<string, AwardUser>,
   excludedUserIds: ReadonlySet<string>
-): string[] {
+): CountedPlayers {
   const realPlayerIds = new Set(
     session.matches.filter(isRealMatch).flatMap((m) => m.playerIds)
   );
   const reference = session.startTime ?? session.endTime;
-  const verified = new Set<string>();
+  const userIds = new Set<string>();
+  const guestKeys = new Set<string>();
 
   for (const player of session.players) {
-    const userId = player.userId;
-    if (!userId || userId === session.hostId) continue;
-    if (player.createdByUserId !== userId) continue;
     if (player.matchesPlayed < 1 || !realPlayerIds.has(player.id)) continue;
+
+    const userId = player.userId;
+    if (!userId) {
+      const key = guestKey(player);
+      if (key) guestKeys.add(key);
+      continue;
+    }
+    if (userId === session.hostId) continue;
+    if (player.createdByUserId !== userId) continue;
     if (excludedUserIds.has(userId)) continue;
 
     const user = users.get(userId);
     if (!user || user.isAdmin) continue;
-    // Unverified email accounts are cheap to mass-create; they only count
-    // once they also play with some other host on their own.
-    const playsElsewhere = [...user.hostsPlayed].some(
-      (hostId) => hostId !== session.hostId
-    );
-    if (!user.trusted && !playsElsewhere) continue;
     const ageDays = reference
       ? (reference.getTime() - user.createdAt.getTime()) / DAY_MS
       : 0;
     if (ageDays < QUALIFICATION.minPlayerAccountAgeDays) continue;
 
-    verified.add(userId);
+    userIds.add(userId);
   }
-  return [...verified];
+  return { userIds: [...userIds], guestKeys: [...guestKeys] };
 }
 
 export function qualifySession(
@@ -95,6 +133,7 @@ export function qualifySession(
     qualified: false,
     rejection,
     verifiedUserIds: [],
+    guestKeys: [],
   });
 
   if (!session.startTime) return reject('MISSING_TIMES');
@@ -110,15 +149,20 @@ export function qualifySession(
   ) {
     return reject('TOO_FEW_MATCHES');
   }
-  const verifiedUserIds = verifiedPlayerUserIds(
-    session,
-    users,
-    excludedUserIds
-  );
-  if (verifiedUserIds.length < QUALIFICATION.minVerifiedPlayers) {
+  const players = countedPlayers(session, users, excludedUserIds);
+  if (
+    players.userIds.length + players.guestKeys.length <
+    QUALIFICATION.minCountedPlayers
+  ) {
     return reject('TOO_FEW_PLAYERS');
   }
-  return { ...base, qualified: true, rejection: null, verifiedUserIds };
+  return {
+    ...base,
+    qualified: true,
+    rejection: null,
+    verifiedUserIds: players.userIds,
+    guestKeys: players.guestKeys,
+  };
 }
 
 /**

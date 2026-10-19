@@ -5,7 +5,7 @@
  *
  * The fraud thresholds are internal — only the principles are published.
  */
-export const HOST_AWARDS_RULES_VERSION = 1;
+export const HOST_AWARDS_RULES_VERSION = 2;
 
 /** Backend-only flag; when off, public endpoints return nothing. */
 export const HOST_AWARDS_FEATURE_FLAG = 'HOST_AWARDS';
@@ -13,8 +13,14 @@ export const HOST_AWARDS_FEATURE_FLAG = 'HOST_AWARDS';
 /** What makes a session and a player count for the host. */
 export const QUALIFICATION = {
   minSessionMinutes: 60,
-  minVerifiedPlayers: 4,
-  minFinishedMatches: 3,
+  /** Account players plus named guests who played in a real match. */
+  minCountedPlayers: 4,
+  /**
+   * One recorded match proves the host ran the session in the app. 90 of 167
+   * sessions in the first measured month had none, so asking for more would
+   * rule out most hosts before anything else is looked at.
+   */
+  minFinishedMatches: 1,
   minMatchMinutes: 5,
   maxSessionsPerDay: 2,
   maxSessionsPerMonth: 30,
@@ -25,9 +31,20 @@ export const QUALIFICATION = {
 /** Gate a host must pass to be ranked at all. */
 export const ELIGIBILITY = {
   minHostAccountAgeDays: 30,
-  minQualifiedSessions: 4,
-  minDistinctPlayers: 12,
+  minQualifiedSessions: 3,
+  minDistinctPlayers: 8,
   maxCancelRate: 0.3,
+} as const;
+
+/**
+ * Most players on Vmito still join as guests (84% of slots in the first
+ * measured month), so guests count, but less than someone with an account:
+ * an account is what brings a player onto the platform, and a guest name is
+ * cheap for a host to invent.
+ */
+export const PLAYER_WEIGHTS = {
+  account: 1,
+  guest: 0.5,
 } as const;
 
 export const SCORE_WEIGHTS = {
@@ -62,6 +79,8 @@ export const FRAUD = {
   ghostMatchNoResultRatio: 0.5,
   blockedByPlayersMin: 3,
   minTrustFactor: 0.5,
+  /** Ratio flags need this many accounts to mean anything. */
+  minAccountsForRatioFlags: 5,
 } as const;
 
 export const CATEGORY_RULES = {

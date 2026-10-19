@@ -71,14 +71,6 @@ export class HostAwardDataService {
       this.loadSanctionedHosts(hostIds, start, asOf),
     ]);
 
-    for (const [userId, rows] of participation) {
-      const user = users.get(userId);
-      if (!user) continue;
-      for (const row of rows) {
-        if (row.selfRegistered) user.hostsPlayed.add(row.hostId);
-      }
-    }
-
     return {
       start,
       end,
@@ -119,6 +111,8 @@ export class HostAwardDataService {
             userId: true,
             createdByUserId: true,
             matchesPlayed: true,
+            name: true,
+            profileId: true,
           },
         },
         matches: {
@@ -171,18 +165,14 @@ export class HostAwardDataService {
         select: {
           id: true,
           createdAt: true,
-          emailVerified: true,
           role: true,
-          accounts: { select: { id: true }, take: 1 },
         },
       });
       for (const row of rows) {
         users.set(row.id, {
           id: row.id,
           createdAt: row.createdAt,
-          trusted: row.emailVerified !== null || row.accounts.length > 0,
           isAdmin: row.role === 'ADMIN',
-          hostsPlayed: new Set(),
         });
       }
     }

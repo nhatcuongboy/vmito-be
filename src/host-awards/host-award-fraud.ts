@@ -119,14 +119,18 @@ export function assessHost(input: FraudInput): FraudResult {
       (row) => row.hostId === hostId
     )
   ).length;
-  const closedCluster = ratio(loyalOnly) > FRAUD.closedClusterRatio;
+  // With few accounts (guests are most players) a ratio says little.
+  const enoughAccounts = players.length >= FRAUD.minAccountsForRatioFlags;
+  const closedCluster =
+    enoughAccounts && ratio(loyalOnly) > FRAUD.closedClusterRatio;
 
   const newCutoff = dataset.end.getTime() - FRAUD.newAccountDays * DAY_MS;
   const newAccounts = players.filter(
     (userId) =>
       (dataset.users.get(userId)?.createdAt.getTime() ?? 0) >= newCutoff
   ).length;
-  const newAccountBurst = ratio(newAccounts) > FRAUD.newAccountRatio;
+  const newAccountBurst =
+    enoughAccounts && ratio(newAccounts) > FRAUD.newAccountRatio;
 
   if (closedCluster) {
     penalty += FRAUD.closedClusterPenalty;

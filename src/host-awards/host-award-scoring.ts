@@ -26,7 +26,7 @@ export function percentileRanks(values: number[]): number[] {
 const componentValue = (m: HostMetrics, c: ScoreComponent): number => {
   switch (c) {
     case 'reach':
-      return m.distinctPlayers;
+      return m.reach;
     case 'activity':
       return m.activity;
     case 'retention':

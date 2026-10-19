@@ -16,6 +16,7 @@ import {
 import { UsersService } from './users.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
+import { SearchUsersQueryDto } from './dto/search-users.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -107,6 +108,18 @@ export class UsersController {
     @CurrentUser() currentUser: { userId: string }
   ) {
     return this.usersService.unblockUser(currentUser.userId, id);
+  }
+
+  /**
+   * Player directory search for any signed-in user. Declared before
+   * `@Get(':id')` so Nest does not match "search" as an id.
+   */
+  @Get('search')
+  search(
+    @CurrentUser() currentUser: { userId: string },
+    @Query() query: SearchUsersQueryDto
+  ) {
+    return this.usersService.searchPublic(currentUser.userId, query);
   }
 
   /**

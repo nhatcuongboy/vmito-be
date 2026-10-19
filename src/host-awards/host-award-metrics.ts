@@ -1,4 +1,9 @@
-import { DAY_MS, ELIGIBILITY, RATING } from './host-awards.constants';
+import {
+  DAY_MS,
+  ELIGIBILITY,
+  PLAYER_WEIGHTS,
+  RATING,
+} from './host-awards.constants';
 import {
   isRealMatch,
   minutesBetween,
@@ -109,14 +114,20 @@ export interface HostMetricsInput {
 export function computeHostMetrics(input: HostMetricsInput): HostMetrics {
   const { hostId, counted, dataset } = input;
 
-  const sessionsPerUser = new Map<string, number>();
+  // Accounts and guests live in one map; the prefix keeps them apart.
+  const sessionsPerPlayer = new Map<string, number>();
+  const bump = (key: string) =>
+    sessionsPerPlayer.set(key, (sessionsPerPlayer.get(key) ?? 0) + 1);
   for (const verdict of counted) {
-    for (const userId of verdict.verifiedUserIds) {
-      sessionsPerUser.set(userId, (sessionsPerUser.get(userId) ?? 0) + 1);
-    }
+    verdict.verifiedUserIds.forEach((userId) => bump(`acct:${userId}`));
+    verdict.guestKeys.forEach((key) => bump(key));
   }
-  const distinctPlayers = sessionsPerUser.size;
-  const returningPlayers = [...sessionsPerUser.values()].filter(
+  const distinctPlayers = sessionsPerPlayer.size;
+  const accountPlayers = [...sessionsPerPlayer.keys()].filter((k) =>
+    k.startsWith('acct:')
+  ).length;
+  const guestPlayers = distinctPlayers - accountPlayers;
+  const returningPlayers = [...sessionsPerPlayer.values()].filter(
     (n) => n >= 2
   ).length;
 
@@ -135,6 +146,11 @@ export function computeHostMetrics(input: HostMetricsInput): HostMetrics {
     qualifiedSessions: counted.length,
     activity: counted.reduce((sum, v) => sum + v.weight, 0),
     distinctPlayers,
+    accountPlayers,
+    guestPlayers,
+    reach:
+      accountPlayers * PLAYER_WEIGHTS.account +
+      guestPlayers * PLAYER_WEIGHTS.guest,
     returningPlayers,
     retention: distinctPlayers ? returningPlayers / distinctPlayers : 0,
     growth: computeGrowth(counted, dataset.participationByUser, dataset.asOf),

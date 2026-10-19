@@ -85,6 +85,7 @@ describe('host award fraud signals', () => {
         qualified: true,
         rejection: null,
         verifiedUserIds: ['new', 'stay'],
+        guestKeys: [],
         weight: 1,
       },
     ];
@@ -147,6 +148,44 @@ describe('evaluateMonth', () => {
     expect(host.hostId).toBe('newbie');
     expect(host.eligibility.requirements).toHaveLength(5);
     expect(host.eligibility.eligible).toBe(false);
+  });
+
+  it('ranks a host whose players are mostly guests, weighting guests lower', () => {
+    const guestNames = (i: number) =>
+      Array.from({ length: 4 }, (_, k) => `Khách ${i}-${k}`);
+    const sessions = [3, 6, 10, 14].map((day, i) =>
+      session(`g-s${i}`, 'guesty', at(day, 18), ['reg1'], {
+        guests: guestNames(i),
+      })
+    );
+    const result = evaluateMonth(
+      dataset(sessions, [user('guesty'), user('reg1')])
+    );
+    const host = result.hosts[0];
+    expect(host.metrics.accountPlayers).toBe(1);
+    expect(host.metrics.guestPlayers).toBe(16);
+    expect(host.metrics.distinctPlayers).toBe(17);
+    expect(host.metrics.reach).toBe(1 + 16 * 0.5);
+    expect(host.eligibility.eligible).toBe(true);
+    // One account is too small a sample for the closed-cluster flag.
+    expect(host.flags).toEqual([]);
+  });
+
+  it('does not let a handful of accounts trip the ratio flags', () => {
+    const fresh = new Date(MONTH_END.getTime() - 10 * DAY_MS);
+    const sessions = [3, 6, 10].map((day, i) =>
+      session(`f-s${i}`, 'fewacc', at(day, 18), ['a1', 'a2'], {
+        guests: ['G1', 'G2', 'G3'],
+      })
+    );
+    const result = evaluateMonth(
+      dataset(sessions, [
+        user('fewacc'),
+        user('a1', { createdAt: fresh }),
+        user('a2', { createdAt: fresh }),
+      ])
+    );
+    expect(result.hosts[0].flags).toEqual([]);
   });
 
   it('marks hosts with too many cancellations as ineligible', () => {

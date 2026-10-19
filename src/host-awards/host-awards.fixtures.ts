@@ -20,9 +20,7 @@ export function user(
   return {
     id,
     createdAt: new Date(MONTH_START.getTime() - 200 * DAY_MS),
-    trusted: true,
     isAdmin: false,
-    hostsPlayed: new Set(),
     ...overrides,
   };
 }
@@ -41,8 +39,9 @@ export function match(
 }
 
 /**
- * A session where `userIds` registered themselves and each played a few
- * 15-minute matches across a two-hour slot.
+ * A session where `userIds` registered themselves, `guests` named guests
+ * joined without an account, and everyone played a few 15-minute matches
+ * across a two-hour slot.
  */
 export function session(
   id: string,
@@ -52,19 +51,32 @@ export function session(
   options: {
     minutes?: number;
     matchMinutes?: number;
+    matchCount?: number;
     hostLinked?: boolean;
     isInternal?: boolean;
+    guests?: string[];
   } = {}
 ): AwardSession {
   const minutes = options.minutes ?? 120;
-  const players = userIds.map((userId, index) => ({
+  const accountPlayers = userIds.map((userId, index) => ({
     id: `${id}-p${index}`,
     userId,
     createdByUserId: options.hostLinked ? hostId : userId,
     matchesPlayed: 2,
+    name: null,
+    profileId: null,
   }));
+  const guestPlayers = (options.guests ?? []).map((name, index) => ({
+    id: `${id}-g${index}`,
+    userId: null,
+    createdByUserId: null,
+    matchesPlayed: 2,
+    name,
+    profileId: null,
+  }));
+  const players = [...accountPlayers, ...guestPlayers];
   const playerIds = players.map((p) => p.id);
-  const matches = [0, 1, 2].map((i) =>
+  const matches = Array.from({ length: options.matchCount ?? 3 }, (_, i) =>
     match(
       new Date(start.getTime() + i * 20 * MINUTE_MS),
       options.matchMinutes ?? 15,

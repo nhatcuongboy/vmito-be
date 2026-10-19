@@ -275,6 +275,60 @@ export class UsersService {
     };
   }
 
+  /**
+   * Player directory search open to any signed-in user. Returns only what
+   * the public profile already shows — never email or phone, unlike
+   * `findAll`, which pickers rely on. Deleted accounts and anyone on either
+   * side of a block are hidden.
+   */
+  async searchPublic(
+    viewerId: string,
+    query: { search: string; page: number; limit: number },
+  ) {
+    const blocks = await this.prisma.userBlock.findMany({
+      where: { OR: [{ blockerId: viewerId }, { blockedId: viewerId }] },
+      select: { blockerId: true, blockedId: true },
+    });
+    const hiddenIds = new Set<string>([viewerId]);
+    for (const block of blocks) {
+      hiddenIds.add(block.blockerId);
+      hiddenIds.add(block.blockedId);
+    }
+
+    const normalized = removeVietnameseTones(query.search).toLowerCase();
+    const where = {
+      id: { notIn: [...hiddenIds] },
+      NOT: { email: { startsWith: 'deleted_' } },
+      OR: [
+        { name: { contains: query.search, mode: 'insensitive' as const } },
+        {
+          searchTerms: { contains: normalized, mode: 'insensitive' as const },
+        },
+      ],
+    };
+    const skip = (query.page - 1) * query.limit;
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        select: { id: true, name: true, image: true, level: true },
+        orderBy: { name: 'asc' },
+        skip,
+        take: query.limit,
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return {
+      data: users,
+      pagination: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: Math.ceil(total / query.limit),
+      },
+    };
+  }
+
   async getPublicProfile(id: string) {
     const user = await this.prisma.user.findUnique({
       where: { id },

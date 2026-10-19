@@ -14,6 +14,9 @@ export interface AwardPlayer {
   userId: string | null;
   createdByUserId: string | null;
   matchesPlayed: number;
+  /** Guest slots (no account) are identified by roster profile or name. */
+  name: string | null;
+  profileId: string | null;
 }
 
 /** A FINISHED, non-crawled session that ended inside the month. */
@@ -30,11 +33,7 @@ export interface AwardSession {
 export interface AwardUser {
   id: string;
   createdAt: Date;
-  /** Email verified or signed in through an OAuth provider. */
-  trusted: boolean;
   isAdmin: boolean;
-  /** Hosts this account registered itself to play with (lifetime). */
-  hostsPlayed: Set<string>;
 }
 
 export interface AwardRating {
@@ -86,7 +85,12 @@ export interface HostMetrics {
   qualifiedSessions: number;
   /** Capped, internal-weighted count of qualified sessions. */
   activity: number;
+  /** Distinct account players plus distinct named guests. */
   distinctPlayers: number;
+  accountPlayers: number;
+  guestPlayers: number;
+  /** Weighted distinct players, the input of the Reach score. */
+  reach: number;
   returningPlayers: number;
   retention: number;
   growth: number;
