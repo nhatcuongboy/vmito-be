@@ -250,7 +250,13 @@ export class PointsService {
           endTime: true,
           hostId: true,
           isCrawled: true,
-          players: { select: { userId: true, matchesPlayed: true } },
+          players: {
+            select: {
+              userId: true,
+              createdByUserId: true,
+              matchesPlayed: true,
+            },
+          },
         },
       });
       if (!session || session.status !== 'FINISHED') return;
@@ -538,11 +544,34 @@ function registrationUserIds(registration: RegistrationWithUsers): string[] {
   return players.map((p) => p.userId).filter((id): id is string => Boolean(id));
 }
 
+type SessionPlayerForPoints = {
+  userId: string | null;
+  createdByUserId: string | null;
+  matchesPlayed: number;
+};
+
 type SessionForPoints = {
   hostId: string | null;
   isCrawled: boolean;
-  players: { userId: string | null; matchesPlayed: number }[];
+  players: SessionPlayerForPoints[];
 };
+
+/**
+ * Whether a player slot proves a real account played for the host: the account
+ * registered itself (`createdByUserId === userId`) and is not the host. Hosts
+ * can attach any account's userId to slots they create, so those never count.
+ * Same rule as `verifiedPlayerUserIds` in the host-awards module.
+ */
+export function countsTowardHostBonus(
+  player: SessionPlayerForPoints,
+  hostId: string | null
+): boolean {
+  return (
+    Boolean(player.userId) &&
+    player.createdByUserId === player.userId &&
+    player.userId !== hostId
+  );
+}
 
 /**
  * Participation entries for every linked player who played, plus the hosting
@@ -554,9 +583,14 @@ export function sessionCompletionEntries(
   occurredAt: Date
 ): PointEntry[] {
   const activeUserIds = new Set<string>();
+  // Only self-registered accounts count toward the hosting bonus.
+  const verifiedUserIds = new Set<string>();
   for (const player of session.players) {
     if (!player.userId || player.matchesPlayed < 1) continue;
     activeUserIds.add(player.userId);
+    if (countsTowardHostBonus(player, session.hostId)) {
+      verifiedUserIds.add(player.userId);
+    }
   }
 
   const entries: PointEntry[] = [...activeUserIds].map((userId) => ({
@@ -572,7 +606,7 @@ export function sessionCompletionEntries(
   const hostQualifies =
     !session.isCrawled &&
     Boolean(session.hostId) &&
-    activeUserIds.size >= HOST_MIN_ACTIVE_PLAYERS;
+    verifiedUserIds.size >= HOST_MIN_ACTIVE_PLAYERS;
 
   if (hostQualifies && session.hostId) {
     entries.push({

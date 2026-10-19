@@ -18,7 +18,9 @@ export const POINT_VALUES: Record<PointReason, number> = {
 
 /**
  * A host only earns points once this many distinct Vmito accounts actually
- * played in the session — guests are excluded so points cannot be farmed.
+ * played in the session. Only accounts that registered themselves count
+ * (not guests, not the host, not accounts the host attached to a slot) so
+ * points cannot be farmed.
  */
 export const HOST_MIN_ACTIVE_PLAYERS = 4;
 

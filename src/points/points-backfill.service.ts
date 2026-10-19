@@ -97,7 +97,9 @@ export class PointsBackfillService {
         updatedAt: true,
         hostId: true,
         isCrawled: true,
-        players: { select: { userId: true, matchesPlayed: true } },
+        players: {
+          select: { userId: true, createdByUserId: true, matchesPlayed: true },
+        },
       },
     });
 
