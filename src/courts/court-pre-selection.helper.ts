@@ -19,6 +19,18 @@ export interface PlayerBooking {
 export function parsePreSelectedPlayerIds(
   value: Prisma.JsonValue | undefined
 ): string[] {
+  return parsePreSelectedEntries(value).map((entry) => entry.playerId);
+}
+
+export interface PreSelectedEntry {
+  playerId: string;
+  position: number;
+}
+
+/** Same tolerance as [parsePreSelectedPlayerIds], keeping the seat too. */
+export function parsePreSelectedEntries(
+  value: Prisma.JsonValue | undefined
+): PreSelectedEntry[] {
   let parsed: unknown = value;
   if (typeof value === 'string') {
     try {
@@ -29,8 +41,13 @@ export function parsePreSelectedPlayerIds(
   }
   if (!Array.isArray(parsed)) return [];
   return parsed.flatMap((entry) => {
-    const playerId = (entry as { playerId?: unknown } | null)?.playerId;
-    return typeof playerId === 'string' ? [playerId] : [];
+    const { playerId, position } = (entry ?? {}) as {
+      playerId?: unknown;
+      position?: unknown;
+    };
+    return typeof playerId === 'string' && typeof position === 'number'
+      ? [{ playerId, position }]
+      : [];
   });
 }
 
@@ -105,4 +122,95 @@ export async function assertNotBookedElsewhere(
   throw new BadRequestException(
     `Players ${numbers} are already booked for the next match on ${courtNames}`
   );
+}
+
+export interface PromotedPreSelection {
+  courtId: string;
+  playerIds: string[];
+}
+
+/**
+ * Moves every parked next-match lineup whose players are all free onto its
+ * court, and returns the courts that were filled.
+ *
+ * A lineup may name players who are still playing (or waiting to start) on
+ * another court. It is parked on its EMPTY court rather than dropped, and this
+ * runs whenever players are released so it can finish the job. Promotion only
+ * happens when every player is `WAITING` with no court, which is what keeps a
+ * player on one court at a time.
+ *
+ * A lineup that can never be satisfied (a player left the session or
+ * finished) is dropped instead of parking the court forever.
+ */
+export async function promotePendingPreSelections(
+  tx: Prisma.TransactionClient,
+  sessionId: string
+): Promise<PromotedPreSelection[]> {
+  const courts = await tx.court.findMany({
+    where: { sessionId, status: 'EMPTY', currentMatchId: null },
+    select: { id: true, preSelectedPlayers: true },
+    orderBy: { courtNumber: 'asc' },
+  });
+
+  const promoted: PromotedPreSelection[] = [];
+  for (const court of courts) {
+    if (court.preSelectedPlayers === null) continue;
+    const entries = parsePreSelectedEntries(court.preSelectedPlayers);
+    if (entries.length === 0) {
+      // Unreadable or empty: nothing to wait for, and left in place it would
+      // read as a booking on the court.
+      await tx.court.update({
+        where: { id: court.id },
+        data: { preSelectedPlayers: Prisma.DbNull, updatedAt: new Date() },
+      });
+      continue;
+    }
+
+    const playerIds = entries.map((entry) => entry.playerId);
+    const players = await tx.player.findMany({
+      where: { id: { in: playerIds }, sessionId },
+      select: { id: true, status: true, currentCourtId: true },
+    });
+
+    const isGone =
+      players.length !== playerIds.length ||
+      players.some(
+        (player) => player.status === 'INACTIVE' || player.status === 'FINISHED'
+      );
+    if (isGone) {
+      await tx.court.update({
+        where: { id: court.id },
+        data: { preSelectedPlayers: Prisma.DbNull, updatedAt: new Date() },
+      });
+      continue;
+    }
+
+    const isEveryoneFree = players.every(
+      (player) => player.status === 'WAITING' && player.currentCourtId === null
+    );
+    if (!isEveryoneFree) continue;
+
+    for (const { playerId, position } of [...entries].sort(
+      (a, b) => a.position - b.position
+    )) {
+      await tx.player.update({
+        where: { id: playerId },
+        data: {
+          status: 'READY',
+          currentCourtId: court.id,
+          courtPosition: position,
+        },
+      });
+    }
+    await tx.court.update({
+      where: { id: court.id },
+      data: {
+        status: 'READY',
+        preSelectedPlayers: Prisma.DbNull,
+        updatedAt: new Date(),
+      },
+    });
+    promoted.push({ courtId: court.id, playerIds });
+  }
+  return promoted;
 }
