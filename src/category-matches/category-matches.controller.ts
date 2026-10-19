@@ -22,6 +22,7 @@ import { BulkScheduleDto } from './dto/bulk-schedule.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
+import { MyNextMatchesService } from './my-next-matches.service';
 
 interface CurrentUserPayload {
   userId: string;
@@ -33,7 +34,10 @@ interface CurrentUserPayload {
 @Controller('category-matches')
 @UseGuards(JwtAuthGuard)
 export class CategoryMatchesController {
-  constructor(private readonly categoriesService: CategoriesService) {}
+  constructor(
+    private readonly categoriesService: CategoriesService,
+    private readonly myNextMatches: MyNextMatchesService
+  ) {}
 
   @Put('bulk-schedule')
   bulkSchedule(
@@ -44,6 +48,18 @@ export class CategoryMatchesController {
       dto.updates,
       user.userId,
       user.role
+    );
+  }
+
+  @Get('me/next')
+  getMyNextMatches(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('limit') limit?: string
+  ) {
+    const parsed = limit ? parseInt(limit, 10) : undefined;
+    return this.myNextMatches.listMine(
+      user.userId,
+      Number.isNaN(parsed) ? undefined : parsed
     );
   }
 

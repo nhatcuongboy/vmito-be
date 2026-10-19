@@ -4,11 +4,12 @@ import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { HostReportController } from './reports/host-report.controller';
 import { HostReportService } from './reports/host-report.service';
+import { MyUnpaidPaymentsService } from './my-unpaid-payments.service';
 
 @Module({
   imports: [PrismaModule],
   controllers: [PaymentsController, HostReportController],
-  providers: [PaymentsService, HostReportService],
+  providers: [PaymentsService, HostReportService, MyUnpaidPaymentsService],
   exports: [PaymentsService],
 })
 export class PaymentsModule {}

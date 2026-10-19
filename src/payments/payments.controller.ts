@@ -18,6 +18,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PaymentsService } from './payments.service';
 import { resolveActingUserId } from './acting-user.util';
+import { MyUnpaidPaymentsService } from './my-unpaid-payments.service';
 import {
   SubmitPaymentDto,
   ApprovePaymentDto,
@@ -31,7 +32,10 @@ import { PaymentStatus } from '@prisma/client';
 @Controller()
 @UseGuards(JwtAuthGuard)
 export class PaymentsController {
-  constructor(private readonly service: PaymentsService) {}
+  constructor(
+    private readonly service: PaymentsService,
+    private readonly unpaid: MyUnpaidPaymentsService
+  ) {}
 
   // Session payments (host view)
   @Get('sessions/:sessionId/payments')
@@ -113,6 +117,15 @@ export class PaymentsController {
     @CurrentUser() user: { userId: string; role: string }
   ) {
     return this.service.bulkApprove(dto, user.userId, user.role);
+  }
+
+  @Get('payments/me/unpaid')
+  @ApiOperation({
+    summary: 'Session fees the current user has not paid yet (PENDING/REJECTED)',
+  })
+  @ApiResponse({ status: 200, description: 'Unpaid fees with total amount' })
+  async getMyUnpaidPayments(@CurrentUser() user: { userId: string }) {
+    return this.unpaid.listMine(user.userId);
   }
 
   // Transaction summary for player
