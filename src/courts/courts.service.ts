@@ -27,6 +27,9 @@ import {
 import {
   assertNotBookedElsewhere,
   findPlayersBookedElsewhere,
+  parsePreSelectedPlayerIds,
+  type PromotedPreSelection,
+  promotePendingPreSelections,
 } from './court-pre-selection.helper';
 
 /** What a court call needs to know about the court being called to. */
@@ -298,6 +301,8 @@ export class CourtsService {
           where: { id },
           data: {
             status: 'READY',
+            // A lineup parked on this court is replaced by the host's pick.
+            preSelectedPlayers: Prisma.DbNull,
           },
           include: {
             currentPlayers: true,
@@ -334,6 +339,45 @@ export class CourtsService {
    * are never called: the court-call modal, spoken announcement and push are
    * all driven by this.
    */
+  /**
+   * Gives players moved onto a court from its pre-selected list the same call
+   * as a manual selection; without it only the first match of a session ever
+   * calls anyone.
+   * Best-effort: the move already happened, so a failed announcement must not
+   * turn into a failed request.
+   */
+  private async announcePromotedPreSelections(
+    sessionId: string,
+    hostId: string,
+    sessionName: string,
+    promoted: PromotedPreSelection[]
+  ) {
+    for (const { courtId, playerIds } of promoted) {
+      try {
+        const promotedCourt = await this.prisma.court.findUniqueOrThrow({
+          where: { id: courtId },
+          select: { courtName: true, courtNumber: true },
+        });
+        await this.announcePlayersSelected(
+          {
+            id: courtId,
+            sessionId,
+            hostId,
+            sessionName,
+            courtName: promotedCourt.courtName,
+            courtNumber: promotedCourt.courtNumber,
+          },
+          playerIds
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to announce pre-selected players of court ${courtId}`,
+          error
+        );
+      }
+    }
+  }
+
   private async announcePlayersSelected(
     court: CallableCourt,
     playerIds: string[]
@@ -472,7 +516,7 @@ export class CourtsService {
     // Extract player IDs before transaction for event emission
     const playersToDeselect = court.currentPlayers.map((player) => player.id);
 
-    const result = await this.prisma.$transaction(
+    const { updatedCourt: result, promoted } = await this.prisma.$transaction(
       async (tx) => {
         const playerUpdatePromises = playersToDeselect.map(async (playerId) => {
           return tx.player.update({
@@ -498,7 +542,11 @@ export class CourtsService {
           },
         });
 
-        return updatedCourt;
+        // The freed players may be the last ones a parked lineup was waiting
+        // for.
+        const promoted = await promotePendingPreSelections(tx, court.sessionId);
+
+        return { updatedCourt, promoted };
       },
       {
         maxWait: 10000,
@@ -530,6 +578,13 @@ export class CourtsService {
     } catch (error) {
       this.logger.error(`Failed to cancel court call for court ${id}`, error);
     }
+
+    await this.announcePromotedPreSelections(
+      court.sessionId,
+      court.session.hostId,
+      court.session.name,
+      promoted
+    );
 
     return result;
   }
@@ -693,10 +748,7 @@ export class CourtsService {
       }
     }
 
-    // Players moved onto the court from its pre-selected list, if any.
-    let promotedPlayerIds: string[] = [];
-
-    const result = await this.prisma.$transaction(
+    const { promoted, ...result } = await this.prisma.$transaction(
       async (tx) => {
         const match = await tx.match.update({
           where: { id: court.currentMatchId! },
@@ -733,91 +785,17 @@ export class CourtsService {
 
         await Promise.all(playerUpdatePromises);
 
-        // Check for pre-selected players
-        let nextCourtStatus: 'EMPTY' | 'READY' = 'EMPTY';
-
-        if (court.preSelectedPlayers) {
-          try {
-            interface PreSelectedPlayer {
-              playerId: string;
-              position: number;
-            }
-            const preSelectedData: PreSelectedPlayer[] =
-              typeof court.preSelectedPlayers === 'string'
-                ? (JSON.parse(court.preSelectedPlayers) as PreSelectedPlayer[])
-                : (court.preSelectedPlayers as unknown as PreSelectedPlayer[]);
-
-            if (
-              preSelectedData &&
-              Array.isArray(preSelectedData) &&
-              preSelectedData.length > 0
-            ) {
-              const preSelectedPlayerIds = preSelectedData.map(
-                (p) => p.playerId
-              );
-
-              const availablePlayers = await tx.player.findMany({
-                where: {
-                  id: { in: preSelectedPlayerIds },
-                  status: 'WAITING',
-                  currentCourtId: null,
-                },
-              });
-
-              if (availablePlayers.length === preSelectedPlayerIds.length) {
-                nextCourtStatus = 'READY';
-                promotedPlayerIds = preSelectedPlayerIds;
-
-                const sortedPreSelectedData = [...preSelectedData].sort(
-                  (a, b) => a.position - b.position
-                );
-
-                for (let i = 0; i < sortedPreSelectedData.length; i++) {
-                  const { playerId, position } = sortedPreSelectedData[i];
-                  await tx.player.update({
-                    where: { id: playerId },
-                    data: {
-                      status: 'READY',
-                      currentCourtId: id,
-                      courtPosition: position,
-                    },
-                  });
-                }
-
-                await tx.court.update({
-                  where: { id },
-                  data: {
-                    preSelectedPlayers: Prisma.DbNull,
-                    updatedAt: new Date(),
-                  },
-                });
-              } else {
-                await tx.court.update({
-                  where: { id },
-                  data: {
-                    preSelectedPlayers: Prisma.DbNull,
-                    updatedAt: new Date(),
-                  },
-                });
-              }
-            }
-          } catch {
-            await tx.court.update({
-              where: { id },
-              data: {
-                preSelectedPlayers: Prisma.DbNull,
-                updatedAt: new Date(),
-              },
-            });
-          }
-        }
-
-        const updatedCourt = await tx.court.update({
+        // Free the court first: the parked lineups below (this court's own
+        // and other courts') are only promoted once everyone in them is free.
+        await tx.court.update({
           where: { id },
-          data: {
-            status: nextCourtStatus,
-            currentMatchId: null,
-          },
+          data: { status: 'EMPTY', currentMatchId: null },
+        });
+
+        const promoted = await promotePendingPreSelections(tx, court.sessionId);
+
+        const updatedCourt = await tx.court.findUniqueOrThrow({
+          where: { id },
           include: {
             currentPlayers: true,
           },
@@ -826,6 +804,7 @@ export class CourtsService {
         return {
           court: updatedCourt,
           match,
+          promoted,
           players: court.currentPlayers,
         };
       },
@@ -842,31 +821,14 @@ export class CourtsService {
       { courtId: id, matchId: result.match.id }
     );
 
-    // The court was refilled from the pre-selected list, so these players are
-    // up next. They get the same call as a manual selection; without it only
-    // the first match of a session ever calls anyone.
-    // Best-effort like the points below: the match is already over, so a
-    // failed announcement must not turn into a failed request.
-    if (promotedPlayerIds.length > 0) {
-      try {
-        await this.announcePlayersSelected(
-          {
-            id,
-            sessionId: court.sessionId,
-            hostId: court.session.hostId,
-            sessionName: court.session.name,
-            courtName: court.courtName,
-            courtNumber: court.courtNumber,
-          },
-          promotedPlayerIds
-        );
-      } catch (error) {
-        this.logger.error(
-          `Failed to announce pre-selected players of court ${id}`,
-          error
-        );
-      }
-    }
+    // Courts refilled from a parked next-match list (this one, or another
+    // whose last busy player just finished): those players are up next.
+    await this.announcePromotedPreSelections(
+      court.sessionId,
+      court.session.hostId,
+      court.session.name,
+      promoted
+    );
 
     // Ranking points are best-effort and never block ending a match.
     void this.pointsService.awardSessionMatch(result.match.id);
@@ -964,7 +926,15 @@ export class CourtsService {
       throw new NotFoundException('Court not found');
     }
 
-    if (court.status !== 'IN_USE' || !court.currentMatch) {
+    // An EMPTY court holding a lineup that is still waiting on busy players
+    // can have that lineup replaced too; otherwise the host could only cancel
+    // it and rebuild it from scratch.
+    const isInUse = court.status === 'IN_USE' && !!court.currentMatch;
+    const isParked =
+      court.status === 'EMPTY' &&
+      !court.currentMatchId &&
+      parsePreSelectedPlayerIds(court.preSelectedPlayers).length > 0;
+    if (!isInUse && !isParked) {
       throw new BadRequestException(
         'Can only pre-select for courts that are currently in use'
       );
@@ -975,13 +945,17 @@ export class CourtsService {
       where: {
         id: { in: playerIds },
         sessionId: court.sessionId,
-        status: 'WAITING',
+        registrationStatus: 'APPROVED',
+        // Players still on a court may be booked for the next match; they only
+        // move once everyone in the lineup is free (see
+        // promotePendingPreSelections).
+        status: { in: ['WAITING', 'PLAYING', 'READY'] },
       },
     });
 
     if (players.length !== expectedCount) {
       throw new BadRequestException(
-        'All selected players must exist and be in WAITING status'
+        'All selected players must exist and be waiting or on a court'
       );
     }
 
@@ -1030,7 +1004,23 @@ export class CourtsService {
       },
     });
 
-    return updatedCourt;
+    if (isInUse) return updatedCourt;
+
+    // The replacement may already be fully free, in which case the court fills
+    // right away instead of waiting for the next match to end.
+    const promoted = await this.prisma.$transaction((tx) =>
+      promotePendingPreSelections(tx, court.sessionId)
+    );
+    await this.announcePromotedPreSelections(
+      court.sessionId,
+      court.session.hostId,
+      court.session.name,
+      promoted
+    );
+    return this.prisma.court.findUniqueOrThrow({
+      where: { id },
+      include: { currentPlayers: true, currentMatch: true },
+    });
   }
 
   async cancelPreSelect(id: string) {

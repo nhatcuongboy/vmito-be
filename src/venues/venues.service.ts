@@ -349,8 +349,9 @@ export class VenuesService {
     // Fetch the matching set before pagination so distance can be calculated
     // and ranked globally, rather than only within an already name-paginated
     // page of venues.
+    const isPopularSort = sortBy === 'popular';
     const requiresInMemoryPagination =
-      isRelevanceSort || isDistanceSort || isRecommended;
+      isRelevanceSort || isDistanceSort || isRecommended || isPopularSort;
 
     const [venues, total] = await Promise.all([
       this.prisma.venue.findMany({
@@ -399,6 +400,19 @@ export class VenuesService {
         if (distanceDifference !== 0) return distanceDifference;
         return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
       });
+    }
+
+    // "Phổ biến nhất": same signals as the recommendation popularity term
+    // (views + recent sessions), but not personalised, so anonymous viewers
+    // get it too.
+    if (isPopularSort) {
+      const popularity = await this.popularityScores(result.map((v) => v.id));
+      result.sort(
+        (a, b) =>
+          (popularity.get(b.id) ?? 0) - (popularity.get(a.id) ?? 0) ||
+          a.name.localeCompare(b.name) ||
+          a.id.localeCompare(b.id)
+      );
     }
 
     const finalTotal = radius !== undefined ? result.length : total;
@@ -462,8 +476,8 @@ export class VenuesService {
       });
       // Apply pagination in JS
       result = result.slice(skip, skip + limit);
-    } else if (isDistanceSort) {
-      // Distance is calculated in memory, so paginate only after the global
+    } else if (isDistanceSort || isPopularSort) {
+      // Distance and popularity are calculated in memory, so paginate only after the global
       // distance ordering above has been established.
       result = result.slice(skip, skip + limit);
     } else if (recommendationContext) {
@@ -1533,6 +1547,46 @@ export class VenuesService {
   /** Strips administrative prefixes for search matching without changing stored values. */
   private normalizeAdminUnit(value: string): string {
     return value.replace(/^(Quận|Huyện|Thị xã|Thành phố)\s+/i, '').trim();
+  }
+
+  /** 0..1 popularity per venue id: log-scaled views + sessions in 30 days. */
+  private async popularityScores(ids: string[]): Promise<Map<string, number>> {
+    if (ids.length === 0) return new Map();
+    const monthAgo = new Date(Date.now() - 30 * DAY_MS);
+    const [views, recent] = await Promise.all([
+      this.prisma.viewCount.findMany({
+        where: { targetType: ViewTargetType.VENUE, targetId: { in: ids } },
+        select: { targetId: true, count: true },
+      }),
+      this.prisma.session.groupBy({
+        by: ['venueId'],
+        where: {
+          venueId: { in: ids },
+          OR: [
+            { startTime: { gte: monthAgo } },
+            { startTime: null, scheduledStartTime: { gte: monthAgo } },
+          ],
+        },
+        _count: { _all: true },
+      }),
+    ]);
+    const viewCounts = new Map(views.map((v) => [v.targetId, v.count]));
+    const recentCounts = new Map<string, number>();
+    for (const row of recent) {
+      if (row.venueId) recentCounts.set(row.venueId, row._count._all);
+    }
+    const maxViews = Math.max(0, ...viewCounts.values());
+    const maxRecent = Math.max(0, ...recentCounts.values());
+    return new Map(
+      ids.map((id) => {
+        const v =
+          maxViews > 0
+            ? Math.log1p(viewCounts.get(id) ?? 0) / Math.log1p(maxViews)
+            : 0;
+        const r = maxRecent > 0 ? (recentCounts.get(id) ?? 0) / maxRecent : 0;
+        return [id, 0.5 * v + 0.5 * r];
+      })
+    );
   }
 
   /** Scores [venues]; see `recommendations/scorers/venue.scorer`. */

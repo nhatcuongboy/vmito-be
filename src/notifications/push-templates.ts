@@ -805,6 +805,18 @@ export const PUSH_TEMPLATES: Record<string, PushTemplate> = {
       zh: '有一笔租用已逾期未付剩余款项。',
     },
   },
+  host_award: {
+    title: {
+      vi: 'Chúc mừng bạn được vinh danh!',
+      en: 'Congratulations, you made the honour roll!',
+      zh: '恭喜您获得表彰！',
+    },
+    message: {
+      vi: 'Bạn được vinh danh trong chương trình Host Tiêu Biểu tháng {month}/{year}. Xem huy hiệu của bạn!',
+      en: 'You were named a Featured Host for {month}/{year}. See your badge!',
+      zh: '您获评 {year} 年 {month} 月优秀组织者。快去查看您的徽章！',
+    },
+  },
   // The stored title is the sender's name, so it is passed through.
   chat_message: {
     title: { vi: '{senderName}', en: '{senderName}', zh: '{senderName}' },

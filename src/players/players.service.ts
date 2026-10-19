@@ -10,7 +10,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreatePlayerDto } from './dto/create-player.dto';
 import { UpdatePlayerDto } from './dto/update-player.dto';
 import { ConfirmPlayerDto } from './dto/confirm-player.dto';
-import { generatePlayerJoinCode } from './utils/player-helpers';
+import {
+  generatePlayerJoinCode,
+  initialPlayerStatus,
+} from './utils/player-helpers';
 import {
   Gender,
   MemberStatus,
@@ -359,6 +362,8 @@ export class PlayersService {
         hostId: true,
         clubId: true,
         startTime: true,
+        status: true,
+        autoCheckIn: true,
         requiredLevels: true,
         players: {
           select: { playerNumber: true },
@@ -467,8 +472,10 @@ export class PlayersService {
         isClubMember: clubMembership.isClubMember,
         clubId: clubMembership.clubId,
         clubFeeApplied: clubMembership.clubFeeApplied,
-        status: 'WAITING',
-        waitingSince: new Date(), // Set waitingSince for realtime wait time calculation
+        status: initialPlayerStatus(session),
+        // waitingSince only runs for a WAITING player (realtime wait time)
+        waitingSince:
+          initialPlayerStatus(session) === 'WAITING' ? new Date() : null,
       },
     });
 
@@ -649,8 +656,9 @@ export class PlayersService {
             isClubMember: clubMembership.isClubMember,
             clubId: clubMembership.clubId,
             clubFeeApplied: clubMembership.clubFeeApplied,
-            status: 'WAITING',
-            waitingSince: new Date(),
+            status: initialPlayerStatus(session),
+            waitingSince:
+              initialPlayerStatus(session) === 'WAITING' ? new Date() : null,
           },
         });
       })
@@ -987,9 +995,12 @@ export class PlayersService {
             isClubMember: clubMembership.isClubMember,
             clubId: clubMembership.clubId,
             clubFeeApplied: clubMembership.clubFeeApplied,
-            status: 'WAITING',
+            status: initialPlayerStatus(fullSession),
             registrationStatus: registrationStatus,
-            waitingSince: new Date(),
+            waitingSince:
+              initialPlayerStatus(fullSession) === 'WAITING'
+                ? new Date()
+                : null,
           },
         });
       })
@@ -1663,6 +1674,12 @@ export class PlayersService {
         status: newStatus,
         // Set waitingSince when returning to WAITING, clear when going inactive
         waitingSince: newStatus === 'WAITING' ? new Date() : null,
+        // Resuming a player nobody has checked in yet is their first
+        // check-in. This also keeps app versions without a check-in button
+        // consistent. Pausing never clears it: a break is not a no-show.
+        ...(newStatus === 'WAITING' && !existingPlayer.checkedInAt
+          ? { checkedInAt: new Date() }
+          : {}),
         ...(waitTimeMinutes > 0
           ? {
               currentWaitTime: 0,
@@ -1673,6 +1690,42 @@ export class PlayersService {
     });
 
     // Emit realtime event
+    this.sessionsGateway.notifyEvent(
+      sessionId,
+      SessionEventType.PLAYER_UPDATED,
+      { playerId }
+    );
+
+    return updatedPlayer;
+  }
+
+  /**
+   * Host marks a player as present. Idempotent: a second call changes
+   * nothing, so a double tap cannot restart the wait clock.
+   */
+  async checkIn(sessionId: string, playerId: string) {
+    const existingPlayer = await this.prisma.player.findFirst({
+      where: { id: playerId, sessionId },
+    });
+
+    if (!existingPlayer) {
+      throw new NotFoundException('Player not found in this session');
+    }
+
+    if (existingPlayer.checkedInAt) {
+      return existingPlayer;
+    }
+
+    const updatedPlayer = await this.prisma.player.update({
+      where: { id: playerId },
+      data: {
+        checkedInAt: new Date(),
+        ...(existingPlayer.status === 'INACTIVE'
+          ? { status: 'WAITING', waitingSince: new Date(), currentWaitTime: 0 }
+          : {}),
+      },
+    });
+
     this.sessionsGateway.notifyEvent(
       sessionId,
       SessionEventType.PLAYER_UPDATED,
@@ -2083,6 +2136,7 @@ export class PlayersService {
         id: true,
         name: true,
         status: true,
+        autoCheckIn: true,
         numberOfCourts: true,
         maxPlayersPerCourt: true,
         allowNewPlayers: true,
@@ -2137,6 +2191,7 @@ export class PlayersService {
         preFilledByHost: false,
         confirmedByPlayer: true,
         requireConfirmInfo: false,
+        status: initialPlayerStatus(session),
         isJoined: true,
         isGuest: true,
         joinedAt: new Date(),
@@ -2658,6 +2713,8 @@ export class PlayersService {
       },
       select: {
         id: true,
+        // Lets the app tell the caller's own slot from the guests they added.
+        userId: true,
         name: true,
         phone: true,
         level: true,

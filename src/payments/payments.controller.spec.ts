@@ -31,7 +31,7 @@ describe('PaymentsController transaction endpoints', () => {
     getPlayerTransactionsWithHost: jest.fn(),
     getHostTransactionsWithUser: jest.fn(),
   };
-  const controller = new PaymentsController(service as never);
+  const controller = new PaymentsController(service as never, {} as never);
   const admin = { userId: 'admin-1', role: 'ADMIN' };
   const host = { userId: 'host-1', role: 'HOST' };
 

@@ -170,7 +170,8 @@ export class PostsController {
       id,
       req.user.userId,
       page ? parseInt(page) : 1,
-      limit ? parseInt(limit) : 20
+      limit ? parseInt(limit) : 20,
+      req.user.role
     );
   }
 

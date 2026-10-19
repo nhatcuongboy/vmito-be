@@ -28,6 +28,7 @@ import { UploadsModule } from './uploads/uploads.module';
 import { RatingsModule } from './ratings/ratings.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PointsModule } from './points/points.module';
+import { HostAwardsModule } from './host-awards/host-awards.module';
 import { ClubsModule } from './clubs/clubs.module';
 import { UserImagesModule } from './user-images/user-images.module';
 import { PostsModule } from './posts/posts.module';
@@ -91,6 +92,7 @@ import configuration from './config';
     RatingsModule,
     NotificationsModule,
     PointsModule,
+    HostAwardsModule,
     ClubsModule,
     UserImagesModule,
     PostsModule,

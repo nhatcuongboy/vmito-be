@@ -108,6 +108,8 @@ function extractParams(
     'reason',
     'senderName',
     'className',
+    'month',
+    'year',
   ]) {
     read(key, key);
   }

@@ -1503,6 +1503,7 @@ export class SessionsService {
       requirePlayerInfo: sourceSession.requirePlayerInfo,
       allowGuestJoin: sourceSession.allowGuestJoin,
       allowNewPlayers: sourceSession.allowNewPlayers,
+      autoCheckIn: sourceSession.autoCheckIn,
       allowZaloContact: sourceSession.allowZaloContact,
       isInternal: cloneDto.isInternal ?? sourceSession.isInternal,
       accessCode: cloneDto.accessCode,
@@ -1563,6 +1564,7 @@ export class SessionsService {
       allowGuestJoin = true,
       allowNewPlayers = true,
       registrationOpen = true,
+      autoCheckIn = true,
       allowZaloContact = false,
       requiredLevels = [],
       startTime,
@@ -1659,6 +1661,7 @@ export class SessionsService {
         allowGuestJoin,
         allowNewPlayers,
         registrationOpen,
+        autoCheckIn,
         allowZaloContact,
         isInternal,
         accessCode,
@@ -2182,6 +2185,11 @@ export class SessionsService {
         allowGuestJoin: updateSessionDto.allowGuestJoin,
         allowNewPlayers: updateSessionDto.allowNewPlayers,
         registrationOpen: updateSessionDto.registrationOpen,
+        // Frozen once started so players already on court never contradict the rule
+        autoCheckIn:
+          existingSession.status === 'PREPARING'
+            ? updateSessionDto.autoCheckIn
+            : undefined,
         allowZaloContact: updateSessionDto.allowZaloContact,
         isInternal: updatedIsInternal,
         accessCode: updatedAccessCode,
@@ -2434,10 +2442,27 @@ export class SessionsService {
       throw new BadRequestException('Invalid session status');
     }
 
+    const startingIds =
+      status === SessionStatus.IN_PROGRESS
+        ? (
+            await this.prisma.session.findMany({
+              where: {
+                id: { in: sessionIds },
+                status: { not: SessionStatus.IN_PROGRESS },
+              },
+              select: { id: true },
+            })
+          ).map((session) => session.id)
+        : [];
+
     const { count } = await this.prisma.session.updateMany({
       where: { id: { in: sessionIds } },
       data: { status: status as SessionStatus },
     });
+
+    for (const id of startingIds) {
+      await this.restartWaitClocks(id);
+    }
 
     sessionIds.forEach((id) => this.sessionsGateway.notifySessionUpdate(id));
 
@@ -2764,8 +2789,22 @@ export class SessionsService {
    * is PREPARING. Waiting only counts once play starts, so every running
    * clock restarts at the start instant. Nothing is banked into
    * totalWaitTime: time before the start was never real waiting.
+   *
+   * With autoCheckIn off, players the host has not checked in yet are paused
+   * (INACTIVE) at the start instant instead; they get a clock again when the
+   * host checks them in.
    */
   private async restartWaitClocks(sessionId: string) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { autoCheckIn: true },
+    });
+    if (session && !session.autoCheckIn) {
+      await this.prisma.player.updateMany({
+        where: { sessionId, status: 'WAITING', checkedInAt: null },
+        data: { status: 'INACTIVE', waitingSince: null, currentWaitTime: 0 },
+      });
+    }
     await this.prisma.player.updateMany({
       where: { sessionId, waitingSince: { not: null } },
       data: { waitingSince: new Date(), currentWaitTime: 0 },
@@ -3943,6 +3982,7 @@ export class SessionsService {
       allowGuestJoin = true,
       allowNewPlayers = true,
       registrationOpen = true,
+      autoCheckIn = true,
       allowZaloContact = false,
       requiredLevels = [],
       startTime,
@@ -4033,6 +4073,7 @@ export class SessionsService {
         allowGuestJoin,
         allowNewPlayers,
         registrationOpen,
+        autoCheckIn,
         allowZaloContact,
         isInternal,
         accessCode,
