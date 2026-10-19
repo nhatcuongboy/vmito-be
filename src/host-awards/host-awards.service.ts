@@ -345,6 +345,9 @@ export class HostAwardsService {
         {
           action: 'host_award',
           monthKey,
+          // Push templates fill `{month}`/`{year}` from data.
+          month: String(Number(month)),
+          year,
           category: entry.category,
           rank: entry.rank,
         },

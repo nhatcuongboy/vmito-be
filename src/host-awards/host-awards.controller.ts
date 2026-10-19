@@ -22,6 +22,13 @@ export class HostAwardsController {
     return this.query.getBoard();
   }
 
+  @Public()
+  @Get('periods')
+  @ApiOperation({ summary: 'Running month plus published months to browse' })
+  getPeriods() {
+    return this.query.getPeriods();
+  }
+
   @Get('me/progress')
   @ApiOperation({
     summary: "Current user's progress toward this month's awards",

@@ -15,6 +15,9 @@ import { AwardFlag, HostMetrics } from './host-awards.types';
 
 const HOST_SELECT = { id: true, name: true, image: true } as const;
 
+/** How many past published months the period picker offers. */
+const PUBLISHED_PERIODS_LIMIT = 24;
+
 /** Top-10 finishes needed for the lasting "Host Uy Tín" title. */
 const TRUSTED_HOST_MIN_TOP10 = 3;
 
@@ -90,6 +93,21 @@ export class HostAwardsQueryService {
       ranking: entries.filter((e) => e.category === 'OVERALL').map(toPublic),
       winners: entries.filter((e) => e.category !== 'OVERALL').map(toPublic),
     };
+  }
+
+  /** Months a client can browse: the running one plus published ones. */
+  async getPeriods() {
+    const currentMonthKey = this.awards.resolveMonth().key;
+    if (!(await this.isEnabled())) {
+      return { enabled: false, currentMonthKey, published: [] };
+    }
+    const published = await this.prisma.hostAwardPeriod.findMany({
+      where: { status: 'PUBLISHED' },
+      select: { monthKey: true, publishedAt: true },
+      orderBy: { monthKey: 'desc' },
+      take: PUBLISHED_PERIODS_LIMIT,
+    });
+    return { enabled: true, currentMonthKey, published };
   }
 
   /** Live progress of one host for the running month. */
