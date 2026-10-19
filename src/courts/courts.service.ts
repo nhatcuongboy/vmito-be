@@ -27,6 +27,7 @@ import {
 import {
   assertNotBookedElsewhere,
   findPlayersBookedElsewhere,
+  parsePreSelectedPlayerIds,
   type PromotedPreSelection,
   promotePendingPreSelections,
 } from './court-pre-selection.helper';
@@ -925,7 +926,15 @@ export class CourtsService {
       throw new NotFoundException('Court not found');
     }
 
-    if (court.status !== 'IN_USE' || !court.currentMatch) {
+    // An EMPTY court holding a lineup that is still waiting on busy players
+    // can have that lineup replaced too; otherwise the host could only cancel
+    // it and rebuild it from scratch.
+    const isInUse = court.status === 'IN_USE' && !!court.currentMatch;
+    const isParked =
+      court.status === 'EMPTY' &&
+      !court.currentMatchId &&
+      parsePreSelectedPlayerIds(court.preSelectedPlayers).length > 0;
+    if (!isInUse && !isParked) {
       throw new BadRequestException(
         'Can only pre-select for courts that are currently in use'
       );
@@ -995,7 +1004,23 @@ export class CourtsService {
       },
     });
 
-    return updatedCourt;
+    if (isInUse) return updatedCourt;
+
+    // The replacement may already be fully free, in which case the court fills
+    // right away instead of waiting for the next match to end.
+    const promoted = await this.prisma.$transaction((tx) =>
+      promotePendingPreSelections(tx, court.sessionId)
+    );
+    await this.announcePromotedPreSelections(
+      court.sessionId,
+      court.session.hostId,
+      court.session.name,
+      promoted
+    );
+    return this.prisma.court.findUniqueOrThrow({
+      where: { id },
+      include: { currentPlayers: true, currentMatch: true },
+    });
   }
 
   async cancelPreSelect(id: string) {

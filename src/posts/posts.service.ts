@@ -695,7 +695,13 @@ export class PostsService {
    * appended to the page that holds the last real like, so they read as the
    * oldest entries and `total` matches the displayed like count.
    */
-  async getLikes(postId: string, viewerId: string, page = 1, limit = 20) {
+  async getLikes(
+    postId: string,
+    viewerId: string,
+    page = 1,
+    limit = 20,
+    role?: string
+  ) {
     const post = await this.prisma.post.findUnique({
       where: { id: postId },
       select: { authorId: true },
@@ -703,8 +709,8 @@ export class PostsService {
     if (!post) {
       throw new NotFoundException('Post not found');
     }
-    if (post.authorId !== viewerId) {
-      throw new ForbiddenException('Only the author can view post likes');
+    if (post.authorId !== viewerId && role !== 'ADMIN') {
+      throw new ForbiddenException('Only the author or an admin can view post likes');
     }
 
     const skip = (page - 1) * limit;
