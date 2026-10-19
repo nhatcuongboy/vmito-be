@@ -50,6 +50,12 @@ export class BrowseClubsDto {
   @IsString()
   district?: string;
 
+  // Clubs that play at this venue: its `defaultVenue`, or an active schedule
+  // whose `notes` names it (the only venue link a schedule has).
+  @IsOptional()
+  @IsString()
+  venueId?: string;
+
   @IsOptional()
   @IsNumber()
   @Type(() => Number)

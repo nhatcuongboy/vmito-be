@@ -309,6 +309,7 @@ export class ClubsService {
       location,
       city,
       district,
+      venueId,
       lat,
       lng,
       sortBy = 'sessionCount',
@@ -372,6 +373,29 @@ export class ClubsService {
     if (location) {
       andConditions.push({
         location: { contains: location, mode: 'insensitive' },
+      });
+    }
+
+    if (venueId) {
+      const venue = await this.prisma.venue.findUnique({
+        where: { id: venueId },
+        select: { name: true },
+      });
+      // Schedules only reference a venue by its display name in `notes`, so
+      // an unknown id can only match through `defaultVenueId`.
+      andConditions.push({
+        OR: [
+          { defaultVenueId: venueId },
+          ...(venue
+            ? [
+                {
+                  schedules: {
+                    some: { isActive: true, notes: venue.name },
+                  },
+                },
+              ]
+            : []),
+        ],
       });
     }
 
