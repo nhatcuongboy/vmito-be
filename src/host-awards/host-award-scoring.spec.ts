@@ -17,6 +17,9 @@ function metrics(
     qualifiedSessions: 8,
     activity: 8,
     distinctPlayers: 20,
+    accountPlayers: 20,
+    guestPlayers: 0,
+    reach: 20,
     returningPlayers: 10,
     retention: 0.5,
     growth: 2,
@@ -49,13 +52,13 @@ describe('host award scoring', () => {
   it('caps the effect of one inflated metric', () => {
     const scored = scoreHosts(
       [
-        metrics('balanced', { distinctPlayers: 40, retention: 0.6, growth: 6 }),
+        metrics('balanced', { reach: 40, retention: 0.6, growth: 6 }),
         metrics('inflated', {
-          distinctPlayers: 4000,
+          reach: 4000,
           retention: 0.1,
           growth: 0,
         }),
-        metrics('weak', { distinctPlayers: 15, retention: 0.2, growth: 1 }),
+        metrics('weak', { reach: 15, retention: 0.2, growth: 1 }),
       ],
       new Map()
     );
