@@ -844,10 +844,14 @@ export class ClubsService {
     // (type will be fully resolved after TS server restarts post-migration)
     const clubRecord = club as typeof club & { hostName: string | null };
 
-    // Fetch venues referenced by schedule notes to get district/city
+    // Fetch venues referenced by schedule notes to get district/city. Club
+    // forms write each note as "<venue name> | <address>", so only the part
+    // before the separator is a venue name.
     const scheduleVenueNames = [
       ...new Set(
-        club.schedules.map((s) => s.notes).filter(Boolean) as string[]
+        club.schedules
+          .map((s) => s.notes?.split(' | ')[0]?.trim())
+          .filter(Boolean) as string[]
       ),
     ];
     const scheduleVenues =
