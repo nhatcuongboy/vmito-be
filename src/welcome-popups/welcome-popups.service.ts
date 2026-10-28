@@ -101,8 +101,8 @@ export class WelcomePopupsService {
       file,
       'welcome-popup-banners',
       {
-        transformation: [{ width: 1600, crop: 'limit' }],
-        quality: 'auto:good',
+        transformation: [{ width: 2048, crop: 'limit' }],
+        quality: 'auto:best',
       }
     );
     return { url: result.secureUrl, publicId: result.publicId };

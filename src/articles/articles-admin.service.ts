@@ -170,8 +170,8 @@ export class ArticlesAdminService {
 
   async uploadCover(file: Express.Multer.File) {
     const result = await this.cloudinary.uploadImage(file, 'article-covers', {
-      transformation: [{ width: 1600, crop: 'limit' }],
-      quality: 'auto:good',
+      transformation: [{ width: 2048, crop: 'limit' }],
+      quality: 'auto:best',
     });
     return { url: result.secureUrl, publicId: result.publicId };
   }
