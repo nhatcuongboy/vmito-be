@@ -562,6 +562,24 @@ export class SessionsController {
     );
   }
 
+  @Patch('bulk')
+  async bulkUpdate(
+    @Body()
+    bulkUpdateDto: import('./dto/bulk-update-sessions.dto').BulkUpdateSessionsDto,
+    @CurrentUser() user: { userId: string; role: string }
+  ) {
+    await this.sessionAccess.assertSessionsHost(
+      bulkUpdateDto.items.map((item) => item.id),
+      user.userId,
+      user.role
+    );
+    return this.sessionsService.bulkUpdate(
+      bulkUpdateDto.items,
+      user.userId,
+      user.role
+    );
+  }
+
   @Patch(':id/status')
   async updateStatus(
     @Param('id') id: string,

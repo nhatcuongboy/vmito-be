@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  HttpException,
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -2203,6 +2204,20 @@ export class SessionsService {
         endTime: updateSessionDto.endTime
           ? new Date(updateSessionDto.endTime)
           : undefined,
+        // The scheduler reads the scheduled pair (reminders, auto-start) and
+        // gracePeriodEnd (auto-finalize). Before a session starts they mirror
+        // startTime/endTime, so a rescheduled session must move them too.
+        ...(existingSession.status === 'PREPARING' && updateSessionDto.startTime
+          ? { scheduledStartTime: new Date(updateSessionDto.startTime) }
+          : {}),
+        ...(existingSession.status === 'PREPARING' && updateSessionDto.endTime
+          ? {
+              scheduledEndTime: new Date(updateSessionDto.endTime),
+              gracePeriodEnd: new Date(
+                new Date(updateSessionDto.endTime).getTime() + 30 * 60 * 1000
+              ),
+            }
+          : {}),
         description: updateSessionDto.description,
         notes: updateSessionDto.notes,
         location: hasExplicitLocationUpdate
@@ -2429,6 +2444,50 @@ export class SessionsService {
 
     this.sessionsGateway.notifySessionUpdate(id);
     return session;
+  }
+
+  /**
+   * Applies each item through `update` so bulk edits get exactly the same
+   * validation and side effects as a single edit. Deliberately not one
+   * transaction: `update` spans several writes and a socket notify, and the
+   * client reports which sessions failed rather than rolling all back.
+   */
+  async bulkUpdate(
+    items: { id: string; changes: UpdateSessionDto }[],
+    userId?: string,
+    role?: string
+  ) {
+    const seen = new Set<string>();
+    const updated: Awaited<ReturnType<SessionsService['update']>>[] = [];
+    const failed: { id: string; message: string }[] = [];
+
+    for (const item of items) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      try {
+        const changesTime =
+          item.changes.startTime !== undefined ||
+          item.changes.endTime !== undefined ||
+          item.changes.sessionDuration !== undefined;
+        if (changesTime) {
+          const existing = await this.prisma.session.findUnique({
+            where: { id: item.id },
+            select: { status: true },
+          });
+          if (existing && existing.status !== SessionStatus.PREPARING) {
+            throw new BadRequestException(
+              'Time can only change before the session starts'
+            );
+          }
+        }
+        updated.push(await this.update(item.id, item.changes, userId, role));
+      } catch (error) {
+        if (!(error instanceof HttpException)) throw error;
+        failed.push({ id: item.id, message: error.message });
+      }
+    }
+
+    return { updated, failed };
   }
 
   async updateBulkStatus(sessionIds: string[], status: string) {
