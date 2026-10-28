@@ -77,13 +77,18 @@ export class CloudinaryService {
     });
   }
 
+  // Incoming transformations re-encode the *stored original*, which every
+  // delivery URL (f_auto,q_auto,w_…) is derived from. Clients already
+  // compress once before upload, so store at auto:best and only cap the size;
+  // auto:good here was a second lossy pass that visibly softened photos.
+  // Width caps match the client presets (IMAGE_UPLOAD_PRESETS in vmito-fe).
   async uploadQrCode(
     file: Express.Multer.File
   ): Promise<CloudinaryUploadResult> {
     return this.uploadImage(file, 'qr-codes', {
       transformation: [
-        { width: 800, height: 800, crop: 'limit' },
-        { quality: 'auto:good' },
+        { width: 1200, height: 1200, crop: 'limit' },
+        { quality: 'auto:best' },
       ],
     });
   }
@@ -93,8 +98,8 @@ export class CloudinaryService {
   ): Promise<CloudinaryUploadResult> {
     return this.uploadImage(file, 'payment-proofs', {
       transformation: [
-        { width: 1200, height: 1600, crop: 'limit' },
-        { quality: 'auto:good' },
+        { width: 2048, height: 2048, crop: 'limit' },
+        { quality: 'auto:best' },
       ],
     });
   }
@@ -105,11 +110,8 @@ export class CloudinaryService {
     return this.uploadImage(file, 'avatars', {
       transformation: [
         // 1000px keeps fullscreen/retina previews sharp; circles downscale fine.
-        // auto:best over auto:good — avatars are small enough in bytes that
-        // the extra quality is worth it, and auto:good visibly softened faces.
         { width: 1000, height: 1000, crop: 'fill', gravity: 'face' },
         { quality: 'auto:best' },
-        { fetch_format: 'auto' },
       ],
     });
   }
@@ -122,8 +124,7 @@ export class CloudinaryService {
     return this.uploadImage(file, 'club-images', {
       transformation: [
         { width: 800, height: 800, crop: 'fill' },
-        { quality: 'auto:good' },
-        { fetch_format: 'auto' },
+        { quality: 'auto:best' },
       ],
     });
   }
@@ -133,9 +134,8 @@ export class CloudinaryService {
   ): Promise<CloudinaryUploadResult> {
     return this.uploadImage(file, 'club-covers', {
       transformation: [
-        { width: 2000, crop: 'limit' },
-        { quality: 'auto:good' },
-        { fetch_format: 'auto' },
+        { width: 2560, crop: 'limit' },
+        { quality: 'auto:best' },
       ],
     });
   }
@@ -145,9 +145,8 @@ export class CloudinaryService {
   ): Promise<CloudinaryUploadResult> {
     return this.uploadImage(file, 'session-covers', {
       transformation: [
-        { width: 2000, crop: 'limit' },
-        { quality: 'auto:good' },
-        { fetch_format: 'auto' },
+        { width: 2560, crop: 'limit' },
+        { quality: 'auto:best' },
       ],
     });
   }
@@ -157,9 +156,8 @@ export class CloudinaryService {
   ): Promise<CloudinaryUploadResult> {
     return this.uploadImage(file, 'profile-covers', {
       transformation: [
-        { width: 1600, crop: 'limit' },
-        { quality: 'auto:good' },
-        { fetch_format: 'auto' },
+        { width: 2560, crop: 'limit' },
+        { quality: 'auto:best' },
       ],
     });
   }
@@ -170,8 +168,7 @@ export class CloudinaryService {
     return this.uploadImage(file, 'feedback', {
       transformation: [
         { width: 1600, crop: 'limit' },
-        { quality: 'auto:good' },
-        { fetch_format: 'auto' },
+        { quality: 'auto:best' },
       ],
     });
   }
@@ -185,9 +182,8 @@ export class CloudinaryService {
     // ratio is preserved as-is.
     return this.uploadImage(file, 'user-uploads', {
       transformation: [
-        { width: 1920, crop: 'limit' },
-        { quality: 'auto:good' },
-        { fetch_format: 'auto' },
+        { width: 2048, crop: 'limit' },
+        { quality: 'auto:best' },
       ],
     });
   }
