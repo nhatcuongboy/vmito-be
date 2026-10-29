@@ -31,6 +31,9 @@ import { readRentalSegments } from './rental-segments';
 import { VenuePricingService } from './venue-pricing.service';
 import { VenueRentalPaymentsService } from './venue-rental-payments.service';
 
+/** How long a submitted request keeps its courts while awaiting review. */
+const PENDING_HOLD_HOURS = 24;
+
 const RENTAL_INCLUDE = {
   venue: {
     select: {
@@ -111,6 +114,16 @@ export class VenueRentalsService {
       ...dto,
       requireFuture: true,
     });
+    if (!venue.courtSelectionEnabled) {
+      // Court-selection venues are covered by per-court holds; here nothing
+      // else stops one player stacking requests for the same hours.
+      await this.assertNoOverlappingRequest(
+        requesterId,
+        venueId,
+        calculation.startTime,
+        calculation.endTime
+      );
+    }
     const selectionMode = venue.courtSelectionEnabled
       ? dto.selectionMode || VenueRentalSelectionMode.AUTO_ASSIGN
       : VenueRentalSelectionMode.AUTO_ASSIGN;
@@ -349,7 +362,15 @@ export class VenueRentalsService {
         },
       });
       if (quote.venue.courtSelectionEnabled) {
-        await this.courts.releaseQuoteHold(tx, quote.id);
+        // Hold the courts through review — at most a day, and never past
+        // the start — instead of freeing them for a second requester.
+        const until = new Date(
+          Math.min(
+            Date.now() + PENDING_HOLD_HOURS * 60 * 60 * 1000,
+            quote.startTime.getTime()
+          )
+        );
+        await this.courts.holdForRequest(tx, quote.id, created.id, until);
       }
       await tx.venueRentalEvent.create({
         data: {
@@ -607,6 +628,8 @@ export class VenueRentalsService {
         ? VenueRentalStatus.AWAITING_DEPOSIT
         : VenueRentalStatus.CONFIRMED;
       let allocatedCourtIds: string[] = [];
+      // The review hold becomes the real allocation below.
+      await this.courts.releaseRequestAllocations(tx, id);
       const segments = readRentalSegments(quote.segments);
       const allocationStatus = snapshot.depositAmount
         ? VenueRentalAllocationStatus.RESERVED
@@ -730,6 +753,7 @@ export class VenueRentalsService {
     )
       this.invalidTransition();
     await this.prisma.$transaction(async (tx) => {
+      await this.courts.releaseRequestAllocations(tx, id);
       await tx.venueRentalProposal.updateMany({
         where: { requestId: id, status: VenueRentalProposalStatus.PENDING },
         data: {
@@ -876,6 +900,8 @@ export class VenueRentalsService {
       const targetStatus = snapshot.depositAmount
         ? VenueRentalStatus.AWAITING_DEPOSIT
         : VenueRentalStatus.CONFIRMED;
+      // The original request's review hold gives way to the proposal.
+      await this.courts.releaseRequestAllocations(tx, id);
       let allocatedCourtIds: string[] = [];
       if (source.venue.courtSelectionEnabled) {
         allocatedCourtIds = await this.courts.allocateRequest(tx, {
@@ -1060,12 +1086,8 @@ export class VenueRentalsService {
           cancelledAt,
         },
       });
-      if (
-        source.status === VenueRentalStatus.CONFIRMED ||
-        source.status === VenueRentalStatus.AWAITING_DEPOSIT
-      ) {
-        await this.courts.releaseRequestAllocations(tx, id);
-      }
+      // Confirmed bookings and pending-review holds alike.
+      await this.courts.releaseRequestAllocations(tx, id);
       const pendingRefund = await this.payments.createRefundForCancellation(
         tx,
         source,
@@ -1519,6 +1541,45 @@ export class VenueRentalsService {
       'INVALID_TRANSITION',
       'Rental request is not in a valid state for this action'
     );
+  }
+
+  private async assertNoOverlappingRequest(
+    requesterId: string,
+    venueId: string,
+    startTime: Date,
+    endTime: Date
+  ) {
+    const overlapping = await this.prisma.venueRentalRequest.findFirst({
+      where: {
+        venueId,
+        requesterId,
+        status: {
+          in: [
+            VenueRentalStatus.PENDING,
+            VenueRentalStatus.COUNTER_OFFERED,
+            VenueRentalStatus.AWAITING_DEPOSIT,
+            VenueRentalStatus.CONFIRMED,
+          ],
+        },
+        OR: [
+          {
+            confirmedStartTime: { lt: endTime },
+            confirmedEndTime: { gt: startTime },
+          },
+          {
+            confirmedStartTime: null,
+            quote: { startTime: { lt: endTime }, endTime: { gt: startTime } },
+          },
+        ],
+      },
+      select: { id: true },
+    });
+    if (overlapping) {
+      throw this.conflict(
+        'DUPLICATE_RENTAL',
+        'You already have an open rental request for these hours'
+      );
+    }
   }
 
   /** Counter-offers and manual bookings stay single-range for now. */

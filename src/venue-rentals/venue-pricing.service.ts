@@ -194,7 +194,8 @@ export class VenuePricingService {
   ) {
     // Sorted first so `segmentIndex` in the breakdown matches `segments`.
     const ordered = [...input.segments].sort(
-      (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+      (a, b) =>
+        new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
     );
     const priced: Array<{
       index: number;

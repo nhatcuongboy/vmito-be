@@ -239,12 +239,34 @@ export class VenueCourtsService {
     return this.prisma.venueCourtBlock.delete({ where: { id: blockId } });
   }
 
+  /**
+   * [viewerId] is optional (the route is public). When given, cells held by
+   * the viewer's own live quote come back `mine: true`: still UNAVAILABLE to
+   * everyone else, but the viewer's client keeps them selectable instead of
+   * showing their own selection as taken after a refresh.
+   */
   async publicSchedule(
     venueId: string,
     date: string,
-    customerType: VenueCustomerType
+    customerType: VenueCustomerType,
+    viewerId?: string
   ) {
     const result = await this.buildSchedule(venueId, date, false);
+    const myQuoteIds = viewerId
+      ? new Set(
+          (
+            await this.prisma.venueRentalQuote.findMany({
+              where: {
+                venueId,
+                requesterId: viewerId,
+                consumedAt: null,
+                expiresAt: { gt: new Date() },
+              },
+              select: { id: true },
+            })
+          ).map((quote) => quote.id)
+        )
+      : new Set<string>();
     if (!result.courtSelectionEnabled) {
       throw new ConflictException({
         code: 'COURT_SELECTION_DISABLED',
@@ -271,6 +293,11 @@ export class VenueCourtsService {
           startMinute: slot.startMinute,
           endMinute: slot.endMinute,
           status: slot.status === 'AVAILABLE' ? 'AVAILABLE' : 'UNAVAILABLE',
+          ...('heldQuoteId' in slot &&
+          typeof slot.heldQuoteId === 'string' &&
+          myQuoteIds.has(slot.heldQuoteId)
+            ? { mine: true }
+            : {}),
         })),
       })),
       slots: result.slots.map((slot, index) => ({
@@ -412,22 +439,32 @@ export class VenueCourtsService {
     });
   }
 
-  releaseQuoteHold(tx: Prisma.TransactionClient, quoteId: string) {
+  /**
+   * Keeps a submitted request's courts held while the venue reviews it, so
+   * nobody else can quote and request the same cells meanwhile. The quote's
+   * HELD rows are handed to the request and live until [until]; approval
+   * replaces them with RESERVED/CONFIRMED rows.
+   */
+  holdForRequest(
+    tx: Prisma.TransactionClient,
+    quoteId: string,
+    requestId: string,
+    until: Date
+  ) {
     return tx.venueRentalCourtAllocation.updateMany({
       where: { quoteId, status: VenueRentalAllocationStatus.HELD },
-      data: {
-        status: VenueRentalAllocationStatus.RELEASED,
-        releasedAt: new Date(),
-      },
+      data: { requestId, expiresAt: until },
     });
   }
 
+  /** Every live allocation of a request, including a pending-review hold. */
   releaseRequestAllocations(tx: Prisma.TransactionClient, requestId: string) {
     return tx.venueRentalCourtAllocation.updateMany({
       where: {
         requestId,
         status: {
           in: [
+            VenueRentalAllocationStatus.HELD,
             VenueRentalAllocationStatus.RESERVED,
             VenueRentalAllocationStatus.CONFIRMED,
           ],
@@ -683,6 +720,14 @@ export class VenueCourtsService {
         return {
           ...slot,
           status,
+          // A live quote hold (not yet a request) — the public view tells
+          // its owner these cells are theirs.
+          ...(!manager &&
+          allocation?.status === VenueRentalAllocationStatus.HELD &&
+          allocation.quoteId &&
+          !allocation.requestId
+            ? { heldQuoteId: allocation.quoteId }
+            : {}),
           ...(manager
             ? {
                 blockId: block?.id,

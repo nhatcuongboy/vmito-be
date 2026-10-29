@@ -6,7 +6,7 @@ import type { RentalSegment } from './venue-pricing.service';
  * Null for classic single-range rentals, which keep using startTime/endTime.
  */
 export function readRentalSegments(
-  value: Prisma.JsonValue | null | undefined
+  value: Prisma.JsonValue | undefined
 ): RentalSegment[] | null {
   if (!Array.isArray(value) || value.length === 0) return null;
   return value.flatMap((item) => {
