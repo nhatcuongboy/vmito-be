@@ -22,6 +22,7 @@ import {
   ReplaceOperatingPeriodsDto,
   UpdateVenueCourtDto,
 } from './dto/venue-court.dto';
+import { readRentalSegments } from './rental-segments';
 import { VenuePricingService } from './venue-pricing.service';
 
 @Injectable()
@@ -301,10 +302,20 @@ export class VenueCourtsService {
       courtIds?: string[];
       expiresAt: Date;
       timezone: string;
+      /** Releases this requester's older, unused quote holds first. */
+      requesterId?: string;
     }
   ) {
     await this.lockVenueDay(tx, input.venueId, input.startTime, input.timezone);
     await this.releaseExpiredVenueHolds(tx, input.venueId);
+    if (input.requesterId) {
+      await this.releaseRequesterQuoteHolds(
+        tx,
+        input.venueId,
+        input.requesterId,
+        input.quoteId
+      );
+    }
     await this.assertOpenRange(
       tx,
       input.venueId,
@@ -364,6 +375,41 @@ export class VenueCourtsService {
       })),
     });
     return courtIds;
+  }
+
+  /**
+   * A re-quote supersedes the requester's earlier quotes at this venue: their
+   * holds would otherwise block the requester's own new selection for up to
+   * the quote lifetime. The old quotes are expired too, so they can no longer
+   * be submitted without the courts they priced.
+   */
+  async releaseRequesterQuoteHolds(
+    tx: Prisma.TransactionClient,
+    venueId: string,
+    requesterId: string,
+    exceptQuoteId: string
+  ) {
+    const now = new Date();
+    const stale = await tx.venueRentalQuote.findMany({
+      where: {
+        venueId,
+        requesterId,
+        consumedAt: null,
+        expiresAt: { gt: now },
+        id: { not: exceptQuoteId },
+      },
+      select: { id: true },
+    });
+    if (!stale.length) return;
+    const ids = stale.map((quote) => quote.id);
+    await tx.venueRentalCourtAllocation.updateMany({
+      where: { quoteId: { in: ids }, status: VenueRentalAllocationStatus.HELD },
+      data: { status: VenueRentalAllocationStatus.RELEASED, releasedAt: now },
+    });
+    await tx.venueRentalQuote.updateMany({
+      where: { id: { in: ids } },
+      data: { expiresAt: now },
+    });
   }
 
   releaseQuoteHold(tx: Prisma.TransactionClient, quoteId: string) {
@@ -600,13 +646,25 @@ export class VenueCourtsService {
             item.startTime < slotEnd &&
             item.endTime > slotStart
         );
-        const pendingRequest = pending.find(
-          (item) =>
+        const pendingRequest = pending.find((item) => {
+          if (!item.quote) return false;
+          // A multi-segment request only covers its own court × time pieces,
+          // not the whole envelope.
+          const segments = readRentalSegments(item.quote.segments);
+          if (segments) {
+            return segments.some(
+              (segment) =>
+                segment.courtIds.includes(court.id) &&
+                new Date(segment.startTime) < slotEnd &&
+                new Date(segment.endTime) > slotStart
+            );
+          }
+          return (
             item.requestedCourtIds.includes(court.id) &&
-            item.quote &&
             item.quote.startTime < slotEnd &&
             item.quote.endTime > slotStart
-        );
+          );
+        });
         let status = 'AVAILABLE';
         if (!isOpen) status = 'CLOSED';
         else if (block)

@@ -1171,6 +1171,9 @@ model VenueRentalQuote {
   consumedAt        DateTime?
   selectionMode     VenueRentalSelectionMode @default(AUTO_ASSIGN)
   requestedCourtIds String[]                 @default([])
+  /// Multi-segment quotes only: [{ startTime, endTime, courtIds, amount, priceBookId }].
+  /// startTime/endTime then hold the envelope (earliest start, latest end).
+  segments          Json?
   createdAt         DateTime                 @default(now())
 
   venue       Venue                        @relation(fields: [venueId], references: [id], onDelete: Cascade)
@@ -1208,6 +1211,8 @@ model VenueRentalRequest {
   confirmedAmount               Int?
   confirmedCurrency             String?
   confirmedBreakdown            Json?
+  /// Copied from the quote on approval for multi-segment requests.
+  confirmedSegments             Json?
   reviewedByUserId              String?
   cancelledByUserId             String?
   cancellationReason            String?

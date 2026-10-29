@@ -27,6 +27,7 @@ import {
   ReallocateRentalCourtsDto,
 } from './dto/venue-rental.dto';
 import { VenueCourtsService } from './venue-courts.service';
+import { readRentalSegments } from './rental-segments';
 import { VenuePricingService } from './venue-pricing.service';
 import { VenueRentalPaymentsService } from './venue-rental-payments.service';
 
@@ -103,6 +104,9 @@ export class VenueRentalsService {
       );
     }
 
+    if (dto.segments) {
+      return this.createSegmentedQuote(venueId, dto, requesterId, venue);
+    }
     const calculation = await this.pricing.calculate(venueId, {
       ...dto,
       requireFuture: true,
@@ -147,11 +151,90 @@ export class VenueRentalsService {
         courtIds: dto.courtIds,
         expiresAt,
         timezone: venue.timezone,
+        requesterId,
       });
       return tx.venueRentalQuote.update({
         where: { id: quote.id },
         data: { requestedCourtIds: courtIds },
       });
+    });
+  }
+
+  /**
+   * Different time ranges on different courts of one day, in one quote. The
+   * single-range columns keep the envelope (earliest start, latest end, number
+   * of distinct courts) so every start/end-based rule — cancel cutoff,
+   * refunds, completion, list filters — and older clients keep working.
+   */
+  private async createSegmentedQuote(
+    venueId: string,
+    dto: CreateRentalProposalDto,
+    requesterId: string,
+    venue: { courtSelectionEnabled: boolean; timezone: string }
+  ) {
+    if (!venue.courtSelectionEnabled) {
+      throw new BadRequestException({
+        code: 'SEGMENTS_UNSUPPORTED',
+        message: 'Multi-segment rentals need court selection to be enabled',
+      });
+    }
+    const calculation = await this.pricing.calculateSegments(venueId, {
+      segments: dto.segments!,
+      customerType: dto.customerType,
+      requireFuture: true,
+    });
+    // Court labels travel with each segment so a pending request can show
+    // "Sân 1 · 17:00–18:30" before any allocation exists.
+    const courts = await this.prisma.venueCourt.findMany({
+      where: { venueId, id: { in: calculation.courtIds } },
+      select: { id: true, name: true, code: true },
+    });
+    const storedSegments = calculation.segments.map((segment) => ({
+      ...segment,
+      courts: segment.courtIds
+        .map((courtId) => courts.find((court) => court.id === courtId))
+        .filter((court) => court !== undefined),
+    }));
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    return this.prisma.$transaction(async (tx) => {
+      const quote = await tx.venueRentalQuote.create({
+        data: {
+          venueId,
+          requesterId,
+          startTime: calculation.startTime,
+          endTime: calculation.endTime,
+          numberOfCourts: calculation.courtIds.length,
+          customerType: dto.customerType,
+          currency: calculation.currency,
+          totalAmount: calculation.totalAmount,
+          priceBookId: calculation.priceBookId,
+          breakdown: {
+            version: calculation.version,
+            items: calculation.breakdown,
+          } as unknown as Prisma.InputJsonValue,
+          selectionMode: VenueRentalSelectionMode.SELECT_COURTS,
+          requestedCourtIds: calculation.courtIds,
+          segments: storedSegments as unknown as Prisma.InputJsonValue,
+          expiresAt,
+        },
+      });
+      // Advisory day locks stack within the transaction, so one hold per
+      // segment is safe; all segments share a day.
+      for (const segment of calculation.segments) {
+        await this.courts.holdForQuote(tx, {
+          quoteId: quote.id,
+          venueId,
+          startTime: new Date(segment.startTime),
+          endTime: new Date(segment.endTime),
+          numberOfCourts: segment.numberOfCourts,
+          selectionMode: VenueRentalSelectionMode.SELECT_COURTS,
+          courtIds: segment.courtIds,
+          expiresAt,
+          timezone: venue.timezone,
+          requesterId,
+        });
+      }
+      return quote;
     });
   }
 
@@ -292,6 +375,7 @@ export class VenueRentalsService {
 
   async createManual(dto: CreateManualRentalDto, userId: string, role: string) {
     await this.access.assertManager(dto.venueId, userId, role);
+    this.assertNoSegments(dto.segments);
     const venue = await this.prisma.venue.findUnique({
       where: { id: dto.venueId },
       select: {
@@ -406,6 +490,12 @@ export class VenueRentalsService {
   ) {
     const source = await this.getRequest(id);
     await this.access.assertManager(source.venueId, userId, role);
+    if (readRentalSegments(source.confirmedSegments)) {
+      throw this.conflict(
+        'MULTI_SEGMENT_UNSUPPORTED',
+        'Courts of a multi-segment rental cannot be reallocated'
+      );
+    }
     if (
       source.status !== VenueRentalStatus.CONFIRMED ||
       !source.confirmedStartTime ||
@@ -517,7 +607,29 @@ export class VenueRentalsService {
         ? VenueRentalStatus.AWAITING_DEPOSIT
         : VenueRentalStatus.CONFIRMED;
       let allocatedCourtIds: string[] = [];
-      if (source.venue.courtSelectionEnabled) {
+      const segments = readRentalSegments(quote.segments);
+      const allocationStatus = snapshot.depositAmount
+        ? VenueRentalAllocationStatus.RESERVED
+        : VenueRentalAllocationStatus.CONFIRMED;
+      if (segments) {
+        // The quote only priced segments on court-selection venues; book each
+        // court × time piece as its own allocation rows.
+        for (const segment of segments) {
+          const courtIds = await this.courts.allocateRequest(tx, {
+            requestId: id,
+            venueId: source.venueId,
+            startTime: new Date(segment.startTime),
+            endTime: new Date(segment.endTime),
+            numberOfCourts: segment.courtIds.length,
+            selectionMode: VenueRentalSelectionMode.SELECT_COURTS,
+            courtIds: segment.courtIds,
+            timezone: source.venue.timezone,
+            status: allocationStatus,
+            expiresAt: snapshot.depositDueAt,
+          });
+          allocatedCourtIds = [...new Set([...allocatedCourtIds, ...courtIds])];
+        }
+      } else if (source.venue.courtSelectionEnabled) {
         allocatedCourtIds = await this.courts.allocateRequest(tx, {
           requestId: id,
           venueId: source.venueId,
@@ -527,9 +639,7 @@ export class VenueRentalsService {
           selectionMode: source.selectionMode,
           courtIds: source.requestedCourtIds,
           timezone: source.venue.timezone,
-          status: snapshot.depositAmount
-            ? VenueRentalAllocationStatus.RESERVED
-            : VenueRentalAllocationStatus.CONFIRMED,
+          status: allocationStatus,
           expiresAt: snapshot.depositDueAt,
         });
       } else {
@@ -554,6 +664,9 @@ export class VenueRentalsService {
           confirmedAmount: quote.totalAmount,
           confirmedCurrency: quote.currency,
           confirmedBreakdown: quote.breakdown as Prisma.InputJsonValue,
+          ...(segments
+            ? { confirmedSegments: quote.segments as Prisma.InputJsonValue }
+            : {}),
           requestedCourtIds: allocatedCourtIds.length
             ? allocatedCourtIds
             : source.requestedCourtIds,
@@ -663,6 +776,7 @@ export class VenueRentalsService {
   ) {
     const source = await this.getRequest(id);
     await this.access.assertManager(source.venueId, userId, role);
+    this.assertNoSegments(dto.segments);
     if (
       source.status !== VenueRentalStatus.PENDING &&
       source.status !== VenueRentalStatus.COUNTER_OFFERED
@@ -1405,6 +1519,16 @@ export class VenueRentalsService {
       'INVALID_TRANSITION',
       'Rental request is not in a valid state for this action'
     );
+  }
+
+  /** Counter-offers and manual bookings stay single-range for now. */
+  private assertNoSegments(segments: unknown[] | undefined) {
+    if (segments?.length) {
+      throw new BadRequestException({
+        code: 'SEGMENTS_UNSUPPORTED',
+        message: 'Segments are only supported on online rental quotes',
+      });
+    }
   }
 
   private conflict(code: string, message: string) {
