@@ -15,17 +15,29 @@ import { Public } from '../auth/decorators/public.decorator';
 import {
   CreateRentalQuoteDto,
   RentalAvailabilityDto,
+  RentalReportQueryDto,
 } from './dto/venue-rental.dto';
 import { VenueRentalsService } from './venue-rentals.service';
 import { VenueRentalPaymentsService } from './venue-rental-payments.service';
+import { VenueRentalReportService } from './venue-rental-report.service';
 import { UpdateRentalPaymentSettingsDto } from './dto/venue-rental-payment.dto';
 
 @Controller('venues')
 export class VenueRentalVenuesController {
   constructor(
     private readonly service: VenueRentalsService,
-    private readonly payments: VenueRentalPaymentsService
+    private readonly payments: VenueRentalPaymentsService,
+    private readonly reports: VenueRentalReportService
   ) {}
+
+  @Get(':venueId/rental-report')
+  rentalReport(
+    @Param('venueId') venueId: string,
+    @Query() query: RentalReportQueryDto,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.reports.report(venueId, query, user.userId, user.role);
+  }
 
   @Get(':venueId/rental-payment-settings')
   paymentSettings(

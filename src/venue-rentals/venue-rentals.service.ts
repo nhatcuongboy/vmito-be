@@ -11,6 +11,9 @@ import {
   Role,
   VenueRentalAllocationStatus,
   VenueRentalEventType,
+  VenueCustomerType,
+  VenueRentalProposalKind,
+  VenueRentalSeriesStatus,
   VenueRentalProposalStatus,
   VenueRentalSelectionMode,
   VenueRentalSource,
@@ -19,6 +22,7 @@ import {
   VenueRentalTransactionStatus,
 } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
+import { areRentalNotificationsMuted } from './rental-notify-scope';
 import { PrismaService } from '../prisma/prisma.service';
 import { VenueAccessService } from '../venues/venue-access.service';
 import {
@@ -36,6 +40,8 @@ import {
 import { readRentalSegments } from './rental-segments';
 import { VenuePricingService } from './venue-pricing.service';
 import { VenueRentalPaymentsService } from './venue-rental-payments.service';
+
+type RentalWithVenue = Awaited<ReturnType<VenueRentalsService['getRequest']>>;
 
 /** How long a submitted request keeps its courts while awaiting review. */
 const PENDING_HOLD_HOURS = 24;
@@ -205,18 +211,11 @@ export class VenueRentalsService {
       customerType: dto.customerType,
       requireFuture: true,
     });
-    // Court labels travel with each segment so a pending request can show
-    // "Sân 1 · 17:00–18:30" before any allocation exists.
-    const courts = await this.prisma.venueCourt.findMany({
-      where: { venueId, id: { in: calculation.courtIds } },
-      select: { id: true, name: true, code: true },
-    });
-    const storedSegments = calculation.segments.map((segment) => ({
-      ...segment,
-      courts: segment.courtIds
-        .map((courtId) => courts.find((court) => court.id === courtId))
-        .filter((court) => court !== undefined),
-    }));
+    const storedSegments = await this.labelSegments(
+      venueId,
+      calculation.courtIds,
+      calculation.segments
+    );
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
     return this.prisma.$transaction(async (tx) => {
       const quote = await tx.venueRentalQuote.create({
@@ -258,6 +257,115 @@ export class VenueRentalsService {
       }
       return quote;
     });
+  }
+
+  /**
+   * Court labels travel with each segment so a pending request can show
+   * "Sân 1 · 17:00–18:30" before any allocation exists.
+   */
+  private async labelSegments<T extends { courtIds: string[] }>(
+    venueId: string,
+    courtIds: string[],
+    segments: T[]
+  ) {
+    const courts = await this.prisma.venueCourt.findMany({
+      where: { venueId, id: { in: courtIds } },
+      select: { id: true, name: true, code: true },
+    });
+    return segments.map((segment) => ({
+      ...segment,
+      courts: segment.courtIds
+        .map((courtId) => courts.find((court) => court.id === courtId))
+        .filter((court) => court !== undefined),
+    }));
+  }
+
+  /** Prices a manager's schedule, single-range or multi-segment. */
+  private async priceSchedule(
+    venueId: string,
+    dto: CreateRentalProposalDto,
+    courtSelectionEnabled: boolean
+  ) {
+    if (dto.segments?.length) {
+      if (!courtSelectionEnabled) {
+        throw new BadRequestException({
+          code: 'SEGMENTS_UNSUPPORTED',
+          message: 'Multi-segment rentals need court selection to be enabled',
+        });
+      }
+      const calculation = await this.pricing.calculateSegments(venueId, {
+        segments: dto.segments,
+        customerType: dto.customerType,
+        requireFuture: true,
+      });
+      return {
+        calculation,
+        numberOfCourts: calculation.courtIds.length,
+        selectionMode: VenueRentalSelectionMode.SELECT_COURTS,
+        courtIds: calculation.courtIds,
+        segments: await this.labelSegments(
+          venueId,
+          calculation.courtIds,
+          calculation.segments
+        ),
+      };
+    }
+    const calculation = await this.pricing.calculate(venueId, {
+      ...dto,
+      requireFuture: true,
+    });
+    return {
+      calculation,
+      numberOfCourts: dto.numberOfCourts,
+      selectionMode: dto.selectionMode || VenueRentalSelectionMode.AUTO_ASSIGN,
+      courtIds: dto.courtIds || [],
+      segments: null,
+    };
+  }
+
+  /** Books a schedule's courts: one row per court × time piece. */
+  private async allocateSchedule(
+    tx: Prisma.TransactionClient,
+    target: {
+      requestId: string;
+      venueId: string;
+      timezone: string;
+      status?: VenueRentalAllocationStatus;
+      expiresAt?: Date | null;
+    },
+    schedule: {
+      startTime: Date;
+      endTime: Date;
+      numberOfCourts: number;
+      selectionMode: VenueRentalSelectionMode;
+      courtIds: string[];
+      segments: Array<{
+        startTime: string;
+        endTime: string;
+        courtIds: string[];
+      }> | null;
+    }
+  ) {
+    const pieces = schedule.segments?.map((segment) => ({
+      startTime: new Date(segment.startTime),
+      endTime: new Date(segment.endTime),
+      numberOfCourts: segment.courtIds.length,
+      selectionMode: VenueRentalSelectionMode.SELECT_COURTS,
+      courtIds: segment.courtIds,
+    })) ?? [schedule];
+    let allocated: string[] = [];
+    for (const piece of pieces) {
+      const courtIds = await this.courts.allocateRequest(tx, {
+        ...target,
+        startTime: piece.startTime,
+        endTime: piece.endTime,
+        numberOfCourts: piece.numberOfCourts,
+        selectionMode: piece.selectionMode,
+        courtIds: piece.courtIds,
+      });
+      allocated = [...new Set([...allocated, ...courtIds])];
+    }
+    return allocated;
   }
 
   async availability(venueId: string, startValue: string, endValue: string) {
@@ -405,7 +513,6 @@ export class VenueRentalsService {
 
   async createManual(dto: CreateManualRentalDto, userId: string, role: string) {
     await this.access.assertManager(dto.venueId, userId, role);
-    this.assertNoSegments(dto.segments);
     const venue = await this.prisma.venue.findUnique({
       where: { id: dto.venueId },
       select: {
@@ -421,12 +528,12 @@ export class VenueRentalsService {
       });
       if (!requester) throw new NotFoundException('Requester not found');
     }
-    const calculation = await this.pricing.calculate(dto.venueId, {
-      ...dto,
-      requireFuture: true,
-    });
-    const selectionMode =
-      dto.selectionMode || VenueRentalSelectionMode.AUTO_ASSIGN;
+    const priced = await this.priceSchedule(
+      dto.venueId,
+      dto,
+      venue.courtSelectionEnabled
+    );
+    const { calculation, selectionMode, numberOfCourts, segments } = priced;
     const request = await this.prisma.$transaction(async (tx) => {
       const acceptedAt = new Date();
       const snapshot = await this.payments.buildSnapshot(
@@ -448,10 +555,10 @@ export class VenueRentalsService {
           contactPhone: dto.contactPhone.trim(),
           notes: dto.notes?.trim() || null,
           selectionMode,
-          requestedCourtIds: dto.courtIds || [],
+          requestedCourtIds: priced.courtIds,
           confirmedStartTime: calculation.startTime,
           confirmedEndTime: calculation.endTime,
-          confirmedNumberOfCourts: dto.numberOfCourts,
+          confirmedNumberOfCourts: numberOfCourts,
           confirmedCustomerType: dto.customerType,
           confirmedAmount: calculation.totalAmount,
           confirmedCurrency: calculation.currency,
@@ -459,6 +566,11 @@ export class VenueRentalsService {
             version: calculation.version,
             items: calculation.breakdown,
           } as unknown as Prisma.InputJsonValue,
+          ...(segments
+            ? {
+                confirmedSegments: segments as unknown as Prisma.InputJsonValue,
+              }
+            : {}),
           confirmedAt: new Date(),
           reviewedByUserId: userId,
           ...snapshot,
@@ -466,16 +578,22 @@ export class VenueRentalsService {
       });
       let allocatedCourtIds: string[] = [];
       if (venue.courtSelectionEnabled) {
-        allocatedCourtIds = await this.courts.allocateRequest(tx, {
-          requestId: created.id,
-          venueId: dto.venueId,
-          startTime: calculation.startTime,
-          endTime: calculation.endTime,
-          numberOfCourts: dto.numberOfCourts,
-          selectionMode,
-          courtIds: dto.courtIds,
-          timezone: venue.timezone,
-        });
+        allocatedCourtIds = await this.allocateSchedule(
+          tx,
+          {
+            requestId: created.id,
+            venueId: dto.venueId,
+            timezone: venue.timezone,
+          },
+          {
+            startTime: calculation.startTime,
+            endTime: calculation.endTime,
+            numberOfCourts,
+            selectionMode,
+            courtIds: priced.courtIds,
+            segments,
+          }
+        );
         await tx.venueRentalRequest.update({
           where: { id: created.id },
           data: { requestedCourtIds: allocatedCourtIds },
@@ -487,7 +605,7 @@ export class VenueRentalsService {
           dto.venueId,
           calculation.startTime,
           calculation.endTime,
-          dto.numberOfCourts
+          numberOfCourts
         );
       }
       await this.createEvent(
@@ -885,16 +1003,17 @@ export class VenueRentalsService {
   ) {
     const source = await this.getRequest(id);
     await this.access.assertManager(source.venueId, userId, role);
-    this.assertNoSegments(dto.segments);
     if (
       source.status !== VenueRentalStatus.PENDING &&
       source.status !== VenueRentalStatus.COUNTER_OFFERED
     )
       this.invalidTransition();
-    const calculation = await this.pricing.calculate(source.venueId, {
-      ...dto,
-      requireFuture: true,
-    });
+    const priced = await this.priceSchedule(
+      source.venueId,
+      dto,
+      source.venue.courtSelectionEnabled
+    );
+    const { calculation } = priced;
     const expiresAt = new Date(
       Math.min(
         Date.now() + 24 * 60 * 60 * 1000,
@@ -915,7 +1034,7 @@ export class VenueRentalsService {
           proposedById: userId,
           startTime: calculation.startTime,
           endTime: calculation.endTime,
-          numberOfCourts: dto.numberOfCourts,
+          numberOfCourts: priced.numberOfCourts,
           customerType: dto.customerType,
           currency: calculation.currency,
           totalAmount: calculation.totalAmount,
@@ -924,9 +1043,13 @@ export class VenueRentalsService {
             version: calculation.version,
             items: calculation.breakdown,
           } as unknown as Prisma.InputJsonValue,
-          selectionMode:
-            dto.selectionMode || VenueRentalSelectionMode.AUTO_ASSIGN,
-          requestedCourtIds: dto.courtIds || [],
+          selectionMode: priced.selectionMode,
+          requestedCourtIds: priced.courtIds,
+          ...(priced.segments
+            ? {
+                segments: priced.segments as unknown as Prisma.InputJsonValue,
+              }
+            : {}),
           expiresAt,
         },
       });
@@ -965,6 +1088,9 @@ export class VenueRentalsService {
       throw new ForbiddenException('Rental requester access required');
     const proposal = source.proposals.find((item) => item.id === proposalId);
     if (!proposal) throw new NotFoundException('Rental proposal not found');
+    if (proposal.kind === VenueRentalProposalKind.RESCHEDULE) {
+      return this.acceptReschedule(source, proposal, userId);
+    }
     if (
       source.status !== VenueRentalStatus.COUNTER_OFFERED ||
       proposal.status !== VenueRentalProposalStatus.PENDING
@@ -987,22 +1113,29 @@ export class VenueRentalsService {
         : VenueRentalStatus.CONFIRMED;
       // The original request's review hold gives way to the proposal.
       await this.courts.releaseRequestAllocations(tx, id);
+      const segments = readRentalSegments(proposal.segments);
       let allocatedCourtIds: string[] = [];
       if (source.venue.courtSelectionEnabled) {
-        allocatedCourtIds = await this.courts.allocateRequest(tx, {
-          requestId: id,
-          venueId: source.venueId,
-          startTime: proposal.startTime,
-          endTime: proposal.endTime,
-          numberOfCourts: proposal.numberOfCourts,
-          selectionMode: proposal.selectionMode,
-          courtIds: proposal.requestedCourtIds,
-          timezone: source.venue.timezone,
-          status: snapshot.depositAmount
-            ? VenueRentalAllocationStatus.RESERVED
-            : VenueRentalAllocationStatus.CONFIRMED,
-          expiresAt: snapshot.depositDueAt,
-        });
+        allocatedCourtIds = await this.allocateSchedule(
+          tx,
+          {
+            requestId: id,
+            venueId: source.venueId,
+            timezone: source.venue.timezone,
+            status: snapshot.depositAmount
+              ? VenueRentalAllocationStatus.RESERVED
+              : VenueRentalAllocationStatus.CONFIRMED,
+            expiresAt: snapshot.depositDueAt,
+          },
+          {
+            startTime: proposal.startTime,
+            endTime: proposal.endTime,
+            numberOfCourts: proposal.numberOfCourts,
+            selectionMode: proposal.selectionMode,
+            courtIds: proposal.requestedCourtIds,
+            segments,
+          }
+        );
       } else {
         await this.lockCapacity(tx, source.venueId, proposal.startTime);
         await this.assertCapacity(
@@ -1032,6 +1165,9 @@ export class VenueRentalsService {
           confirmedAmount: proposal.totalAmount,
           confirmedCurrency: proposal.currency,
           confirmedBreakdown: proposal.breakdown as Prisma.InputJsonValue,
+          ...(segments
+            ? { confirmedSegments: proposal.segments as Prisma.InputJsonValue }
+            : {}),
           selectionMode: proposal.selectionMode,
           requestedCourtIds: allocatedCourtIds.length
             ? allocatedCourtIds
@@ -1090,6 +1226,9 @@ export class VenueRentalsService {
       throw new ForbiddenException('Rental requester access required');
     const proposal = source.proposals.find((item) => item.id === proposalId);
     if (!proposal) throw new NotFoundException('Rental proposal not found');
+    if (proposal.kind === VenueRentalProposalKind.RESCHEDULE) {
+      return this.declineReschedule(source, proposal, userId);
+    }
     if (
       source.status !== VenueRentalStatus.COUNTER_OFFERED ||
       proposal.status !== VenueRentalProposalStatus.PENDING
@@ -1126,6 +1265,445 @@ export class VenueRentalsService {
       'rental_proposal_declined'
     );
     return this.getRequest(id);
+  }
+
+  /**
+   * Moves a confirmed booking. With a customer on the app it becomes a
+   * proposal they answer, and the booking keeps its slot until then. A walk-in
+   * has nobody to ask, so the manager's word settles it.
+   */
+  async reschedule(
+    id: string,
+    dto: CreateRentalProposalDto,
+    userId: string,
+    role: string
+  ) {
+    const source = await this.getRequest(id);
+    await this.access.assertManager(source.venueId, userId, role);
+    const currentStart = source.confirmedStartTime;
+    if (source.status !== VenueRentalStatus.CONFIRMED || !currentStart) {
+      this.invalidTransition();
+    }
+    if (currentStart <= new Date()) {
+      throw this.conflict('RENTAL_STARTED', 'A started rental cannot be moved');
+    }
+    const priced = await this.priceSchedule(
+      source.venueId,
+      dto,
+      source.venue.courtSelectionEnabled
+    );
+    const { calculation } = priced;
+    const schedule = {
+      startTime: calculation.startTime,
+      endTime: calculation.endTime,
+      numberOfCourts: priced.numberOfCourts,
+      selectionMode: priced.selectionMode,
+      courtIds: priced.courtIds,
+      segments: priced.segments,
+      customerType: dto.customerType,
+      currency: calculation.currency,
+      totalAmount: calculation.totalAmount,
+      breakdown: {
+        version: calculation.version,
+        items: calculation.breakdown,
+      } as unknown as Prisma.InputJsonValue,
+    };
+    if (!source.requesterId) {
+      const refund = await this.prisma.$transaction((tx) =>
+        this.applySchedule(tx, source, schedule, userId)
+      );
+      if (refund) await this.notifyRefundRequired(source.venueId, id);
+      return this.getRequest(id);
+    }
+    const expiresAt = new Date(
+      Math.min(
+        Date.now() + 24 * 60 * 60 * 1000,
+        currentStart.getTime(),
+        calculation.startTime.getTime()
+      )
+    );
+    const proposal = await this.prisma.$transaction(async (tx) => {
+      await this.supersedeProposals(tx, id);
+      const courtIds = source.venue.courtSelectionEnabled
+        ? await this.holdSchedule(tx, source, schedule, expiresAt)
+        : schedule.courtIds;
+      const created = await tx.venueRentalProposal.create({
+        data: {
+          requestId: id,
+          proposedById: userId,
+          kind: VenueRentalProposalKind.RESCHEDULE,
+          startTime: schedule.startTime,
+          endTime: schedule.endTime,
+          numberOfCourts: schedule.numberOfCourts,
+          customerType: schedule.customerType,
+          currency: schedule.currency,
+          totalAmount: schedule.totalAmount,
+          priceBookId: calculation.priceBookId,
+          breakdown: schedule.breakdown,
+          selectionMode: source.venue.courtSelectionEnabled
+            ? VenueRentalSelectionMode.SELECT_COURTS
+            : schedule.selectionMode,
+          requestedCourtIds: courtIds,
+          ...(schedule.segments
+            ? {
+                segments: schedule.segments as unknown as Prisma.InputJsonValue,
+              }
+            : {}),
+          expiresAt,
+        },
+      });
+      await this.createEvent(
+        tx,
+        id,
+        userId,
+        VenueRentalEventType.RESCHEDULE_PROPOSED,
+        VenueRentalStatus.CONFIRMED,
+        VenueRentalStatus.CONFIRMED,
+        { proposalId: created.id }
+      );
+      return created;
+    });
+    await this.notifyRequester(
+      source.requesterId,
+      'Sân đề xuất dời lịch',
+      'Vui lòng xem và phản hồi lịch mới. Lịch cũ được giữ tới khi bạn trả lời.',
+      id,
+      `proposal:${proposal.id}:reschedule`,
+      'rental_reschedule_proposed'
+    );
+    return this.getRequest(id);
+  }
+
+  /** Takes back a move the customer has not answered. */
+  async withdrawReschedule(id: string, userId: string, role: string) {
+    const source = await this.getRequest(id);
+    await this.access.assertManager(source.venueId, userId, role);
+    const pending = source.proposals.find(
+      (item) =>
+        item.kind === VenueRentalProposalKind.RESCHEDULE &&
+        item.status === VenueRentalProposalStatus.PENDING
+    );
+    if (!pending) this.invalidTransition();
+    await this.prisma.$transaction((tx) => this.supersedeProposals(tx, id));
+    await this.notifyRequester(
+      source.requesterId,
+      'Sân đã rút đề xuất dời lịch',
+      'Lịch của bạn giữ nguyên như cũ.',
+      id,
+      `proposal:${pending.id}:reschedule-withdrawn`,
+      'rental_reschedule_withdrawn'
+    );
+    return this.getRequest(id);
+  }
+
+  /** Ends any open proposal and the holds a pending move took. */
+  private async supersedeProposals(tx: Prisma.TransactionClient, id: string) {
+    await tx.venueRentalProposal.updateMany({
+      where: { requestId: id, status: VenueRentalProposalStatus.PENDING },
+      data: {
+        status: VenueRentalProposalStatus.SUPERSEDED,
+        respondedAt: new Date(),
+      },
+    });
+    await this.courts.releaseRequestHolds(tx, id);
+  }
+
+  private async holdSchedule(
+    tx: Prisma.TransactionClient,
+    source: RentalWithVenue,
+    schedule: {
+      startTime: Date;
+      endTime: Date;
+      numberOfCourts: number;
+      selectionMode: VenueRentalSelectionMode;
+      courtIds: string[];
+      segments: Array<{
+        startTime: string;
+        endTime: string;
+        courtIds: string[];
+      }> | null;
+    },
+    expiresAt: Date
+  ) {
+    const pieces = schedule.segments?.map((segment) => ({
+      startTime: new Date(segment.startTime),
+      endTime: new Date(segment.endTime),
+      numberOfCourts: segment.courtIds.length,
+      selectionMode: VenueRentalSelectionMode.SELECT_COURTS,
+      courtIds: segment.courtIds,
+    })) ?? [schedule];
+    let held: string[] = [];
+    for (const piece of pieces) {
+      const courtIds = await this.courts.holdForReschedule(tx, {
+        requestId: source.id,
+        venueId: source.venueId,
+        startTime: piece.startTime,
+        endTime: piece.endTime,
+        numberOfCourts: piece.numberOfCourts,
+        selectionMode: piece.selectionMode,
+        courtIds: piece.courtIds,
+        timezone: source.venue.timezone,
+        expiresAt,
+      });
+      held = [...new Set([...held, ...courtIds])];
+    }
+    return held;
+  }
+
+  /** Swaps a confirmed booking onto [schedule]; returns any refund it owes. */
+  private async applySchedule(
+    tx: Prisma.TransactionClient,
+    source: RentalWithVenue,
+    schedule: {
+      startTime: Date;
+      endTime: Date;
+      numberOfCourts: number;
+      selectionMode: VenueRentalSelectionMode;
+      courtIds: string[];
+      segments: Array<{
+        startTime: string;
+        endTime: string;
+        courtIds: string[];
+      }> | null;
+      customerType: VenueCustomerType;
+      currency: string;
+      totalAmount: number;
+      breakdown: Prisma.InputJsonValue;
+    },
+    userId: string
+  ) {
+    await this.courts.releaseRequestAllocations(tx, source.id);
+    let allocated: string[] = [];
+    if (source.venue.courtSelectionEnabled) {
+      allocated = await this.allocateSchedule(
+        tx,
+        {
+          requestId: source.id,
+          venueId: source.venueId,
+          timezone: source.venue.timezone,
+        },
+        schedule
+      );
+    } else {
+      await this.lockCapacity(tx, source.venueId, schedule.startTime);
+      await this.assertCapacity(
+        tx,
+        source.venueId,
+        schedule.startTime,
+        schedule.endTime,
+        schedule.numberOfCourts,
+        source.id
+      );
+    }
+    const settlement = await this.payments.settleReschedule(
+      tx,
+      source,
+      schedule.totalAmount,
+      schedule.startTime,
+      userId
+    );
+    await tx.venueRentalRequest.update({
+      where: { id: source.id },
+      data: {
+        confirmedStartTime: schedule.startTime,
+        confirmedEndTime: schedule.endTime,
+        confirmedNumberOfCourts: schedule.numberOfCourts,
+        confirmedCustomerType: schedule.customerType,
+        confirmedAmount: schedule.totalAmount,
+        confirmedCurrency: schedule.currency,
+        confirmedBreakdown: schedule.breakdown,
+        confirmedSegments: schedule.segments
+          ? (schedule.segments as unknown as Prisma.InputJsonValue)
+          : Prisma.DbNull,
+        selectionMode: schedule.selectionMode,
+        requestedCourtIds: allocated.length ? allocated : schedule.courtIds,
+        balanceOverdueNotifiedAt: null,
+        ...settlement.money,
+      },
+    });
+    await this.createEvent(
+      tx,
+      source.id,
+      userId,
+      VenueRentalEventType.RESCHEDULED,
+      VenueRentalStatus.CONFIRMED,
+      VenueRentalStatus.CONFIRMED,
+      { from: source.confirmedStartTime?.toISOString() ?? null }
+    );
+    return settlement.refund;
+  }
+
+  private async acceptReschedule(
+    source: RentalWithVenue,
+    proposal: RentalWithVenue['proposals'][number],
+    userId: string
+  ) {
+    if (
+      source.status !== VenueRentalStatus.CONFIRMED ||
+      proposal.status !== VenueRentalProposalStatus.PENDING ||
+      proposal.expiresAt <= new Date()
+    ) {
+      this.invalidTransition();
+    }
+    const refund = await this.prisma.$transaction(async (tx) => {
+      const changed = await tx.venueRentalProposal.updateMany({
+        where: { id: proposal.id, status: VenueRentalProposalStatus.PENDING },
+        data: {
+          status: VenueRentalProposalStatus.ACCEPTED,
+          respondedAt: new Date(),
+        },
+      });
+      if (!changed.count) this.invalidTransition();
+      return this.applySchedule(
+        tx,
+        source,
+        {
+          startTime: proposal.startTime,
+          endTime: proposal.endTime,
+          numberOfCourts: proposal.numberOfCourts,
+          selectionMode: proposal.selectionMode,
+          courtIds: proposal.requestedCourtIds,
+          segments: readRentalSegments(proposal.segments),
+          customerType: proposal.customerType,
+          currency: proposal.currency,
+          totalAmount: proposal.totalAmount,
+          breakdown: proposal.breakdown as Prisma.InputJsonValue,
+        },
+        userId
+      );
+    });
+    await this.notifyManagers(
+      source.venueId,
+      'Khách đã đồng ý dời lịch',
+      'Lịch thuê sân đã được chuyển sang giờ mới.',
+      source.id,
+      `proposal:${proposal.id}:reschedule-accepted`,
+      'rental_reschedule_accepted'
+    );
+    if (refund) await this.notifyRefundRequired(source.venueId, source.id);
+    return this.getRequest(source.id);
+  }
+
+  private async declineReschedule(
+    source: RentalWithVenue,
+    proposal: RentalWithVenue['proposals'][number],
+    userId: string
+  ) {
+    if (proposal.status !== VenueRentalProposalStatus.PENDING) {
+      this.invalidTransition();
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.venueRentalProposal.update({
+        where: { id: proposal.id },
+        data: {
+          status: VenueRentalProposalStatus.DECLINED,
+          respondedAt: new Date(),
+        },
+      });
+      await this.courts.releaseRequestHolds(tx, source.id);
+      await this.createEvent(
+        tx,
+        source.id,
+        userId,
+        VenueRentalEventType.PROPOSAL_DECLINED,
+        source.status,
+        source.status,
+        { proposalId: proposal.id }
+      );
+    });
+    await this.notifyManagers(
+      source.venueId,
+      'Khách từ chối dời lịch',
+      'Lịch thuê sân giữ nguyên như cũ.',
+      source.id,
+      `proposal:${proposal.id}:reschedule-declined`,
+      'rental_reschedule_declined'
+    );
+    return this.getRequest(source.id);
+  }
+
+  private notifyRefundRequired(venueId: string, id: string) {
+    return this.notifyManagers(
+      venueId,
+      'Có khoản hoàn tiền thuê sân cần xử lý',
+      'Giá mới thấp hơn số tiền khách đã trả.',
+      id,
+      `request:${id}:refund-required:${Date.now()}`,
+      'rental_refund_required'
+    );
+  }
+
+  /** Records that the customer never came. Money and status stay as they are. */
+  async markNoShow(id: string, userId: string, role: string) {
+    const source = await this.getRequest(id);
+    await this.access.assertManager(source.venueId, userId, role);
+    if (
+      source.status !== VenueRentalStatus.CONFIRMED &&
+      source.status !== VenueRentalStatus.COMPLETED
+    ) {
+      this.invalidTransition();
+    }
+    if (!source.confirmedStartTime || source.confirmedStartTime > new Date()) {
+      throw this.conflict(
+        'RENTAL_NOT_STARTED',
+        'A rental cannot be a no-show before it starts'
+      );
+    }
+    return this.setNoShow(source, new Date(), userId);
+  }
+
+  async clearNoShow(id: string, userId: string, role: string) {
+    const source = await this.getRequest(id);
+    await this.access.assertManager(source.venueId, userId, role);
+    return this.setNoShow(source, null, userId);
+  }
+
+  private async setNoShow(
+    source: RentalWithVenue,
+    at: Date | null,
+    userId: string
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.venueRentalRequest.update({
+        where: { id: source.id },
+        data: { noShowAt: at, noShowMarkedById: at ? userId : null },
+      });
+      await this.createEvent(
+        tx,
+        source.id,
+        userId,
+        at
+          ? VenueRentalEventType.NO_SHOW_MARKED
+          : VenueRentalEventType.NO_SHOW_CLEARED,
+        source.status,
+        source.status
+      );
+    });
+    return this.getRequest(source.id);
+  }
+
+  /** How this customer has behaved at this venue, for the manager's call. */
+  async customerHistory(id: string, userId: string, role: string) {
+    const source = await this.getRequest(id);
+    await this.access.assertManager(source.venueId, userId, role);
+    const customer = source.requesterId
+      ? { requesterId: source.requesterId }
+      : { contactPhone: source.contactPhone };
+    const where = { venueId: source.venueId, ...customer };
+    const [bookings, noShows] = await Promise.all([
+      this.prisma.venueRentalRequest.count({
+        where: {
+          ...where,
+          status: {
+            in: [VenueRentalStatus.CONFIRMED, VenueRentalStatus.COMPLETED],
+          },
+        },
+      }),
+      this.prisma.venueRentalRequest.count({
+        where: { ...where, noShowAt: { not: null } },
+      }),
+    ]);
+    return { bookings, noShows };
   }
 
   async cancel(
@@ -1269,7 +1847,9 @@ export class VenueRentalsService {
         expiresAt: { lte: now },
       },
       include: {
-        request: { select: { id: true, requesterId: true, status: true } },
+        request: {
+          select: { id: true, requesterId: true, status: true, venueId: true },
+        },
       },
       take: 100,
     });
@@ -1295,9 +1875,22 @@ export class VenueRentalsService {
             { proposalId: proposal.id }
           );
         }
+        if (proposal.kind === VenueRentalProposalKind.RESCHEDULE) {
+          await this.courts.releaseRequestHolds(tx, proposal.request.id);
+        }
         return true;
       });
       if (!changed) continue;
+      if (proposal.kind === VenueRentalProposalKind.RESCHEDULE) {
+        await this.notifyManagers(
+          proposal.request.venueId,
+          'Đề xuất dời lịch đã hết hạn',
+          'Khách chưa phản hồi nên lịch cũ được giữ nguyên.',
+          proposal.request.id,
+          `proposal:${proposal.id}:reschedule-expired`,
+          'rental_reschedule_expired'
+        );
+      }
       await this.notifyRequester(
         proposal.request.requesterId,
         'Đề xuất thuê sân đã hết hạn',
@@ -1346,7 +1939,7 @@ export class VenueRentalsService {
     };
   }
 
-  private async getRequest(id: string) {
+  async getRequest(id: string) {
     const request = await this.prisma.venueRentalRequest.findUnique({
       where: { id },
       include: RENTAL_INCLUDE,
@@ -1446,7 +2039,8 @@ export class VenueRentalsService {
     venueId: string,
     startTime: Date,
     endTime: Date,
-    requestedCourts: number
+    requestedCourts: number,
+    ignoreRequestId?: string
   ) {
     const venue = await tx.venue.findUnique({
       where: { id: venueId },
@@ -1455,6 +2049,7 @@ export class VenueRentalsService {
     const rentals = await tx.venueRentalRequest.findMany({
       where: {
         venueId,
+        ...(ignoreRequestId ? { id: { not: ignoreRequestId } } : {}),
         status: {
           in: [VenueRentalStatus.AWAITING_DEPOSIT, VenueRentalStatus.CONFIRMED],
         },
@@ -1583,6 +2178,7 @@ export class VenueRentalsService {
     eventKey: string,
     action: string
   ) {
+    if (areRentalNotificationsMuted()) return;
     const managers = await this.prisma.venueManager.findMany({
       where: { venueId },
       select: { userId: true },
@@ -1610,7 +2206,7 @@ export class VenueRentalsService {
     action: string,
     extra: Record<string, string | undefined> = {}
   ) {
-    if (!userId) return Promise.resolve(null);
+    if (!userId || areRentalNotificationsMuted()) return Promise.resolve(null);
     return this.notifications.createForUser(
       userId,
       NotificationType.VENUE_RENTAL,
@@ -1691,7 +2287,7 @@ export class VenueRentalsService {
           { quote: { startTime: { lte: now } } },
         ],
       },
-      select: { id: true, venueId: true, requesterId: true },
+      select: { id: true, venueId: true, requesterId: true, seriesId: true },
       take: 100,
     });
     let lapsed = 0;
@@ -1720,6 +2316,16 @@ export class VenueRentalsService {
       });
       if (!changed) continue;
       lapsed += 1;
+      if (request.seriesId) {
+        await this.prisma.venueRentalSeries.updateMany({
+          where: {
+            id: request.seriesId,
+            status: VenueRentalSeriesStatus.PENDING,
+            requests: { none: { status: VenueRentalStatus.PENDING } },
+          },
+          data: { status: VenueRentalSeriesStatus.CANCELLED },
+        });
+      }
       await this.notifyRequester(
         request.requesterId,
         'Yêu cầu thuê sân đã hết hạn',
@@ -1774,16 +2380,6 @@ export class VenueRentalsService {
       );
     }
     return upcoming.length;
-  }
-
-  /** Counter-offers and manual bookings stay single-range for now. */
-  private assertNoSegments(segments: unknown[] | undefined) {
-    if (segments?.length) {
-      throw new BadRequestException({
-        code: 'SEGMENTS_UNSUPPORTED',
-        message: 'Segments are only supported on online rental quotes',
-      });
-    }
   }
 
   private conflict(code: string, message: string) {

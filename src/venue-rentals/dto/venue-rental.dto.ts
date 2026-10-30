@@ -9,6 +9,7 @@ import {
   IsOptional,
   IsString,
   Max,
+  Matches,
   MaxLength,
   Min,
   ValidateIf,
@@ -149,6 +150,15 @@ export class CreateManualRentalDto extends CreateRentalQuoteDto {
 
   @IsString()
   venueId!: string;
+}
+
+/** Venue-local `yyyy-MM-dd` days, both inclusive. */
+export class RentalReportQueryDto {
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  from!: string;
+
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  to!: string;
 }
 
 export class QueryVenueRentalsDto {

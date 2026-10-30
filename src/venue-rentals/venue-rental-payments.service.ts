@@ -20,6 +20,7 @@ import {
   VenueRentalTransactionStatus,
 } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
+import { areRentalNotificationsMuted } from './rental-notify-scope';
 import { PrismaService } from '../prisma/prisma.service';
 import { VenueAccessService } from '../venues/venue-access.service';
 import {
@@ -388,7 +389,18 @@ export class VenueRentalPaymentsService {
       balanceStatus,
       totalPaid: approvedIn,
       refunded,
-      outstanding: Math.max(0, (request.confirmedAmount || 0) - approvedIn),
+      outstanding: Math.max(
+        0,
+        (request.confirmedAmount || 0) -
+          approvedIn +
+          request.transactions
+            .filter(
+              (transaction) =>
+                transaction.isAdjustment &&
+                transaction.status !== VenueRentalTransactionStatus.CANCELLED
+            )
+            .reduce((sum, transaction) => sum + transaction.amount, 0)
+      ),
       refundEstimate,
       recipient: {
         bankName: request.paymentBankName,
@@ -758,6 +770,85 @@ export class VenueRentalPaymentsService {
     return refund;
   }
 
+  /** Money kept so far: approved payments minus price-drop refunds. */
+  private async netPaid(tx: Prisma.TransactionClient, requestId: string) {
+    const paid = await tx.venueRentalTransaction.aggregate({
+      where: {
+        requestId,
+        direction: VenueRentalTransactionDirection.IN,
+        status: VenueRentalTransactionStatus.APPROVED,
+      },
+      _sum: { amount: true },
+    });
+    const adjusted = await tx.venueRentalTransaction.aggregate({
+      where: {
+        requestId,
+        isAdjustment: true,
+        status: { not: VenueRentalTransactionStatus.CANCELLED },
+      },
+      _sum: { amount: true },
+    });
+    return (paid._sum.amount || 0) - (adjusted._sum.amount || 0);
+  }
+
+  /**
+   * Re-prices a booking that moved. A dearer slot simply raises what is left
+   * to pay; a cheaper one below what was paid owes the difference back. The
+   * deposit stays as paid, and the terms snapshot is untouched: the customer
+   * agreed to those terms when they booked.
+   */
+  async settleReschedule(
+    tx: Prisma.TransactionClient,
+    request: {
+      id: string;
+      confirmedCurrency: string | null;
+      depositAmount: number | null;
+      paymentBalanceDueHours: number | null;
+    },
+    totalAmount: number,
+    startTime: Date,
+    actorId: string
+  ) {
+    const overpaid = (await this.netPaid(tx, request.id)) - totalAmount;
+    const refund =
+      overpaid > 0
+        ? await tx.venueRentalTransaction.create({
+            data: {
+              requestId: request.id,
+              purpose: VenueRentalTransactionPurpose.REFUND,
+              direction: VenueRentalTransactionDirection.OUT,
+              status: VenueRentalTransactionStatus.PENDING,
+              amount: overpaid,
+              currency: request.confirmedCurrency || 'VND',
+              submittedByUserId: actorId,
+              isAdjustment: true,
+            },
+          })
+        : null;
+    if (refund) {
+      await this.createEvent(
+        tx,
+        request.id,
+        actorId,
+        VenueRentalEventType.REFUND_REQUIRED,
+        { refundId: refund.id, amount: overpaid }
+      );
+    }
+    const depositAmount = Math.min(request.depositAmount || 0, totalAmount);
+    const dueHours =
+      request.paymentBalanceDueHours ?? DEFAULT_SETTINGS.balanceDueHours;
+    const now = new Date();
+    const candidate = new Date(startTime.getTime() - dueHours * 3_600_000);
+    return {
+      refund,
+      money: {
+        depositAmount,
+        balanceAmount: totalAmount - depositAmount,
+        balanceDueAt: candidate > now ? candidate : now,
+      },
+    };
+  }
+
   async createRefundForCancellation(
     tx: Prisma.TransactionClient,
     request: {
@@ -773,16 +864,9 @@ export class VenueRentalPaymentsService {
     actorId: string | null
   ) {
     if (!request.confirmedStartTime) return null;
-    const paid = await tx.venueRentalTransaction.aggregate({
-      where: {
-        requestId: request.id,
-        direction: VenueRentalTransactionDirection.IN,
-        status: VenueRentalTransactionStatus.APPROVED,
-      },
-      _sum: { amount: true },
-    });
+    const paid = await this.netPaid(tx, request.id);
     const amount = calculateRentalRefund(
-      paid._sum.amount || 0,
+      paid,
       isRequesterCancellation,
       request.confirmedStartTime,
       cancelledAt,
@@ -797,6 +881,7 @@ export class VenueRentalPaymentsService {
         requestId: request.id,
         purpose: VenueRentalTransactionPurpose.REFUND,
         status: { not: VenueRentalTransactionStatus.CANCELLED },
+        isAdjustment: false,
       },
     });
     if (existing) return existing;
@@ -1183,6 +1268,7 @@ export class VenueRentalPaymentsService {
     eventKey: string,
     action: string
   ) {
+    if (areRentalNotificationsMuted()) return;
     const managers = await this.prisma.venueManager.findMany({
       where: { venueId },
       select: { userId: true },
@@ -1217,7 +1303,7 @@ export class VenueRentalPaymentsService {
     action: string,
     extra: Record<string, string | undefined> = {}
   ) {
-    if (!userId) return Promise.resolve(null);
+    if (!userId || areRentalNotificationsMuted()) return Promise.resolve(null);
     return this.notifications.createForUser(
       userId,
       NotificationType.VENUE_RENTAL,

@@ -9,17 +9,23 @@ import { VenueRentalsService } from './venue-rentals.service';
 import { VenueCourtsController } from './venue-courts.controller';
 import { VenueCourtsService } from './venue-courts.service';
 import { VenueRentalPaymentsService } from './venue-rental-payments.service';
+import { VenueRentalReportService } from './venue-rental-report.service';
+import { VenueRentalSeriesController } from './venue-rental-series.controller';
+import { VenueRentalSeriesService } from './venue-rental-series.service';
 
 @Module({
   imports: [PrismaModule, NotificationsModule, VenuesModule],
   controllers: [
     VenueRentalsController,
+    VenueRentalSeriesController,
     VenueRentalVenuesController,
     VenueCourtsController,
   ],
   providers: [
     VenueRentalsService,
     VenueRentalPaymentsService,
+    VenueRentalReportService,
+    VenueRentalSeriesService,
     VenueRentalsScheduler,
     VenueCourtsService,
   ],

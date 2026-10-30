@@ -697,6 +697,142 @@ export const PUSH_TEMPLATES: Record<string, PushTemplate> = {
       zh: '你在“{venueName}”的预订时间是 {startTime}。',
     },
   },
+  rental_reschedule_proposed: {
+    title: {
+      vi: 'Sân đề xuất dời lịch',
+      en: 'The venue wants to move your booking',
+      zh: '场馆建议调整时间',
+    },
+    message: {
+      vi: 'Vui lòng xem và phản hồi lịch mới. Lịch cũ được giữ tới khi bạn trả lời.',
+      en: 'Please review the new time. Your current booking stays until you answer.',
+      zh: '请查看新时间。在你回复前，原预订保持不变。',
+    },
+  },
+  rental_reschedule_withdrawn: {
+    title: {
+      vi: 'Sân đã rút đề xuất dời lịch',
+      en: 'Move request withdrawn',
+      zh: '场馆已撤回调整建议',
+    },
+    message: {
+      vi: 'Lịch của bạn giữ nguyên như cũ.',
+      en: 'Your booking stays as it was.',
+      zh: '你的预订保持不变。',
+    },
+  },
+  rental_reschedule_accepted: {
+    title: {
+      vi: 'Khách đã đồng ý dời lịch',
+      en: 'Customer accepted the move',
+      zh: '客户已同意调整',
+    },
+    message: {
+      vi: 'Lịch thuê sân đã được chuyển sang giờ mới.',
+      en: 'The booking has moved to the new time.',
+      zh: '预订已调整到新时间。',
+    },
+  },
+  rental_reschedule_declined: {
+    title: {
+      vi: 'Khách từ chối dời lịch',
+      en: 'Customer declined the move',
+      zh: '客户拒绝调整',
+    },
+    message: {
+      vi: 'Lịch thuê sân giữ nguyên như cũ.',
+      en: 'The booking stays as it was.',
+      zh: '预订保持不变。',
+    },
+  },
+  rental_reschedule_expired: {
+    title: {
+      vi: 'Đề xuất dời lịch đã hết hạn',
+      en: 'Move request expired',
+      zh: '调整建议已过期',
+    },
+    message: {
+      vi: 'Khách chưa phản hồi nên lịch cũ được giữ nguyên.',
+      en: 'The customer did not reply, so the booking stays as it was.',
+      zh: '客户未回复，预订保持不变。',
+    },
+  },
+  rental_series_created: {
+    title: {
+      vi: 'Yêu cầu đặt cố định mới',
+      en: 'New weekly booking request',
+      zh: '新的固定预订请求',
+    },
+    message: {
+      vi: 'Có yêu cầu đặt cố định {count} buổi cần xử lý.',
+      en: 'A weekly booking of {count} sessions needs review.',
+      zh: '有 {count} 场固定预订需要处理。',
+    },
+  },
+  rental_series_approved: {
+    title: {
+      vi: 'Sân đã duyệt lịch cố định',
+      en: 'Weekly booking approved',
+      zh: '固定预订已批准',
+    },
+    message: {
+      vi: '{count} buổi đã được duyệt.',
+      en: '{count} sessions were approved.',
+      zh: '已批准 {count} 场。',
+    },
+  },
+  rental_series_rejected: {
+    title: {
+      vi: 'Sân đã từ chối lịch cố định',
+      en: 'Weekly booking declined',
+      zh: '固定预订被拒绝',
+    },
+    message: { vi: '{reason}', en: '{reason}', zh: '{reason}' },
+  },
+  rental_series_cancelled: {
+    title: {
+      vi: 'Lịch cố định đã bị huỷ',
+      en: 'Weekly booking cancelled',
+      zh: '固定预订已取消',
+    },
+    message: {
+      vi: '{count} buổi còn lại đã được huỷ.',
+      en: 'The remaining {count} sessions were cancelled.',
+      zh: '剩余 {count} 场已取消。',
+    },
+  },
+  rental_series_payment_submitted: {
+    title: {
+      vi: 'Có chứng từ thanh toán lịch cố định',
+      en: 'Weekly booking payment received',
+      zh: '收到固定预订付款凭证',
+    },
+    message: {
+      vi: 'Khách đã gửi một chứng từ cho nhiều buổi.',
+      en: 'The customer sent one proof for several sessions.',
+      zh: '客户为多场提交了一份凭证。',
+    },
+  },
+  rental_series_payment_approved: {
+    title: {
+      vi: 'Sân đã xác nhận thanh toán',
+      en: 'Payment confirmed',
+      zh: '付款已确认',
+    },
+    message: {
+      vi: 'Chứng từ cho lịch cố định đã được duyệt.',
+      en: 'Your weekly booking payment was approved.',
+      zh: '固定预订的付款已通过。',
+    },
+  },
+  rental_series_payment_rejected: {
+    title: {
+      vi: 'Sân từ chối chứng từ',
+      en: 'Payment proof rejected',
+      zh: '付款凭证被拒绝',
+    },
+    message: { vi: '{reason}', en: '{reason}', zh: '{reason}' },
+  },
   rental_proposal_expired: {
     title: {
       vi: 'Đề xuất thuê sân đã hết hạn',

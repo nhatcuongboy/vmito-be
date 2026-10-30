@@ -834,6 +834,7 @@ model Venue {
   managers              VenueManager[]
   rentalQuotes          VenueRentalQuote[]
   rentalRequests        VenueRentalRequest[]
+  rentalSeries VenueRentalSeries[]
   courts                VenueCourt[]
   operatingPeriods      VenueOperatingPeriod[]
   courtBlocks           VenueCourtBlock[]
@@ -1089,6 +1090,10 @@ enum VenueRentalEventType {
   DEPOSIT_EXPIRED
   REFUND_REQUIRED
   REFUND_COMPLETED
+  RESCHEDULE_PROPOSED
+  RESCHEDULED
+  NO_SHOW_MARKED
+  NO_SHOW_CLEARED
 }
 
 enum VenueRentalDepositMode {
@@ -1238,6 +1243,9 @@ model VenueRentalRequest {
   balanceDueAt                  DateTime?
   depositReminderNotifiedAt     DateTime?
   balanceOverdueNotifiedAt      DateTime?
+  noShowAt                      DateTime?
+  noShowMarkedById              String?
+  seriesId                      String?
   createdAt                     DateTime                 @default(now())
   updatedAt                     DateTime                 @updatedAt
 
@@ -1246,6 +1254,7 @@ model VenueRentalRequest {
   quote            VenueRentalQuote?            @relation(fields: [quoteId], references: [id], onDelete: Restrict)
   createdBy        User?                        @relation("RentalCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
   session          Session?                     @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  series           VenueRentalSeries?           @relation(fields: [seriesId], references: [id], onDelete: SetNull)
   reviewedBy       User?                        @relation("RentalReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
   cancelledBy      User?                        @relation("RentalCanceller", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
   proposals        VenueRentalProposal[]
@@ -1257,6 +1266,7 @@ model VenueRentalRequest {
   @@index([venueId, confirmedStartTime, confirmedEndTime])
   @@index([requesterId, createdAt])
   @@index([sessionId])
+  @@index([seriesId])
   @@index([status, depositDueAt])
   @@index([status, balanceDueAt])
   @@map("venue_rental_requests")
@@ -1283,6 +1293,8 @@ model VenueRentalTransaction {
   refundBankName      String?
   refundAccountNumber String?
   refundAccountName   String?
+  isAdjustment        Boolean                        @default(false)
+  batchId             String?
   createdAt         DateTime                        @default(now())
   updatedAt         DateTime                        @updatedAt
 
@@ -1292,12 +1304,54 @@ model VenueRentalTransaction {
 
   @@index([requestId, purpose, status])
   @@index([status, createdAt])
+  @@index([batchId])
   @@map("venue_rental_transactions")
+}
+
+enum VenueRentalSeriesStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+  CANCELLED
+}
+
+/// Weekly fixed booking. Each session is a normal VenueRentalRequest.
+model VenueRentalSeries {
+  id              String                  @id @default(cuid())
+  venueId         String
+  requesterId     String?
+  createdByUserId String
+  source          VenueRentalSource       @default(ONLINE)
+  status          VenueRentalSeriesStatus @default(PENDING)
+  contactName     String
+  contactPhone    String
+  notes           String?
+  customerType    VenueCustomerType
+  dayOfWeek       Int
+  startMinute     Int
+  endMinute       Int
+  courtIds        String[]                @default([])
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  venue    Venue                @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  requests VenueRentalRequest[]
+
+  @@index([venueId, status])
+  @@index([requesterId])
+  @@map("venue_rental_series")
+}
+
+enum VenueRentalProposalKind {
+  OFFER
+  RESCHEDULE
 }
 
 model VenueRentalProposal {
   id                String                    @id @default(cuid())
   requestId         String
+  kind              VenueRentalProposalKind   @default(OFFER)
+  segments          Json?
   proposedById      String
   startTime         DateTime
   endTime           DateTime

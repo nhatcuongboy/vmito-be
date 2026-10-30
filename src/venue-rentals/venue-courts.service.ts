@@ -458,6 +458,109 @@ export class VenueCourtsService {
   }
 
   /** Every live allocation of a request, including a pending-review hold. */
+  /**
+   * Holds a new time for a confirmed booking while the customer decides. The
+   * booking's own courts stay free for it, and the overlap constraint forbids
+   * two active rows on a court even for one request, so only the part of the
+   * new time outside the current booking is held. Returns the chosen courts.
+   */
+  async holdForReschedule(
+    tx: Prisma.TransactionClient,
+    input: {
+      requestId: string;
+      venueId: string;
+      startTime: Date;
+      endTime: Date;
+      numberOfCourts: number;
+      selectionMode: VenueRentalSelectionMode;
+      courtIds?: string[];
+      timezone: string;
+      expiresAt: Date;
+    }
+  ) {
+    await this.lockVenueDay(tx, input.venueId, input.startTime, input.timezone);
+    await this.releaseExpiredVenueHolds(tx, input.venueId);
+    await this.assertOpenRange(
+      tx,
+      input.venueId,
+      input.startTime,
+      input.endTime,
+      input.timezone
+    );
+    const courtIds = await this.resolveCourts(tx, {
+      ...input,
+      ignoreRequestId: input.requestId,
+    });
+    const own = await tx.venueRentalCourtAllocation.findMany({
+      where: {
+        requestId: input.requestId,
+        courtId: { in: courtIds },
+        status: {
+          in: [
+            VenueRentalAllocationStatus.HELD,
+            VenueRentalAllocationStatus.RESERVED,
+            VenueRentalAllocationStatus.CONFIRMED,
+          ],
+        },
+      },
+      select: { courtId: true, startTime: true, endTime: true },
+    });
+    const pieces = courtIds.flatMap((courtId) =>
+      subtractRanges(
+        input.startTime,
+        input.endTime,
+        own.filter((row) => row.courtId === courtId)
+      ).map((range) => ({
+        venueId: input.venueId,
+        courtId,
+        requestId: input.requestId,
+        startTime: range.startTime,
+        endTime: range.endTime,
+        status: VenueRentalAllocationStatus.HELD,
+        expiresAt: input.expiresAt,
+      }))
+    );
+    if (pieces.length) {
+      await tx.venueRentalCourtAllocation.createMany({ data: pieces });
+    }
+    return courtIds;
+  }
+
+  /** Read-only: are all [courtIds] open and unbooked for this range? */
+  async areCourtsFree(
+    venueId: string,
+    startTime: Date,
+    endTime: Date,
+    courtIds: string[],
+    timezone: string
+  ) {
+    await this.assertOpenRange(
+      this.prisma,
+      venueId,
+      startTime,
+      endTime,
+      timezone
+    );
+    const available = await this.findAvailableCourts(
+      this.prisma,
+      venueId,
+      startTime,
+      endTime
+    );
+    return courtIds.every((id) => available.some((court) => court.id === id));
+  }
+
+  /** Drops a reschedule's holds; the booking's own rows stay. */
+  releaseRequestHolds(tx: Prisma.TransactionClient, requestId: string) {
+    return tx.venueRentalCourtAllocation.updateMany({
+      where: { requestId, status: VenueRentalAllocationStatus.HELD },
+      data: {
+        status: VenueRentalAllocationStatus.RELEASED,
+        releasedAt: new Date(),
+      },
+    });
+  }
+
   releaseRequestAllocations(tx: Prisma.TransactionClient, requestId: string) {
     return tx.venueRentalCourtAllocation.updateMany({
       where: {
@@ -791,13 +894,16 @@ export class VenueCourtsService {
       numberOfCourts: number;
       selectionMode: VenueRentalSelectionMode;
       courtIds?: string[];
+      /** A moved booking does not compete with its own current slot. */
+      ignoreRequestId?: string;
     }
   ) {
     const available = await this.findAvailableCourts(
       tx,
       input.venueId,
       input.startTime,
-      input.endTime
+      input.endTime,
+      input.ignoreRequestId
     );
     if (input.selectionMode === VenueRentalSelectionMode.SELECT_COURTS) {
       const requested = [...new Set(input.courtIds || [])];
@@ -818,7 +924,8 @@ export class VenueCourtsService {
     tx: Prisma.TransactionClient,
     venueId: string,
     startTime: Date,
-    endTime: Date
+    endTime: Date,
+    ignoreRequestId?: string
   ) {
     return tx.venueCourt.findMany({
       where: {
@@ -831,6 +938,20 @@ export class VenueCourtsService {
           none: {
             startTime: { lt: endTime },
             endTime: { gt: startTime },
+            // Spelled with `requestId: null` because quote holds have none,
+            // and a plain `not` would skip those rows in SQL.
+            ...(ignoreRequestId
+              ? {
+                  AND: [
+                    {
+                      OR: [
+                        { requestId: null },
+                        { requestId: { not: ignoreRequestId } },
+                      ],
+                    },
+                  ],
+                }
+              : {}),
             OR: [
               { status: VenueRentalAllocationStatus.CONFIRMED },
               { status: VenueRentalAllocationStatus.RESERVED },
@@ -978,4 +1099,26 @@ export class VenueCourtsService {
       message: 'One or more selected courts are no longer available',
     });
   }
+}
+
+/** What is left of `[start, end)` after cutting out [taken]. */
+export function subtractRanges(
+  start: Date,
+  end: Date,
+  taken: Array<{ startTime: Date; endTime: Date }>
+) {
+  const left: Array<{ startTime: Date; endTime: Date }> = [];
+  let cursor = start;
+  const ordered = [...taken].sort(
+    (a, b) => a.startTime.getTime() - b.startTime.getTime()
+  );
+  for (const range of ordered) {
+    if (range.endTime <= cursor || range.startTime >= end) continue;
+    if (range.startTime > cursor) {
+      left.push({ startTime: cursor, endTime: range.startTime });
+    }
+    if (range.endTime > cursor) cursor = range.endTime;
+  }
+  if (cursor < end) left.push({ startTime: cursor, endTime: end });
+  return left;
 }

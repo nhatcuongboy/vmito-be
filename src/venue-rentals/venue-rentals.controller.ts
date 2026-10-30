@@ -1,5 +1,6 @@
 import {
   Body,
+  Delete,
   Controller,
   Get,
   Param,
@@ -103,6 +104,41 @@ export class VenueRentalsController {
     @CurrentUser() user: AuthenticatedUser
   ) {
     return this.service.propose(id, dto, user.userId, user.role);
+  }
+
+  @Post(':id/reschedule')
+  reschedule(
+    @Param('id') id: string,
+    @Body() dto: CreateRentalProposalDto,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.service.reschedule(id, dto, user.userId, user.role);
+  }
+
+  @Post(':id/reschedule/withdraw')
+  withdrawReschedule(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.service.withdrawReschedule(id, user.userId, user.role);
+  }
+
+  @Post(':id/no-show')
+  markNoShow(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.markNoShow(id, user.userId, user.role);
+  }
+
+  @Delete(':id/no-show')
+  clearNoShow(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.clearNoShow(id, user.userId, user.role);
+  }
+
+  @Get(':id/customer-history')
+  customerHistory(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.service.customerHistory(id, user.userId, user.role);
   }
 
   @Post(':id/proposals/:proposalId/accept')
