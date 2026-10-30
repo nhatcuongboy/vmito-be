@@ -23,6 +23,23 @@ export class SuggestedImageDto {
   publicId?: string;
 }
 
+/** Who is claiming a venue and the evidence an admin reviews. */
+export class OwnershipClaimDto {
+  @IsString()
+  @MaxLength(120)
+  contactName!: string;
+
+  @IsString()
+  @MaxLength(40)
+  contactPhone!: string;
+
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => SuggestedImageDto)
+  proofImages!: SuggestedImageDto[];
+}
+
 export class VenueRequestPayloadDto {
   @IsOptional()
   @IsString()
@@ -134,6 +151,12 @@ export class VenueRequestPayloadDto {
   @ValidateNested({ each: true })
   @Type(() => SuggestedImageDto)
   suggestedImages?: SuggestedImageDto[];
+
+  // Ownership claim: contact details and proof images.
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => OwnershipClaimDto)
+  claim?: OwnershipClaimDto;
 
   @IsOptional()
   @IsString()

@@ -357,6 +357,66 @@ export const PUSH_TEMPLATES: Record<string, PushTemplate> = {
       },
     },
   },
+  admin_new_venue_claim: {
+    title: {
+      vi: 'Yêu cầu nhận chủ sân mới',
+      en: 'New venue ownership claim',
+      zh: '新的场馆认领请求',
+    },
+    message: {
+      vi: '{userName} yêu cầu nhận chủ sân "{venueName}".',
+      en: '{userName} claims to own "{venueName}".',
+      zh: '{userName} 申请认领场馆“{venueName}”。',
+    },
+  },
+  venue_owner_claim_approved: {
+    title: {
+      vi: 'Bạn đã là chủ sân',
+      en: 'You now own this venue',
+      zh: '您已成为场馆所有者',
+    },
+    message: {
+      vi: 'Yêu cầu nhận chủ sân "{venueName}" đã được phê duyệt.',
+      en: 'Your ownership claim for "{venueName}" was approved.',
+      zh: '您对“{venueName}”的认领请求已获批准。',
+    },
+  },
+  venue_owner_claim_rejected: {
+    title: {
+      vi: 'Yêu cầu nhận chủ sân bị từ chối',
+      en: 'Ownership claim rejected',
+      zh: '场馆认领请求被拒绝',
+    },
+    message: {
+      vi: 'Yêu cầu nhận chủ sân "{venueName}" bị từ chối. Lý do: {rejectionReason}',
+      en: 'Your ownership claim for "{venueName}" was rejected. Reason: {rejectionReason}',
+      zh: '您对“{venueName}”的认领请求被拒绝。原因：{rejectionReason}',
+    },
+  },
+  venue_owner_replaced: {
+    title: {
+      vi: 'Vai trò tại sân đã thay đổi',
+      en: 'Your venue role changed',
+      zh: '您的场馆角色已变更',
+    },
+    message: {
+      vi: 'Bạn đã được chuyển thành người quản lý của sân "{venueName}".',
+      en: 'You are now a manager of "{venueName}".',
+      zh: '您已成为“{venueName}”的管理员。',
+    },
+  },
+  venue_manager_assigned: {
+    title: {
+      vi: 'Bạn được giao quản lý sân',
+      en: 'You now manage a venue',
+      zh: '您已被指派管理场馆',
+    },
+    message: {
+      vi: 'Bạn đã được thêm vào đội quản lý sân "{venueName}".',
+      en: 'You were added to the team of "{venueName}".',
+      zh: '您已加入“{venueName}”的管理团队。',
+    },
+  },
   venue_request_approved: {
     title: {
       vi: 'Yêu cầu thông tin sân đã được phê duyệt',

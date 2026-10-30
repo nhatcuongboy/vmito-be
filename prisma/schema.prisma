@@ -1366,6 +1366,7 @@ enum VenueRequestType {
   UPDATE
   PRICE_CORRECTION
   IMAGE_CORRECTION
+  OWNERSHIP_CLAIM
 }
 
 enum VenueRequestStatus {

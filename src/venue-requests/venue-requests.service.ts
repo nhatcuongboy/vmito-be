@@ -25,13 +25,8 @@ import {
   UpdateVenueRequestDto,
 } from './dto';
 import { VenueRequestPayloadDto } from './dto/venue-request-payload.dto';
-
-const VENUE_REQUEST_INCLUDE = {
-  submittedBy: { select: { id: true, name: true, email: true, image: true } },
-  reviewedBy: { select: { id: true, name: true, email: true, image: true } },
-  venue: true,
-  appliedVenue: true,
-} satisfies Prisma.VenueRequestInclude;
+import { VenueOwnershipClaimsService } from './venue-ownership-claims.service';
+import { VENUE_REQUEST_INCLUDE } from './venue-request.include';
 
 type VenuePatchPayload = Partial<{
   name: string;
@@ -65,6 +60,7 @@ const NON_VENUE_PAYLOAD_KEYS = [
   'priceImagePublicId',
   'suggestedImages',
   'street',
+  'claim',
 ] as const;
 
 @Injectable()
@@ -74,12 +70,23 @@ export class VenueRequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly venuesService: VenuesService,
-    private readonly notificationsService: NotificationsService
+    private readonly notificationsService: NotificationsService,
+    private readonly ownershipClaims: VenueOwnershipClaimsService
   ) {}
 
   async create(dto: CreateVenueRequestDto, userId: string) {
     const payload = this.sanitizePayload(dto.payload);
     this.validateRequest(dto.type, dto.venueId, payload);
+
+    if (dto.type === VenueRequestType.OWNERSHIP_CLAIM) {
+      const claim = await this.ownershipClaims.submit(
+        userId,
+        dto.venueId!,
+        payload
+      );
+      this.syncAdminBadges();
+      return claim;
+    }
 
     // Every non-CREATE type targets an existing venue.
     const targetsVenue = dto.type !== VenueRequestType.CREATE;
@@ -126,6 +133,7 @@ export class VenueRequestsService {
         submittedByUserId: userId,
         ...(query.status ? { status: query.status } : {}),
         ...(query.type ? { type: query.type } : {}),
+        ...(query.venueId ? { venueId: query.venueId } : {}),
       },
       orderBy: { createdAt: 'desc' },
       include: VENUE_REQUEST_INCLUDE,
@@ -137,6 +145,7 @@ export class VenueRequestsService {
       where: {
         ...(query.status ? { status: query.status } : {}),
         ...(query.type ? { type: query.type } : {}),
+        ...(query.venueId ? { venueId: query.venueId } : {}),
       },
       orderBy: { createdAt: 'desc' },
       include: VENUE_REQUEST_INCLUDE,
@@ -151,6 +160,15 @@ export class VenueRequestsService {
 
     if (!request) {
       throw new NotFoundException('Venue request not found');
+    }
+
+    if (request.type === VenueRequestType.OWNERSHIP_CLAIM && request.venueId) {
+      return {
+        ...request,
+        currentOwners: await this.ownershipClaims.currentOwners(
+          request.venueId
+        ),
+      };
     }
 
     return request;
@@ -248,6 +266,16 @@ export class VenueRequestsService {
       );
 
       return updatedRequest;
+    }
+
+    if (request.type === VenueRequestType.OWNERSHIP_CLAIM) {
+      const approved = await this.ownershipClaims.approve(
+        request,
+        adminUserId,
+        dto.ownershipMode ?? 'ADD'
+      );
+      this.syncAdminBadges();
+      return approved;
     }
 
     if (!request.venueId) {
@@ -466,15 +494,22 @@ export class VenueRequestsService {
     const payload = request.payload as VenueRequestPayloadDto;
     const venueName = request.venue?.name || payload?.name || 'Sân cầu lông';
     const venueId = request.venueId ?? undefined;
+    const isClaim = request.type === VenueRequestType.OWNERSHIP_CLAIM;
 
     try {
       await this.notificationsService.createForUser(
         request.submittedByUserId,
         'VENUE_REQUEST' as NotificationType,
-        'Yêu cầu thông tin sân bị từ chối',
-        `Đề xuất về sân "${venueName}" của bạn bị từ chối. Lý do: ${adminNote}`,
+        isClaim
+          ? 'Yêu cầu nhận chủ sân bị từ chối'
+          : 'Yêu cầu thông tin sân bị từ chối',
+        isClaim
+          ? `Yêu cầu nhận chủ sân "${venueName}" bị từ chối. Lý do: ${adminNote}`
+          : `Đề xuất về sân "${venueName}" của bạn bị từ chối. Lý do: ${adminNote}`,
         {
-          action: 'venue_request_rejected',
+          action: isClaim
+            ? 'venue_owner_claim_rejected'
+            : 'venue_request_rejected',
           requestId: request.id,
           venueId,
           venueName,
@@ -501,6 +536,11 @@ export class VenueRequestsService {
   ) {
     if (type === VenueRequestType.CREATE) {
       this.validateCreatePayload(payload);
+      return;
+    }
+
+    if (type === VenueRequestType.OWNERSHIP_CLAIM) {
+      this.ownershipClaims.validate(venueId, payload);
       return;
     }
 
@@ -615,6 +655,17 @@ export class VenueRequestsService {
       if (images.length > 0) {
         sanitized.suggestedImages = images;
       }
+    }
+
+    const claim = payload?.claim;
+    if (claim) {
+      sanitized.claim = {
+        contactName: claim.contactName?.trim() ?? '',
+        contactPhone: claim.contactPhone?.trim() ?? '',
+        proofImages: (claim.proofImages ?? []).filter((image) =>
+          image?.url?.trim()
+        ),
+      };
     }
 
     return sanitized;
