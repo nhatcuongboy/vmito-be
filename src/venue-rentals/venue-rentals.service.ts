@@ -15,6 +15,8 @@ import {
   VenueRentalSelectionMode,
   VenueRentalSource,
   VenueRentalStatus,
+  VenueRentalTransactionPurpose,
+  VenueRentalTransactionStatus,
 } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -27,6 +29,10 @@ import {
   ReallocateRentalCourtsDto,
 } from './dto/venue-rental.dto';
 import { VenueCourtsService } from './venue-courts.service';
+import {
+  DEPOSIT_DUE_SOON_MS,
+  rentalAttentionReasons,
+} from './rental-attention';
 import { readRentalSegments } from './rental-segments';
 import { VenuePricingService } from './venue-pricing.service';
 import { VenueRentalPaymentsService } from './venue-rental-payments.service';
@@ -596,6 +602,82 @@ export class VenueRentalsService {
       },
       query
     );
+  }
+
+  /**
+   * Rentals waiting on the manager (approval, payment review, refund,
+   * deposit about to lapse, overdue balance), each with its reasons — one
+   * call for the app's "Cần xử lý" inbox and badges.
+   */
+  async findAttention(userId: string, role: string, venueId?: string) {
+    const venueIds =
+      role === Role.ADMIN
+        ? undefined
+        : (
+            await this.prisma.venueManager.findMany({
+              where: { userId },
+              select: { venueId: true },
+            })
+          ).map((item) => item.venueId);
+    if (venueIds && venueIds.length === 0) return { items: [], count: 0 };
+    if (venueId && venueIds && !venueIds.includes(venueId)) {
+      throw new ForbiddenException('Venue manager access required');
+    }
+    const now = new Date();
+    const candidates = await this.prisma.venueRentalRequest.findMany({
+      where: {
+        ...(venueIds ? { venueId: venueId || { in: venueIds } } : {}),
+        ...(venueId && !venueIds ? { venueId } : {}),
+        OR: [
+          { status: VenueRentalStatus.PENDING },
+          {
+            transactions: {
+              some: { status: VenueRentalTransactionStatus.SUBMITTED },
+            },
+          },
+          {
+            transactions: {
+              some: {
+                purpose: VenueRentalTransactionPurpose.REFUND,
+                status: VenueRentalTransactionStatus.PENDING,
+              },
+            },
+          },
+          {
+            status: VenueRentalStatus.AWAITING_DEPOSIT,
+            depositDueAt: {
+              gt: now,
+              lte: new Date(now.getTime() + DEPOSIT_DUE_SOON_MS),
+            },
+          },
+          {
+            status: VenueRentalStatus.CONFIRMED,
+            balanceAmount: { gt: 0 },
+            balanceDueAt: { lt: now },
+          },
+        ],
+      },
+      include: {
+        ...RENTAL_INCLUDE,
+        transactions: {
+          select: {
+            purpose: true,
+            direction: true,
+            status: true,
+            amount: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    });
+    const items = candidates
+      .map(({ transactions, ...rental }) => ({
+        reasons: rentalAttentionReasons({ ...rental, transactions }, now),
+        rental,
+      }))
+      .filter((item) => item.reasons.length > 0);
+    return { items, count: items.length };
   }
 
   async findOne(id: string, userId: string, role: string) {

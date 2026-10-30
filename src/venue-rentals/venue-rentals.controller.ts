@@ -60,6 +60,14 @@ export class VenueRentalsController {
     return this.service.findManaged(user.userId, user.role, query);
   }
 
+  @Get('manage/attention')
+  findAttention(
+    @Query('venueId') venueId: string | undefined,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.service.findAttention(user.userId, user.role, venueId);
+  }
+
   @Post('manage/manual')
   createManual(
     @Body() dto: CreateManualRentalDto,
