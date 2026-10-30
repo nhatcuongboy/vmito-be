@@ -177,6 +177,7 @@ export class VenuesService {
       isVerified,
       hasNewAddress,
       closureStatus,
+      rentalEnabled,
       favoriteOnly,
       sportType,
       minCourts,
@@ -315,6 +316,10 @@ export class VenuesService {
       andConditions.push({
         closureStatus: closureStatus ?? ClosureStatus.OPERATING,
       });
+    }
+
+    if (rentalEnabled) {
+      andConditions.push({ rentalEnabled: true });
     }
 
     // Verified filter

@@ -1279,6 +1279,10 @@ model VenueRentalTransaction {
   submittedAt       DateTime?
   approvedAt        DateTime?
   rejectedAt        DateTime?
+  /// REFUND only: where the player wants the money sent.
+  refundBankName      String?
+  refundAccountNumber String?
+  refundAccountName   String?
   createdAt         DateTime                        @default(now())
   updatedAt         DateTime                        @updatedAt
 

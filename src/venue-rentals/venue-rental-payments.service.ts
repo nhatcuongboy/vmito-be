@@ -26,6 +26,7 @@ import {
   CompleteRentalRefundDto,
   RecordRentalCashPaymentDto,
   RejectRentalPaymentDto,
+  SetRentalRefundAccountDto,
   SubmitRentalPaymentDto,
   UpdateRentalPaymentSettingsDto,
 } from './dto/venue-rental-payment.dto';
@@ -106,6 +107,58 @@ export class VenueRentalPaymentsService {
       where: { venueId },
     });
     return settings || { venueId, ...DEFAULT_SETTINGS };
+  }
+
+  /**
+   * What a player agrees to before sending a request: deposit and refund
+   * terms, without the bank details the manager-only settings carry.
+   */
+  async getPublicPolicy(venueId: string) {
+    await this.access.ensureVenue(venueId);
+    const stored = await this.prisma.venueRentalPaymentSettings.findUnique({
+      where: { venueId },
+    });
+    const settings = stored || DEFAULT_SETTINGS;
+    return {
+      depositMode: settings.depositMode,
+      depositValue: settings.depositValue,
+      depositDeadlineMinutes: settings.depositDeadlineMinutes,
+      balanceDueHours: settings.balanceDueHours,
+      refundCutoffHours: settings.refundCutoffHours,
+      refundBeforePercent: settings.refundBeforePercent,
+      refundAfterPercent: settings.refundAfterPercent,
+    };
+  }
+
+  /** The player says where a pending refund should go. */
+  async setRefundAccount(
+    id: string,
+    dto: SetRentalRefundAccountDto,
+    userId: string
+  ) {
+    const request = await this.getRequest(id);
+    if (request.requesterId !== userId) {
+      throw new ForbiddenException('Rental requester access required');
+    }
+    const updated = await this.prisma.venueRentalTransaction.updateMany({
+      where: {
+        requestId: id,
+        purpose: VenueRentalTransactionPurpose.REFUND,
+        status: VenueRentalTransactionStatus.PENDING,
+      },
+      data: {
+        refundBankName: dto.bankName.trim(),
+        refundAccountNumber: dto.accountNumber.trim(),
+        refundAccountName: dto.accountName.trim(),
+      },
+    });
+    if (!updated.count) {
+      throw new ConflictException({
+        code: 'NO_PENDING_REFUND',
+        message: 'There is no pending refund on this rental',
+      });
+    }
+    return { updated: updated.count };
   }
 
   async updateSettings(

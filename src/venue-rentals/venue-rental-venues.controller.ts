@@ -54,6 +54,12 @@ export class VenueRentalVenuesController {
   }
 
   @Public()
+  @Get(':venueId/rental-policy')
+  rentalPolicy(@Param('venueId') venueId: string) {
+    return this.payments.getPublicPolicy(venueId);
+  }
+
+  @Public()
   @Get(':venueId/rental-availability')
   availability(
     @Param('venueId') venueId: string,

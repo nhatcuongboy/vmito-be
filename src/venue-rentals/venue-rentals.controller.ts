@@ -26,6 +26,7 @@ import {
   CompleteRentalRefundDto,
   RecordRentalCashPaymentDto,
   RejectRentalPaymentDto,
+  SetRentalRefundAccountDto,
   SubmitRentalPaymentDto,
 } from './dto/venue-rental-payment.dto';
 
@@ -164,6 +165,15 @@ export class VenueRentalsController {
     @CurrentUser() user: AuthenticatedUser
   ) {
     return this.payments.submitPayment(id, dto, user.userId);
+  }
+
+  @Patch(':id/refund-account')
+  setRefundAccount(
+    @Param('id') id: string,
+    @Body() dto: SetRentalRefundAccountDto,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.payments.setRefundAccount(id, dto, user.userId);
   }
 
   @Post(':id/payments/cash')

@@ -40,6 +40,9 @@ import { VenueRentalPaymentsService } from './venue-rental-payments.service';
 /** How long a submitted request keeps its courts while awaiting review. */
 const PENDING_HOLD_HOURS = 24;
 
+/** `cancellationReason` of a request nobody answered in time. */
+const REQUEST_EXPIRED_REASON = 'REQUEST_EXPIRED';
+
 const RENTAL_INCLUDE = {
   venue: {
     select: {
@@ -1305,6 +1308,9 @@ export class VenueRentalsService {
       );
     }
 
+    const lapsed = await this.expireStaleRequests(now);
+    const reminded = await this.remindUpcoming(now);
+
     const completed = await this.prisma.venueRentalRequest.findMany({
       where: {
         status: VenueRentalStatus.CONFIRMED,
@@ -1333,6 +1339,8 @@ export class VenueRentalsService {
     }
     return {
       expired: expired.length,
+      lapsed,
+      reminded,
       completed: completed.length,
       releasedHolds: releasedHolds.count,
     };
@@ -1662,6 +1670,110 @@ export class VenueRentalsService {
         'You already have an open rental request for these hours'
       );
     }
+  }
+
+  /**
+   * Requests the venue never answered. Without this they sit in the manager's
+   * inbox forever and the player is never told: past the review window, or
+   * once the slot has started, whichever comes first. `updatedAt` restarts
+   * the window after a proposal is declined or lapses, and COUNTER_OFFERED
+   * is left to its proposal's own expiry, which drops it back to PENDING.
+   */
+  private async expireStaleRequests(now: Date) {
+    const cutoff = new Date(
+      now.getTime() - PENDING_HOLD_HOURS * 60 * 60 * 1000
+    );
+    const stale = await this.prisma.venueRentalRequest.findMany({
+      where: {
+        status: VenueRentalStatus.PENDING,
+        OR: [
+          { updatedAt: { lte: cutoff } },
+          { quote: { startTime: { lte: now } } },
+        ],
+      },
+      select: { id: true, venueId: true, requesterId: true },
+      take: 100,
+    });
+    let lapsed = 0;
+    for (const request of stale) {
+      const changed = await this.prisma.$transaction(async (tx) => {
+        const updated = await tx.venueRentalRequest.updateMany({
+          where: { id: request.id, status: VenueRentalStatus.PENDING },
+          data: {
+            status: VenueRentalStatus.CANCELLED,
+            cancellationReason: REQUEST_EXPIRED_REASON,
+            cancelledAt: now,
+          },
+        });
+        if (!updated.count) return false;
+        await this.courts.releaseRequestAllocations(tx, request.id);
+        await this.createEvent(
+          tx,
+          request.id,
+          null,
+          VenueRentalEventType.CANCELLED,
+          VenueRentalStatus.PENDING,
+          VenueRentalStatus.CANCELLED,
+          { reason: REQUEST_EXPIRED_REASON }
+        );
+        return true;
+      });
+      if (!changed) continue;
+      lapsed += 1;
+      await this.notifyRequester(
+        request.requesterId,
+        'Yêu cầu thuê sân đã hết hạn',
+        'Sân chưa phản hồi kịp nên yêu cầu đã được huỷ. Bạn có thể đặt lại.',
+        request.id,
+        `request:${request.id}:expired`,
+        'rental_request_expired'
+      );
+      await this.notifyManagers(
+        request.venueId,
+        'Yêu cầu thuê sân đã tự huỷ',
+        'Một yêu cầu thuê sân quá hạn phản hồi đã được huỷ.',
+        request.id,
+        `request:${request.id}:expired`,
+        'rental_request_expired_manager'
+      );
+    }
+    return lapsed;
+  }
+
+  /** One reminder per booking, shortly before it starts. */
+  private async remindUpcoming(now: Date) {
+    const from = new Date(now.getTime() + 115 * 60 * 1000);
+    const to = new Date(now.getTime() + 120 * 60 * 1000);
+    const upcoming = await this.prisma.venueRentalRequest.findMany({
+      where: {
+        status: VenueRentalStatus.CONFIRMED,
+        confirmedStartTime: { gt: from, lte: to },
+      },
+      select: {
+        id: true,
+        requesterId: true,
+        confirmedStartTime: true,
+        venue: { select: { name: true, timezone: true } },
+      },
+      take: 200,
+    });
+    for (const request of upcoming) {
+      const startTime = new Intl.DateTimeFormat('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: request.venue.timezone,
+      }).format(request.confirmedStartTime!);
+      await this.notifyRequester(
+        request.requesterId,
+        'Sắp đến giờ chơi',
+        `Bạn có lịch thuê sân "${request.venue.name}" lúc ${startTime}.`,
+        request.id,
+        `request:${request.id}:starts-soon`,
+        'rental_starts_soon',
+        { venueName: request.venue.name, startTime }
+      );
+    }
+    return upcoming.length;
   }
 
   /** Counter-offers and manual bookings stay single-range for now. */

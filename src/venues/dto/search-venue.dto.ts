@@ -14,6 +14,17 @@ import { ClosureStatus, SportType, VenueStatus } from '@prisma/client';
 export class SearchVenueDto {
   @ApiProperty({
     required: false,
+    description: 'Only venues taking online bookings',
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'true' || value === true ? true : undefined
+  )
+  @IsBoolean()
+  rentalEnabled?: boolean;
+
+  @ApiProperty({
+    required: false,
     description: 'Exact Google Place ID lookup',
   })
   @IsOptional()

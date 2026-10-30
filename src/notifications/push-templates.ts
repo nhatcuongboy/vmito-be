@@ -661,6 +661,42 @@ export const PUSH_TEMPLATES: Record<string, PushTemplate> = {
       },
     },
   },
+  rental_request_expired: {
+    title: {
+      vi: 'Yêu cầu thuê sân đã hết hạn',
+      en: 'Booking request expired',
+      zh: '租用请求已过期',
+    },
+    message: {
+      vi: 'Sân chưa phản hồi kịp nên yêu cầu đã được huỷ. Bạn có thể đặt lại.',
+      en: 'The venue did not reply in time, so the request was cancelled. You can book again.',
+      zh: '场馆未及时回复，请求已取消。你可以重新预订。',
+    },
+  },
+  rental_request_expired_manager: {
+    title: {
+      vi: 'Yêu cầu thuê sân đã tự huỷ',
+      en: 'Booking request lapsed',
+      zh: '租用请求已自动取消',
+    },
+    message: {
+      vi: 'Một yêu cầu thuê sân quá hạn phản hồi đã được huỷ.',
+      en: 'A booking request passed its reply deadline and was cancelled.',
+      zh: '一个超过回复期限的租用请求已被取消。',
+    },
+  },
+  rental_starts_soon: {
+    title: {
+      vi: 'Sắp đến giờ chơi',
+      en: 'Your court time is coming up',
+      zh: '即将到场',
+    },
+    message: {
+      vi: 'Bạn có lịch thuê sân "{venueName}" lúc {startTime}.',
+      en: 'You have "{venueName}" booked at {startTime}.',
+      zh: '你在“{venueName}”的预订时间是 {startTime}。',
+    },
+  },
   rental_proposal_expired: {
     title: {
       vi: 'Đề xuất thuê sân đã hết hạn',
