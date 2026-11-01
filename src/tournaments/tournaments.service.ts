@@ -544,17 +544,6 @@ export class TournamentsService {
       return tournament;
     });
 
-    await this.activityFeedService.postTournamentCreated({
-      id: created.id,
-      slug: created.slug,
-      name: created.name,
-      hostId,
-      coverPhoto: created.coverPhoto,
-      startDate: created.startDate,
-      venueName: location?.name ?? null,
-      sportType: created.sportType,
-    });
-
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: created.id },
       include: {

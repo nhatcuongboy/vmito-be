@@ -9,6 +9,7 @@ import { TournamentsGateway } from './realtime/tournaments.gateway';
 import { FavoritesService } from '../favorites/favorites.service';
 import { ActivityFeedService } from '../activities/activity-feed.service';
 import { PointsService } from '../points/points.service';
+import { UserRecommendationContextService } from '../recommendations/user-recommendation-context.service';
 
 /**
  * Venue-sync invariant coverage: a non-null tournament.venueId always has a
@@ -17,6 +18,7 @@ import { PointsService } from '../points/points.service';
 describe('TournamentsService venue sync', () => {
   let service: TournamentsService;
   let prisma: any;
+  let activityFeedService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -43,6 +45,9 @@ describe('TournamentsService venue sync', () => {
       },
       category: {
         count: jest.fn().mockResolvedValue(0),
+      },
+      categoryRegistration: {
+        findMany: jest.fn().mockResolvedValue([]),
       },
       tournamentCourt: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -81,10 +86,15 @@ describe('TournamentsService venue sync', () => {
           provide: PointsService,
           useValue: { awardTournamentPlacements: jest.fn() },
         },
+        {
+          provide: UserRecommendationContextService,
+          useValue: { build: jest.fn().mockResolvedValue(null) },
+        },
       ],
     }).compile();
 
     service = module.get(TournamentsService);
+    activityFeedService = module.get(ActivityFeedService);
   });
 
   describe('findAll', () => {
@@ -301,6 +311,12 @@ describe('TournamentsService venue sync', () => {
 
       expect(prisma.tournament.create).not.toHaveBeenCalled();
     });
+
+    it('does not post to activity feed when creating a draft tournament', async () => {
+      await service.create(baseDto as any, 'host-1');
+
+      expect(activityFeedService.postTournamentCreated).not.toHaveBeenCalled();
+    });
   });
 
   describe('update', () => {
@@ -371,15 +387,15 @@ describe('TournamentsService venue sync', () => {
         hostId: 'host-1',
         isPublished: false,
         status: 'PREPARING',
-        startDate: new Date('2026-09-01T00:00:00.000Z'),
-        endDate: new Date('2026-09-02T00:00:00.000Z'),
+        startDate: new Date('2099-09-01T00:00:00.000Z'),
+        endDate: new Date('2099-09-02T00:00:00.000Z'),
       });
 
       await service.update(
         't1',
         {
-          startDate: '2026-09-30T00:00:00.000Z',
-          endDate: '2026-09-30T00:00:00.000Z',
+          startDate: '2099-09-30T00:00:00.000Z',
+          endDate: '2099-09-30T00:00:00.000Z',
         } as any,
         'host-1'
       );
@@ -387,8 +403,8 @@ describe('TournamentsService venue sync', () => {
       expect(prisma.tournament.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            startDate: new Date('2026-09-30T00:00:00.000Z'),
-            endDate: new Date('2026-09-30T00:00:00.000Z'),
+            startDate: new Date('2099-09-30T00:00:00.000Z'),
+            endDate: new Date('2099-09-30T00:00:00.000Z'),
           }),
         })
       );
@@ -469,6 +485,46 @@ describe('TournamentsService venue sync', () => {
         service.update('t1', { isPublished: true } as any, 'host-1')
       ).rejects.toThrow(
         'Add at least one category before publishing the tournament'
+      );
+    });
+
+    it('announces the tournament on the newsfeed when published for the first time', async () => {
+      prisma.category.count.mockResolvedValue(1);
+      prisma.tournamentVenue.count.mockResolvedValue(1);
+      prisma.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        slug: 'test-cup',
+        name: 'Test Cup',
+        hostId: 'host-1',
+        venueId: 'v1',
+        isPublished: false,
+        status: 'PREPARING',
+        sportType: 'BADMINTON',
+        startDate: new Date('2099-01-01T00:00:00.000Z'),
+        endDate: new Date('2099-01-02T00:00:00.000Z'),
+        categories: [{ id: 'cat-1', registrationMode: 'INDIVIDUAL' }],
+      });
+      prisma.tournament.update.mockResolvedValue({
+        id: 't1',
+        slug: 'test-cup',
+        name: 'Test Cup',
+        host: { id: 'host-1' },
+        venue: { name: 'Central Court' },
+        tournamentVenues: [],
+        coverPhoto: null,
+        startDate: new Date('2099-01-01T00:00:00.000Z'),
+        sportType: 'BADMINTON',
+        isPublished: true,
+      });
+
+      await service.update('t1', { isPublished: true } as any, 'host-1');
+
+      expect(activityFeedService.postTournamentCreated).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 't1',
+          name: 'Test Cup',
+          hostId: 'host-1',
+        })
       );
     });
   });
