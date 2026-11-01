@@ -717,11 +717,12 @@ export class PaymentsService {
       );
     }
 
-    // Count joined players
+    // isJoined is only set by join-by-code, so counting it left out every
+    // host-added and self-registered player.
     const playerCount = await this.prisma.player.count({
       where: {
         sessionId,
-        isJoined: true,
+        registrationStatus: RegistrationStatus.APPROVED,
       },
     });
 
@@ -738,12 +739,22 @@ export class PaymentsService {
       data: {
         splitTotal: totalAmount,
         splitPerPlayer: amountPerPlayer,
+        splitMaleAmount: null,
+        splitFemaleAmount: null,
       },
     });
 
-    // Update all payment records
+    // Update what is still owed; collected money and club fees stay as billed
     await this.prisma.paymentRecord.updateMany({
-      where: { sessionId },
+      where: {
+        sessionId,
+        splitLocked: false,
+        status: { not: PaymentStatus.APPROVED },
+        player: {
+          registrationStatus: RegistrationStatus.APPROVED,
+          clubFeeApplied: false,
+        },
+      },
       data: { amount: amountPerPlayer },
     });
 

@@ -1,5 +1,6 @@
 import {
   Body,
+  Delete,
   Controller,
   Get,
   Param,
@@ -26,6 +27,7 @@ import {
   CompleteRentalRefundDto,
   RecordRentalCashPaymentDto,
   RejectRentalPaymentDto,
+  SetRentalRefundAccountDto,
   SubmitRentalPaymentDto,
 } from './dto/venue-rental-payment.dto';
 
@@ -58,6 +60,14 @@ export class VenueRentalsController {
     @CurrentUser() user: AuthenticatedUser
   ) {
     return this.service.findManaged(user.userId, user.role, query);
+  }
+
+  @Get('manage/attention')
+  findAttention(
+    @Query('venueId') venueId: string | undefined,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.service.findAttention(user.userId, user.role, venueId);
   }
 
   @Post('manage/manual')
@@ -94,6 +104,41 @@ export class VenueRentalsController {
     @CurrentUser() user: AuthenticatedUser
   ) {
     return this.service.propose(id, dto, user.userId, user.role);
+  }
+
+  @Post(':id/reschedule')
+  reschedule(
+    @Param('id') id: string,
+    @Body() dto: CreateRentalProposalDto,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.service.reschedule(id, dto, user.userId, user.role);
+  }
+
+  @Post(':id/reschedule/withdraw')
+  withdrawReschedule(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.service.withdrawReschedule(id, user.userId, user.role);
+  }
+
+  @Post(':id/no-show')
+  markNoShow(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.markNoShow(id, user.userId, user.role);
+  }
+
+  @Delete(':id/no-show')
+  clearNoShow(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.clearNoShow(id, user.userId, user.role);
+  }
+
+  @Get(':id/customer-history')
+  customerHistory(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.service.customerHistory(id, user.userId, user.role);
   }
 
   @Post(':id/proposals/:proposalId/accept')
@@ -156,6 +201,15 @@ export class VenueRentalsController {
     @CurrentUser() user: AuthenticatedUser
   ) {
     return this.payments.submitPayment(id, dto, user.userId);
+  }
+
+  @Patch(':id/refund-account')
+  setRefundAccount(
+    @Param('id') id: string,
+    @Body() dto: SetRentalRefundAccountDto,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.payments.setRefundAccount(id, dto, user.userId);
   }
 
   @Post(':id/payments/cash')

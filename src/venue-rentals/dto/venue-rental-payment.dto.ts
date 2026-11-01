@@ -16,6 +16,21 @@ import {
   VenueRentalTransactionPurpose,
 } from '@prisma/client';
 
+/** Where the player wants a pending refund sent. */
+export class SetRentalRefundAccountDto {
+  @IsString()
+  @MaxLength(120)
+  bankName!: string;
+
+  @IsString()
+  @MaxLength(80)
+  accountNumber!: string;
+
+  @IsString()
+  @MaxLength(160)
+  accountName!: string;
+}
+
 export class UpdateRentalPaymentSettingsDto {
   @IsString()
   @MaxLength(120)

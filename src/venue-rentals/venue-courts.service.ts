@@ -22,6 +22,7 @@ import {
   ReplaceOperatingPeriodsDto,
   UpdateVenueCourtDto,
 } from './dto/venue-court.dto';
+import { readRentalSegments } from './rental-segments';
 import { VenuePricingService } from './venue-pricing.service';
 
 @Injectable()
@@ -238,12 +239,34 @@ export class VenueCourtsService {
     return this.prisma.venueCourtBlock.delete({ where: { id: blockId } });
   }
 
+  /**
+   * [viewerId] is optional (the route is public). When given, cells held by
+   * the viewer's own live quote come back `mine: true`: still UNAVAILABLE to
+   * everyone else, but the viewer's client keeps them selectable instead of
+   * showing their own selection as taken after a refresh.
+   */
   async publicSchedule(
     venueId: string,
     date: string,
-    customerType: VenueCustomerType
+    customerType: VenueCustomerType,
+    viewerId?: string
   ) {
     const result = await this.buildSchedule(venueId, date, false);
+    const myQuoteIds = viewerId
+      ? new Set(
+          (
+            await this.prisma.venueRentalQuote.findMany({
+              where: {
+                venueId,
+                requesterId: viewerId,
+                consumedAt: null,
+                expiresAt: { gt: new Date() },
+              },
+              select: { id: true },
+            })
+          ).map((quote) => quote.id)
+        )
+      : new Set<string>();
     if (!result.courtSelectionEnabled) {
       throw new ConflictException({
         code: 'COURT_SELECTION_DISABLED',
@@ -270,6 +293,11 @@ export class VenueCourtsService {
           startMinute: slot.startMinute,
           endMinute: slot.endMinute,
           status: slot.status === 'AVAILABLE' ? 'AVAILABLE' : 'UNAVAILABLE',
+          ...('heldQuoteId' in slot &&
+          typeof slot.heldQuoteId === 'string' &&
+          myQuoteIds.has(slot.heldQuoteId)
+            ? { mine: true }
+            : {}),
         })),
       })),
       slots: result.slots.map((slot, index) => ({
@@ -301,10 +329,20 @@ export class VenueCourtsService {
       courtIds?: string[];
       expiresAt: Date;
       timezone: string;
+      /** Releases this requester's older, unused quote holds first. */
+      requesterId?: string;
     }
   ) {
     await this.lockVenueDay(tx, input.venueId, input.startTime, input.timezone);
     await this.releaseExpiredVenueHolds(tx, input.venueId);
+    if (input.requesterId) {
+      await this.releaseRequesterQuoteHolds(
+        tx,
+        input.venueId,
+        input.requesterId,
+        input.quoteId
+      );
+    }
     await this.assertOpenRange(
       tx,
       input.venueId,
@@ -366,9 +404,156 @@ export class VenueCourtsService {
     return courtIds;
   }
 
-  releaseQuoteHold(tx: Prisma.TransactionClient, quoteId: string) {
+  /**
+   * A re-quote supersedes the requester's earlier quotes at this venue: their
+   * holds would otherwise block the requester's own new selection for up to
+   * the quote lifetime. The old quotes are expired too, so they can no longer
+   * be submitted without the courts they priced.
+   */
+  async releaseRequesterQuoteHolds(
+    tx: Prisma.TransactionClient,
+    venueId: string,
+    requesterId: string,
+    exceptQuoteId: string
+  ) {
+    const now = new Date();
+    const stale = await tx.venueRentalQuote.findMany({
+      where: {
+        venueId,
+        requesterId,
+        consumedAt: null,
+        expiresAt: { gt: now },
+        id: { not: exceptQuoteId },
+      },
+      select: { id: true },
+    });
+    if (!stale.length) return;
+    const ids = stale.map((quote) => quote.id);
+    await tx.venueRentalCourtAllocation.updateMany({
+      where: { quoteId: { in: ids }, status: VenueRentalAllocationStatus.HELD },
+      data: { status: VenueRentalAllocationStatus.RELEASED, releasedAt: now },
+    });
+    await tx.venueRentalQuote.updateMany({
+      where: { id: { in: ids } },
+      data: { expiresAt: now },
+    });
+  }
+
+  /**
+   * Keeps a submitted request's courts held while the venue reviews it, so
+   * nobody else can quote and request the same cells meanwhile. The quote's
+   * HELD rows are handed to the request and live until [until]; approval
+   * replaces them with RESERVED/CONFIRMED rows.
+   */
+  holdForRequest(
+    tx: Prisma.TransactionClient,
+    quoteId: string,
+    requestId: string,
+    until: Date
+  ) {
     return tx.venueRentalCourtAllocation.updateMany({
       where: { quoteId, status: VenueRentalAllocationStatus.HELD },
+      data: { requestId, expiresAt: until },
+    });
+  }
+
+  /** Every live allocation of a request, including a pending-review hold. */
+  /**
+   * Holds a new time for a confirmed booking while the customer decides. The
+   * booking's own courts stay free for it, and the overlap constraint forbids
+   * two active rows on a court even for one request, so only the part of the
+   * new time outside the current booking is held. Returns the chosen courts.
+   */
+  async holdForReschedule(
+    tx: Prisma.TransactionClient,
+    input: {
+      requestId: string;
+      venueId: string;
+      startTime: Date;
+      endTime: Date;
+      numberOfCourts: number;
+      selectionMode: VenueRentalSelectionMode;
+      courtIds?: string[];
+      timezone: string;
+      expiresAt: Date;
+    }
+  ) {
+    await this.lockVenueDay(tx, input.venueId, input.startTime, input.timezone);
+    await this.releaseExpiredVenueHolds(tx, input.venueId);
+    await this.assertOpenRange(
+      tx,
+      input.venueId,
+      input.startTime,
+      input.endTime,
+      input.timezone
+    );
+    const courtIds = await this.resolveCourts(tx, {
+      ...input,
+      ignoreRequestId: input.requestId,
+    });
+    const own = await tx.venueRentalCourtAllocation.findMany({
+      where: {
+        requestId: input.requestId,
+        courtId: { in: courtIds },
+        status: {
+          in: [
+            VenueRentalAllocationStatus.HELD,
+            VenueRentalAllocationStatus.RESERVED,
+            VenueRentalAllocationStatus.CONFIRMED,
+          ],
+        },
+      },
+      select: { courtId: true, startTime: true, endTime: true },
+    });
+    const pieces = courtIds.flatMap((courtId) =>
+      subtractRanges(
+        input.startTime,
+        input.endTime,
+        own.filter((row) => row.courtId === courtId)
+      ).map((range) => ({
+        venueId: input.venueId,
+        courtId,
+        requestId: input.requestId,
+        startTime: range.startTime,
+        endTime: range.endTime,
+        status: VenueRentalAllocationStatus.HELD,
+        expiresAt: input.expiresAt,
+      }))
+    );
+    if (pieces.length) {
+      await tx.venueRentalCourtAllocation.createMany({ data: pieces });
+    }
+    return courtIds;
+  }
+
+  /** Read-only: are all [courtIds] open and unbooked for this range? */
+  async areCourtsFree(
+    venueId: string,
+    startTime: Date,
+    endTime: Date,
+    courtIds: string[],
+    timezone: string
+  ) {
+    await this.assertOpenRange(
+      this.prisma,
+      venueId,
+      startTime,
+      endTime,
+      timezone
+    );
+    const available = await this.findAvailableCourts(
+      this.prisma,
+      venueId,
+      startTime,
+      endTime
+    );
+    return courtIds.every((id) => available.some((court) => court.id === id));
+  }
+
+  /** Drops a reschedule's holds; the booking's own rows stay. */
+  releaseRequestHolds(tx: Prisma.TransactionClient, requestId: string) {
+    return tx.venueRentalCourtAllocation.updateMany({
+      where: { requestId, status: VenueRentalAllocationStatus.HELD },
       data: {
         status: VenueRentalAllocationStatus.RELEASED,
         releasedAt: new Date(),
@@ -382,6 +567,7 @@ export class VenueCourtsService {
         requestId,
         status: {
           in: [
+            VenueRentalAllocationStatus.HELD,
             VenueRentalAllocationStatus.RESERVED,
             VenueRentalAllocationStatus.CONFIRMED,
           ],
@@ -600,13 +786,25 @@ export class VenueCourtsService {
             item.startTime < slotEnd &&
             item.endTime > slotStart
         );
-        const pendingRequest = pending.find(
-          (item) =>
+        const pendingRequest = pending.find((item) => {
+          if (!item.quote) return false;
+          // A multi-segment request only covers its own court × time pieces,
+          // not the whole envelope.
+          const segments = readRentalSegments(item.quote.segments);
+          if (segments) {
+            return segments.some(
+              (segment) =>
+                segment.courtIds.includes(court.id) &&
+                new Date(segment.startTime) < slotEnd &&
+                new Date(segment.endTime) > slotStart
+            );
+          }
+          return (
             item.requestedCourtIds.includes(court.id) &&
-            item.quote &&
             item.quote.startTime < slotEnd &&
             item.quote.endTime > slotStart
-        );
+          );
+        });
         let status = 'AVAILABLE';
         if (!isOpen) status = 'CLOSED';
         else if (block)
@@ -625,6 +823,14 @@ export class VenueCourtsService {
         return {
           ...slot,
           status,
+          // A live quote hold (not yet a request) — the public view tells
+          // its owner these cells are theirs.
+          ...(!manager &&
+          allocation?.status === VenueRentalAllocationStatus.HELD &&
+          allocation.quoteId &&
+          !allocation.requestId
+            ? { heldQuoteId: allocation.quoteId }
+            : {}),
           ...(manager
             ? {
                 blockId: block?.id,
@@ -688,13 +894,16 @@ export class VenueCourtsService {
       numberOfCourts: number;
       selectionMode: VenueRentalSelectionMode;
       courtIds?: string[];
+      /** A moved booking does not compete with its own current slot. */
+      ignoreRequestId?: string;
     }
   ) {
     const available = await this.findAvailableCourts(
       tx,
       input.venueId,
       input.startTime,
-      input.endTime
+      input.endTime,
+      input.ignoreRequestId
     );
     if (input.selectionMode === VenueRentalSelectionMode.SELECT_COURTS) {
       const requested = [...new Set(input.courtIds || [])];
@@ -715,7 +924,8 @@ export class VenueCourtsService {
     tx: Prisma.TransactionClient,
     venueId: string,
     startTime: Date,
-    endTime: Date
+    endTime: Date,
+    ignoreRequestId?: string
   ) {
     return tx.venueCourt.findMany({
       where: {
@@ -728,6 +938,20 @@ export class VenueCourtsService {
           none: {
             startTime: { lt: endTime },
             endTime: { gt: startTime },
+            // Spelled with `requestId: null` because quote holds have none,
+            // and a plain `not` would skip those rows in SQL.
+            ...(ignoreRequestId
+              ? {
+                  AND: [
+                    {
+                      OR: [
+                        { requestId: null },
+                        { requestId: { not: ignoreRequestId } },
+                      ],
+                    },
+                  ],
+                }
+              : {}),
             OR: [
               { status: VenueRentalAllocationStatus.CONFIRMED },
               { status: VenueRentalAllocationStatus.RESERVED },
@@ -875,4 +1099,26 @@ export class VenueCourtsService {
       message: 'One or more selected courts are no longer available',
     });
   }
+}
+
+/** What is left of `[start, end)` after cutting out [taken]. */
+export function subtractRanges(
+  start: Date,
+  end: Date,
+  taken: Array<{ startTime: Date; endTime: Date }>
+) {
+  const left: Array<{ startTime: Date; endTime: Date }> = [];
+  let cursor = start;
+  const ordered = [...taken].sort(
+    (a, b) => a.startTime.getTime() - b.startTime.getTime()
+  );
+  for (const range of ordered) {
+    if (range.endTime <= cursor || range.startTime >= end) continue;
+    if (range.startTime > cursor) {
+      left.push({ startTime: cursor, endTime: range.startTime });
+    }
+    if (range.endTime > cursor) cursor = range.endTime;
+  }
+  if (cursor < end) left.push({ startTime: cursor, endTime: end });
+  return left;
 }

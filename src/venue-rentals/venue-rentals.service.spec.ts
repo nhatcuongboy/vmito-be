@@ -138,6 +138,8 @@ describe('VenueRentalsService workflow', () => {
 
     await expect(service.processLifecycle()).resolves.toEqual({
       expired: 1,
+      lapsed: 0,
+      reminded: 0,
       completed: 0,
       releasedHolds: 0,
     });

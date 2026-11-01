@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
   IsDateString,
   IsEnum,
   IsInt,
@@ -7,8 +9,11 @@ import {
   IsOptional,
   IsString,
   Max,
+  Matches,
   MaxLength,
   Min,
+  ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import {
   VenueCustomerType,
@@ -16,13 +21,35 @@ import {
   VenueRentalStatus,
 } from '@prisma/client';
 
-export class CreateRentalQuoteDto {
+/** Max segments in one multi-segment quote. */
+export const MAX_RENTAL_SEGMENTS = 12;
+
+/** One time range on one or more specific courts. */
+export class RentalSegmentDto {
   @IsDateString()
   startTime!: string;
 
   @IsDateString()
   endTime!: string;
 
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  courtIds!: string[];
+}
+
+export class CreateRentalQuoteDto {
+  // With `segments`, the single-range fields are derived server-side, so
+  // they are only required for the classic single-range shape.
+  @ValidateIf((dto: CreateRentalQuoteDto) => !dto.segments)
+  @IsDateString()
+  startTime!: string;
+
+  @ValidateIf((dto: CreateRentalQuoteDto) => !dto.segments)
+  @IsDateString()
+  endTime!: string;
+
+  @ValidateIf((dto: CreateRentalQuoteDto) => !dto.segments)
   @IsInt()
   @Min(1)
   numberOfCourts!: number;
@@ -39,6 +66,18 @@ export class CreateRentalQuoteDto {
   @IsString({ each: true })
   @IsOptional()
   courtIds?: string[];
+
+  /**
+   * Multi-segment booking (court-selection venues only): different time
+   * ranges on different courts of the same day, in one request.
+   */
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_RENTAL_SEGMENTS)
+  @ValidateNested({ each: true })
+  @Type(() => RentalSegmentDto)
+  @IsOptional()
+  segments?: RentalSegmentDto[];
 }
 
 export class RentalAvailabilityDto {
@@ -111,6 +150,15 @@ export class CreateManualRentalDto extends CreateRentalQuoteDto {
 
   @IsString()
   venueId!: string;
+}
+
+/** Venue-local `yyyy-MM-dd` days, both inclusive. */
+export class RentalReportQueryDto {
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  from!: string;
+
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  to!: string;
 }
 
 export class QueryVenueRentalsDto {

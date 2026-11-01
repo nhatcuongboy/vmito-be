@@ -8,12 +8,14 @@ import {
   Post,
   Put,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   CurrentUser,
   type AuthenticatedUser,
 } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import {
   CourtScheduleQueryDto,
   CreateCourtBlockDto,
@@ -29,12 +31,19 @@ export class VenueCourtsController {
   constructor(private readonly service: VenueCourtsService) {}
 
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get('court-schedule')
   publicSchedule(
     @Param('venueId') venueId: string,
-    @Query() query: CourtScheduleQueryDto
+    @Query() query: CourtScheduleQueryDto,
+    @CurrentUser() user?: AuthenticatedUser
   ) {
-    return this.service.publicSchedule(venueId, query.date, query.customerType);
+    return this.service.publicSchedule(
+      venueId,
+      query.date,
+      query.customerType,
+      user?.userId
+    );
   }
 
   @Get('manage/court-schedule')

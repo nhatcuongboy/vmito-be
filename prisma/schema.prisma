@@ -834,6 +834,7 @@ model Venue {
   managers              VenueManager[]
   rentalQuotes          VenueRentalQuote[]
   rentalRequests        VenueRentalRequest[]
+  rentalSeries VenueRentalSeries[]
   courts                VenueCourt[]
   operatingPeriods      VenueOperatingPeriod[]
   courtBlocks           VenueCourtBlock[]
@@ -1089,6 +1090,10 @@ enum VenueRentalEventType {
   DEPOSIT_EXPIRED
   REFUND_REQUIRED
   REFUND_COMPLETED
+  RESCHEDULE_PROPOSED
+  RESCHEDULED
+  NO_SHOW_MARKED
+  NO_SHOW_CLEARED
 }
 
 enum VenueRentalDepositMode {
@@ -1171,6 +1176,9 @@ model VenueRentalQuote {
   consumedAt        DateTime?
   selectionMode     VenueRentalSelectionMode @default(AUTO_ASSIGN)
   requestedCourtIds String[]                 @default([])
+  /// Multi-segment quotes only: [{ startTime, endTime, courtIds, amount, priceBookId }].
+  /// startTime/endTime then hold the envelope (earliest start, latest end).
+  segments          Json?
   createdAt         DateTime                 @default(now())
 
   venue       Venue                        @relation(fields: [venueId], references: [id], onDelete: Cascade)
@@ -1208,6 +1216,8 @@ model VenueRentalRequest {
   confirmedAmount               Int?
   confirmedCurrency             String?
   confirmedBreakdown            Json?
+  /// Copied from the quote on approval for multi-segment requests.
+  confirmedSegments             Json?
   reviewedByUserId              String?
   cancelledByUserId             String?
   cancellationReason            String?
@@ -1233,6 +1243,9 @@ model VenueRentalRequest {
   balanceDueAt                  DateTime?
   depositReminderNotifiedAt     DateTime?
   balanceOverdueNotifiedAt      DateTime?
+  noShowAt                      DateTime?
+  noShowMarkedById              String?
+  seriesId                      String?
   createdAt                     DateTime                 @default(now())
   updatedAt                     DateTime                 @updatedAt
 
@@ -1241,6 +1254,7 @@ model VenueRentalRequest {
   quote            VenueRentalQuote?            @relation(fields: [quoteId], references: [id], onDelete: Restrict)
   createdBy        User?                        @relation("RentalCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
   session          Session?                     @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  series           VenueRentalSeries?           @relation(fields: [seriesId], references: [id], onDelete: SetNull)
   reviewedBy       User?                        @relation("RentalReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
   cancelledBy      User?                        @relation("RentalCanceller", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
   proposals        VenueRentalProposal[]
@@ -1252,6 +1266,7 @@ model VenueRentalRequest {
   @@index([venueId, confirmedStartTime, confirmedEndTime])
   @@index([requesterId, createdAt])
   @@index([sessionId])
+  @@index([seriesId])
   @@index([status, depositDueAt])
   @@index([status, balanceDueAt])
   @@map("venue_rental_requests")
@@ -1274,6 +1289,12 @@ model VenueRentalTransaction {
   submittedAt       DateTime?
   approvedAt        DateTime?
   rejectedAt        DateTime?
+  /// REFUND only: where the player wants the money sent.
+  refundBankName      String?
+  refundAccountNumber String?
+  refundAccountName   String?
+  isAdjustment        Boolean                        @default(false)
+  batchId             String?
   createdAt         DateTime                        @default(now())
   updatedAt         DateTime                        @updatedAt
 
@@ -1283,12 +1304,54 @@ model VenueRentalTransaction {
 
   @@index([requestId, purpose, status])
   @@index([status, createdAt])
+  @@index([batchId])
   @@map("venue_rental_transactions")
+}
+
+enum VenueRentalSeriesStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+  CANCELLED
+}
+
+/// Weekly fixed booking. Each session is a normal VenueRentalRequest.
+model VenueRentalSeries {
+  id              String                  @id @default(cuid())
+  venueId         String
+  requesterId     String?
+  createdByUserId String
+  source          VenueRentalSource       @default(ONLINE)
+  status          VenueRentalSeriesStatus @default(PENDING)
+  contactName     String
+  contactPhone    String
+  notes           String?
+  customerType    VenueCustomerType
+  dayOfWeek       Int
+  startMinute     Int
+  endMinute       Int
+  courtIds        String[]                @default([])
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  venue    Venue                @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  requests VenueRentalRequest[]
+
+  @@index([venueId, status])
+  @@index([requesterId])
+  @@map("venue_rental_series")
+}
+
+enum VenueRentalProposalKind {
+  OFFER
+  RESCHEDULE
 }
 
 model VenueRentalProposal {
   id                String                    @id @default(cuid())
   requestId         String
+  kind              VenueRentalProposalKind   @default(OFFER)
+  segments          Json?
   proposedById      String
   startTime         DateTime
   endTime           DateTime
@@ -1361,6 +1424,7 @@ enum VenueRequestType {
   UPDATE
   PRICE_CORRECTION
   IMAGE_CORRECTION
+  OWNERSHIP_CLAIM
 }
 
 enum VenueRequestStatus {
@@ -2119,6 +2183,8 @@ model SessionFeeConfig {
   femaleFee      Int? // Fee for female players (in VND), nullable for SPLIT_EVENLY
   splitTotal     Int? // Total amount to split (for SPLIT_EVENLY), set after session
   splitPerPlayer Int? // Calculated amount per player (for SPLIT_EVENLY)
+  splitMaleAmount   Int? // Cost split: amount per male player, null when not set by the calculator
+  splitFemaleAmount Int? // Cost split: amount per female player
   notes          String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -2155,6 +2221,7 @@ model PaymentRecord {
   registeredByUserId String? // User who registered this player (for multi-slot)
   hostId             String
   amount             Int // Amount in VND
+  splitLocked        Boolean        @default(false) // Set by the cost split: fee recalculation must not touch this record
   paymentMethod      PaymentMethod?
   status             PaymentStatus  @default(PENDING)
   proofImageUrl      String?

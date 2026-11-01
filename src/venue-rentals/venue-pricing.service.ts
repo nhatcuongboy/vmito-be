@@ -33,6 +33,25 @@ export interface RentalPriceBreakdownItem {
   amount: number;
   ruleId: string | null;
   source: 'PRICE_BOOK' | 'LEGACY';
+  /** Multi-segment quotes only: which segment, and its courts. */
+  segmentIndex?: number;
+  courtIds?: string[];
+}
+
+export interface RentalSegmentInput {
+  startTime: string | Date;
+  endTime: string | Date;
+  courtIds: string[];
+}
+
+/** One priced segment, as stored in `VenueRentalQuote.segments`. */
+export interface RentalSegment {
+  startTime: string;
+  endTime: string;
+  courtIds: string[];
+  numberOfCourts: number;
+  amount: number;
+  priceBookId: string | null;
 }
 
 @Injectable()
@@ -157,6 +176,104 @@ export class VenuePricingService {
       startTime: start,
       endTime: end,
       breakdown,
+    };
+  }
+
+  /**
+   * Prices a multi-segment booking: each segment on its own courts (so a
+   * court-specific price book still applies), then summed. All segments must
+   * fall on one local day and must not overlap on a shared court.
+   */
+  async calculateSegments(
+    venueId: string,
+    input: {
+      segments: RentalSegmentInput[];
+      customerType: VenueCustomerType;
+      requireFuture?: boolean;
+    }
+  ) {
+    // Sorted first so `segmentIndex` in the breakdown matches `segments`.
+    const ordered = [...input.segments].sort(
+      (a, b) =>
+        new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+    );
+    const priced: Array<{
+      index: number;
+      courtIds: string[];
+      calculation: Awaited<ReturnType<VenuePricingService['calculate']>>;
+    }> = [];
+    for (const [index, segment] of ordered.entries()) {
+      const courtIds = [...new Set(segment.courtIds)];
+      const calculation = await this.calculate(venueId, {
+        startTime: segment.startTime,
+        endTime: segment.endTime,
+        numberOfCourts: courtIds.length,
+        customerType: input.customerType,
+        courtIds,
+        requireFuture: input.requireFuture,
+      });
+      priced.push({ index, courtIds, calculation });
+    }
+
+    const timezone = priced[0].calculation.timezone;
+    const dateKeys = new Set(
+      priced.map((item) =>
+        this.getLocalDateKey(item.calculation.startTime, timezone)
+      )
+    );
+    if (dateKeys.size > 1) {
+      throw new BadRequestException({
+        code: 'SEGMENTS_MULTIPLE_DAYS',
+        message: 'All rental segments must be on the same local day',
+      });
+    }
+    for (const a of priced) {
+      for (const b of priced) {
+        if (
+          a.index < b.index &&
+          a.courtIds.some((id) => b.courtIds.includes(id)) &&
+          a.calculation.startTime < b.calculation.endTime &&
+          b.calculation.startTime < a.calculation.endTime
+        ) {
+          throw new BadRequestException({
+            code: 'SEGMENTS_OVERLAP',
+            message: 'Rental segments overlap on the same court',
+          });
+        }
+      }
+    }
+
+    const segments: RentalSegment[] = priced.map(
+      ({ courtIds, calculation }) => ({
+        startTime: calculation.startTime.toISOString(),
+        endTime: calculation.endTime.toISOString(),
+        courtIds,
+        numberOfCourts: courtIds.length,
+        amount: calculation.totalAmount,
+        priceBookId: calculation.priceBookId,
+      })
+    );
+    const breakdown: RentalPriceBreakdownItem[] = priced.flatMap(
+      ({ index, courtIds, calculation }) =>
+        calculation.breakdown.map((item) => ({
+          ...item,
+          segmentIndex: index,
+          courtIds,
+        }))
+    );
+    const starts = priced.map((item) => item.calculation.startTime.getTime());
+    const ends = priced.map((item) => item.calculation.endTime.getTime());
+    return {
+      version: 1,
+      totalAmount: segments.reduce((sum, segment) => sum + segment.amount, 0),
+      priceBookId: priced[0].calculation.priceBookId,
+      currency: priced[0].calculation.currency,
+      timezone,
+      startTime: new Date(Math.min(...starts)),
+      endTime: new Date(Math.max(...ends)),
+      breakdown,
+      segments,
+      courtIds: [...new Set(priced.flatMap((item) => item.courtIds))],
     };
   }
 

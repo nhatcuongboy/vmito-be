@@ -24,6 +24,7 @@ import { FeeModule } from './fee/fee.module';
 import { PaymentSettingsModule } from './payment-settings/payment-settings.module';
 import { PaymentsModule } from './payments/payments.module';
 import { PaymentRemindersModule } from './payment-reminders/payment-reminders.module';
+import { CostSplitModule } from './cost-split/cost-split.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { RatingsModule } from './ratings/ratings.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -88,6 +89,7 @@ import configuration from './config';
     PaymentSettingsModule,
     PaymentsModule,
     PaymentRemindersModule,
+    CostSplitModule,
     UploadsModule,
     RatingsModule,
     NotificationsModule,

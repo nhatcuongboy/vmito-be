@@ -15,7 +15,9 @@ import {
   Role,
   VenueManagerRole,
   ViewTargetType,
+  NotificationType,
 } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { FavoritesService } from '../favorites/favorites.service';
 import { CreateVenueDto } from './dto/create-venue.dto';
@@ -87,7 +89,8 @@ export class VenuesService {
     private favoritesService: FavoritesService,
     private pricingService: VenuePricingService,
     private venueAccess: VenueAccessService,
-    private recommendationContext: UserRecommendationContextService
+    private recommendationContext: UserRecommendationContextService,
+    private notifications: NotificationsService
   ) {}
 
   /**
@@ -174,6 +177,7 @@ export class VenuesService {
       isVerified,
       hasNewAddress,
       closureStatus,
+      rentalEnabled,
       favoriteOnly,
       sportType,
       minCourts,
@@ -312,6 +316,10 @@ export class VenuesService {
       andConditions.push({
         closureStatus: closureStatus ?? ClosureStatus.OPERATING,
       });
+    }
+
+    if (rentalEnabled) {
+      andConditions.push({ rentalEnabled: true });
     }
 
     // Verified filter
@@ -826,7 +834,7 @@ export class VenuesService {
     });
     if (!user) throw new NotFoundException('User not found');
     try {
-      return await this.prisma.venueManager.create({
+      const manager = await this.prisma.venueManager.create({
         data: { venueId, userId: dto.userId, role: dto.role },
         include: {
           user: {
@@ -838,8 +846,26 @@ export class VenuesService {
               role: true,
             },
           },
+          venue: { select: { name: true } },
         },
       });
+      // Otherwise the person only finds out by stumbling on the manage menu.
+      if (dto.userId !== userId) {
+        void this.notifications
+          .createForUser(
+            dto.userId,
+            NotificationType.VENUE_REQUEST,
+            'Bạn được giao quản lý sân',
+            `Bạn đã được thêm vào đội quản lý sân "${manager.venue.name}".`,
+            {
+              action: 'venue_manager_assigned',
+              venueId,
+              venueName: manager.venue.name,
+            }
+          )
+          .catch(() => undefined);
+      }
+      return manager;
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
