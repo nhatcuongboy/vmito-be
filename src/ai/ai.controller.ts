@@ -9,6 +9,7 @@ import {
   Request,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { GeminiService } from './gemini.service';
 import {
@@ -23,7 +24,12 @@ import {
   ExtractPriceRulesRequestDto,
   ExtractPriceRulesResponseDto,
 } from './dto/extract-price-rules.dto';
+import {
+  SuggestLevelRequestDto,
+  SuggestLevelResponseDto,
+} from './dto/suggest-level.dto';
 import { PriceRulesExtractionService } from './price-rules-extraction.service';
+import { LevelSuggestionService } from './level-suggestion.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 interface AuthenticatedRequest {
@@ -41,7 +47,8 @@ interface AuthenticatedRequest {
 export class AiController {
   constructor(
     private readonly geminiService: GeminiService,
-    private readonly priceRulesExtraction: PriceRulesExtractionService
+    private readonly priceRulesExtraction: PriceRulesExtractionService,
+    private readonly levelSuggestion: LevelSuggestionService
   ) {}
 
   @Post('extract-session')
@@ -85,6 +92,24 @@ export class AiController {
       throw new HttpException('text is required', HttpStatus.BAD_REQUEST);
     }
     return this.priceRulesExtraction.extract(dto.text, dto.language);
+  }
+
+  /**
+   * POST /ai/suggest-level
+   * Suggests a skill level from a player's own description. Read-only: the
+   * player confirms the result in the client. Tighter than the global limit
+   * because the "try again" button is one tap and each try is a paid call.
+   */
+  @Post('suggest-level')
+  @Throttle({ default: { limit: 10, ttl: 3600000 } })
+  suggestLevel(
+    @Body() dto: SuggestLevelRequestDto
+  ): Promise<SuggestLevelResponseDto> {
+    return this.levelSuggestion.suggest(
+      dto.description,
+      dto.sportType,
+      dto.language
+    );
   }
 
   /**
