@@ -525,6 +525,18 @@ export const PUSH_TEMPLATES: Record<string, PushTemplate> = {
       zh: '再次提醒：你有一笔 {amount} 的付款待处理。',
     },
   },
+  session_split_applied: {
+    title: {
+      vi: 'Đã có số tiền cần thanh toán',
+      en: 'Your share is ready',
+      zh: '你的分摊金额已确定',
+    },
+    message: {
+      vi: 'Host đã chia tiền kèo {sessionName}: bạn cần đóng {amount}.',
+      en: 'The host split the costs of {sessionName}: you owe {amount}.',
+      zh: '房主已分摊 {sessionName} 的费用：你需支付 {amount}。',
+    },
+  },
   payment_collected: {
     title: {
       vi: 'Đã xác nhận thu tiền',

@@ -25,6 +25,8 @@ export class FeeService {
     femaleFee: true,
     splitTotal: true,
     splitPerPlayer: true,
+    splitMaleAmount: true,
+    splitFemaleAmount: true,
     notes: true,
     createdAt: true,
     updatedAt: true,
@@ -144,12 +146,22 @@ export class FeeService {
         splitPerPlayer: dto.splitTotal
           ? await this.calculateSplitPerPlayer(sessionId, dto.splitTotal)
           : undefined,
+        // These only describe the calculator's result; a new total or a
+        // switch to FIXED makes them stale.
+        ...((dto.splitTotal || newFeeType === FeeType.FIXED) && {
+          splitMaleAmount: null,
+          splitFemaleAmount: null,
+        }),
       },
       select: this.feeConfigSelect,
     });
 
     // Update payment records if fee amounts changed
     if (newFeeType === FeeType.FIXED) {
+      await this.prisma.paymentRecord.updateMany({
+        where: { sessionId, splitLocked: true },
+        data: { splitLocked: false },
+      });
       await this.updatePaymentAmounts(sessionId, feeConfig);
     } else if (dto.splitTotal && feeConfig.splitPerPlayer) {
       await this.updateSplitPaymentAmounts(sessionId, feeConfig.splitPerPlayer);
@@ -209,6 +221,8 @@ export class FeeService {
         maleFee: true,
         femaleFee: true,
         splitPerPlayer: true,
+        splitMaleAmount: true,
+        splitFemaleAmount: true,
       },
     });
 
@@ -264,7 +278,10 @@ export class FeeService {
           status: PaymentStatus.PENDING,
         },
       });
-    } else if (existing.amount !== amount) {
+    } else if (
+      existing.amount !== amount &&
+      !this.isFrozenBySplit(feeConfig, existing)
+    ) {
       // Update amount if it has changed (e.g., player became a fixed member).
       // Reset approval status since the previously approved amount is no longer valid.
       const shouldResetStatus =
@@ -327,7 +344,11 @@ export class FeeService {
       where: { playerId: player.id },
     });
 
-    if (payment && payment.amount !== newAmount) {
+    if (
+      payment &&
+      payment.amount !== newAmount &&
+      !this.isFrozenBySplit(feeConfig, payment)
+    ) {
       // When the fee amount changes, the previous approval/submission is no longer
       // valid for the new amount. Reset back to PENDING so the host must re-approve.
       const shouldResetStatus =
@@ -411,7 +432,10 @@ export class FeeService {
         );
       await this.syncPlayerClubFeeApplied(payment.player.id, clubFeeApplied);
 
-      if (payment.amount !== newAmount) {
+      if (
+        payment.amount !== newAmount &&
+        !this.isFrozenBySplit(feeConfig, payment)
+      ) {
         const shouldResetStatus =
           payment.status === PaymentStatus.APPROVED ||
           payment.status === PaymentStatus.SUBMITTED;
@@ -446,11 +470,17 @@ export class FeeService {
       maleFee?: number | null;
       femaleFee?: number | null;
       splitPerPlayer?: number | null;
+      splitMaleAmount?: number | null;
+      splitFemaleAmount?: number | null;
     },
     gender: Gender
   ): number {
     if (feeConfig.feeType === FeeType.SPLIT_EVENLY) {
-      return feeConfig.splitPerPlayer || 0;
+      const splitAmount =
+        gender === Gender.FEMALE
+          ? feeConfig.splitFemaleAmount
+          : feeConfig.splitMaleAmount;
+      return splitAmount ?? feeConfig.splitPerPlayer ?? 0;
     }
 
     if (gender === Gender.FEMALE) {
@@ -460,12 +490,28 @@ export class FeeService {
     return feeConfig.maleFee || feeConfig.femaleFee || 0;
   }
 
+  // Money already collected under a cost split stays as it was billed, and
+  // players the host left out stay at zero, whatever edits follow.
+  private isFrozenBySplit(
+    feeConfig: { feeType: FeeType; splitMaleAmount?: number | null },
+    payment: { splitLocked: boolean; status: PaymentStatus }
+  ): boolean {
+    if (feeConfig.feeType !== FeeType.SPLIT_EVENLY) return false;
+    return (
+      payment.splitLocked ||
+      (feeConfig.splitMaleAmount != null &&
+        payment.status === PaymentStatus.APPROVED)
+    );
+  }
+
   private async calculatePaymentAmountForPlayer(
     feeConfig: {
       feeType: FeeType;
       maleFee?: number | null;
       femaleFee?: number | null;
       splitPerPlayer?: number | null;
+      splitMaleAmount?: number | null;
+      splitFemaleAmount?: number | null;
     },
     player: {
       id: string;
@@ -635,7 +681,7 @@ export class FeeService {
     const playerCount = await this.prisma.player.count({
       where: {
         sessionId,
-        isJoined: true,
+        registrationStatus: RegistrationStatus.APPROVED,
       },
     });
 
@@ -650,7 +696,15 @@ export class FeeService {
     splitPerPlayer: number
   ) {
     await this.prisma.paymentRecord.updateMany({
-      where: { sessionId },
+      where: {
+        sessionId,
+        splitLocked: false,
+        status: { not: PaymentStatus.APPROVED },
+        player: {
+          registrationStatus: RegistrationStatus.APPROVED,
+          clubFeeApplied: false,
+        },
+      },
       data: { amount: splitPerPlayer },
     });
   }

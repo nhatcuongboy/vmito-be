@@ -2183,6 +2183,8 @@ model SessionFeeConfig {
   femaleFee      Int? // Fee for female players (in VND), nullable for SPLIT_EVENLY
   splitTotal     Int? // Total amount to split (for SPLIT_EVENLY), set after session
   splitPerPlayer Int? // Calculated amount per player (for SPLIT_EVENLY)
+  splitMaleAmount   Int? // Cost split: amount per male player, null when not set by the calculator
+  splitFemaleAmount Int? // Cost split: amount per female player
   notes          String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -2219,6 +2221,7 @@ model PaymentRecord {
   registeredByUserId String? // User who registered this player (for multi-slot)
   hostId             String
   amount             Int // Amount in VND
+  splitLocked        Boolean        @default(false) // Set by the cost split: fee recalculation must not touch this record
   paymentMethod      PaymentMethod?
   status             PaymentStatus  @default(PENDING)
   proofImageUrl      String?
