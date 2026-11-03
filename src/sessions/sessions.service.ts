@@ -60,7 +60,10 @@ import { generateSessionAccessCode } from './utils/session-access-code.util';
 import { UserRecommendationContextService } from '../recommendations/user-recommendation-context.service';
 import { Recommendation } from '../recommendations/recommendation.types';
 import { sortByRecommendation } from '../recommendations/recommendation.utils';
-import { scoreSession } from '../recommendations/scorers/session.scorer';
+import {
+  interleaveCrawledSessions,
+  scoreSession,
+} from '../recommendations/scorers/session.scorer';
 
 /** Upcoming sessions considered by `sortBy=recommended`. */
 const RECOMMENDATION_CANDIDATES = 300;
@@ -937,9 +940,11 @@ export class SessionsService {
 
     if (recommendationContext) {
       // Never suggest what the viewer already joined, requested or hosts.
+      // Crawled Facebook sessions never take players here but are still
+      // worth showing; they are ranked behind joinable ones below.
       andConditions.push({
         hostId: { not: userId },
-        allowNewPlayers: true,
+        OR: [{ allowNewPlayers: true }, { isCrawled: true }],
         registrationOpen: true,
         NOT: {
           players: {
@@ -1067,15 +1072,24 @@ export class SessionsService {
         sessions.map((s) => s.id),
         recommendationContext.friendIds
       );
-      sessionsToReturn = sortByRecommendation(
-        sessions.map((session) => ({
-          ...session,
-          recommendation: scoreSession(
-            session,
-            recommendationContext,
-            friendCounts.get(session.id) ?? 0
-          ),
-        }))
+      sessionsToReturn = interleaveCrawledSessions(
+        sortByRecommendation(
+          sessions.map((session) => {
+            const recommendation = scoreSession(
+              session,
+              recommendationContext,
+              friendCounts.get(session.id) ?? 0
+            );
+            // No reasons for crawled sessions: their score only orders them
+            // among the other Facebook ones.
+            return {
+              ...session,
+              recommendation: session.isCrawled
+                ? { ...recommendation, reasons: [] }
+                : recommendation,
+            };
+          })
+        )
       );
     } else if (isDistanceSort) {
       // Calculate distance for each session using Haversine formula
