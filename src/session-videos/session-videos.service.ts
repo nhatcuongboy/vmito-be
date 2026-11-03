@@ -44,7 +44,9 @@ export class SessionVideosService {
     });
     if (!session) throw new NotFoundException('Session not found');
     const isPlayer = session.players.length > 0;
-    if (!isPlayer) this.access.assertHostOrAdmin(session.hostId, userId, role);
+    if (!isPlayer && !(await this.access.isManager(sessionId, userId))) {
+      this.access.assertHostOrAdmin(session.hostId, userId, role);
+    }
     return this.prisma.sessionVideo.findMany({
       where: { sessionId },
       orderBy: { createdAt: 'asc' },
@@ -139,7 +141,7 @@ export class SessionVideosService {
   private async assertHost(sessionId: string, userId: string, role?: string) {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
-      select: { hostId: true, isCrawled: true },
+      select: { id: true, hostId: true, status: true, isCrawled: true },
     });
     if (!session) throw new NotFoundException('Session not found');
     if (session.isCrawled) {
@@ -147,7 +149,7 @@ export class SessionVideosService {
         'Crawled (vãng lai) sessions are view-only and cannot be modified.'
       );
     }
-    this.access.assertHostOrAdmin(session.hostId, userId, role);
+    await this.access.assertAccess(session, userId, role, 'SESSION');
   }
 }
 

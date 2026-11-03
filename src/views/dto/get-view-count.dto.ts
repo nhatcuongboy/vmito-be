@@ -7,7 +7,7 @@ export class GetViewCountDto {
   @IsEnum(ViewTargetType)
   targetType: ViewTargetType;
 
-  @ApiProperty({ description: 'ID of the venue, club, or session' })
+  @ApiProperty({ description: 'ID of the venue, club, class, or session' })
   @IsString()
   targetId: string;
 }

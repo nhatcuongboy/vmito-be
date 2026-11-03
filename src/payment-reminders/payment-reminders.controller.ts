@@ -33,17 +33,20 @@ export class PaymentRemindersController {
   constructor(private readonly service: PaymentRemindersService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create a reminder for a single pending payment (host)' })
+  @ApiOperation({
+    summary: 'Create a reminder for a single pending payment (host)',
+  })
   async createSingle(
     @Body() dto: CreateSingleReminderDto,
-    @CurrentUser() user: { userId: string }
+    @CurrentUser() user: { userId: string; role?: string }
   ) {
-    return this.service.createSingle(user.userId, dto);
+    return this.service.createSingle(user.userId, user.role, dto);
   }
 
   @Post('aggregate')
   @ApiOperation({
-    summary: 'Create or refresh a reminder covering all pending payments for a user (host)',
+    summary:
+      'Create or refresh a reminder covering all pending payments for a user (host)',
   })
   async createAggregate(
     @Body() dto: CreateAggregateReminderDto,
@@ -53,7 +56,9 @@ export class PaymentRemindersController {
   }
 
   @Post('custom')
-  @ApiOperation({ summary: 'Create a freeform custom reminder to any user (host)' })
+  @ApiOperation({
+    summary: 'Create a freeform custom reminder to any user (host)',
+  })
   async createCustom(
     @Body() dto: CreateCustomReminderDto,
     @CurrentUser() user: { userId: string; role: string }
@@ -62,7 +67,9 @@ export class PaymentRemindersController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List reminders created by or sent to the current user' })
+  @ApiOperation({
+    summary: 'List reminders created by or sent to the current user',
+  })
   async list(
     @Query() query: QueryRemindersDto,
     @CurrentUser() user: { userId: string }
@@ -81,7 +88,8 @@ export class PaymentRemindersController {
 
   @Post(':id/mark-collected')
   @ApiOperation({
-    summary: 'Mark reminder as collected/approved (creator, direct or after review)',
+    summary:
+      'Mark reminder as collected/approved (creator, direct or after review)',
   })
   async markCollected(
     @Param('id') id: string,
@@ -102,7 +110,8 @@ export class PaymentRemindersController {
 
   @Post(':id/reject')
   @ApiOperation({
-    summary: 'Reject a submitted payment proof, resetting the reminder (creator)',
+    summary:
+      'Reject a submitted payment proof, resetting the reminder (creator)',
   })
   async reject(
     @Param('id') id: string,

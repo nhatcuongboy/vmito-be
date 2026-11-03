@@ -164,7 +164,13 @@ export class VenuesService {
     return buildVenueSearchTerms(venue);
   }
 
-  async searchVenues(filters: SearchVenueDto, userId?: string) {
+  async searchVenues(
+    filters: SearchVenueDto,
+    userId?: string,
+    options: { includeAllStatuses?: boolean } = {}
+  ) {
+    // Admin listing: don't default to ACTIVE / OPERATING venues only.
+    const applyStatusDefaults = !options.includeAllStatuses;
     const {
       placeId,
       keyword,
@@ -307,12 +313,12 @@ export class VenuesService {
     }
 
     // Status filter - default to ACTIVE unless doing an exact placeId lookup
-    if (status || !placeId) {
+    if (status || (!placeId && applyStatusDefaults)) {
       andConditions.push({ status: status ?? VenueStatus.ACTIVE });
     }
 
     // Closure status filter - default to OPERATING unless doing an exact placeId lookup
-    if (closureStatus || !placeId) {
+    if (closureStatus || (!placeId && applyStatusDefaults)) {
       andConditions.push({
         closureStatus: closureStatus ?? ClosureStatus.OPERATING,
       });

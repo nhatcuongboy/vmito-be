@@ -57,6 +57,17 @@ export class VenuesController {
     return this.venuesService.searchVenues(searchVenueDto, user?.userId);
   }
 
+  @Get('admin/search')
+  @UseGuards(AdminGuard)
+  adminSearch(
+    @Query() searchVenueDto: SearchVenueDto,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.venuesService.searchVenues(searchVenueDto, user.userId, {
+      includeAllStatuses: true,
+    });
+  }
+
   @Public()
   @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Get()

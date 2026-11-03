@@ -41,7 +41,12 @@ export class CourtsController {
     @Body() updateCourtDto: UpdateCourtDto,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertCourtSessionHost(id, user.userId, user.role);
+    await this.sessionAccess.assertCourtSessionAccess(
+      id,
+      user.userId,
+      user.role,
+      'COURTS'
+    );
     return this.courtsService.update(id, updateCourtDto);
   }
 
@@ -51,7 +56,12 @@ export class CourtsController {
     @Body() selectPlayersDto: SelectPlayersDto,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertCourtSessionHost(id, user.userId, user.role);
+    await this.sessionAccess.assertCourtSessionAccess(
+      id,
+      user.userId,
+      user.role,
+      'COURTS'
+    );
     return this.courtsService.selectPlayers(id, selectPlayersDto);
   }
 
@@ -60,7 +70,12 @@ export class CourtsController {
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertCourtSessionHost(id, user.userId, user.role);
+    await this.sessionAccess.assertCourtSessionAccess(
+      id,
+      user.userId,
+      user.role,
+      'COURTS'
+    );
     return this.courtsService.deselectPlayers(id);
   }
 
@@ -69,7 +84,12 @@ export class CourtsController {
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertCourtSessionHost(id, user.userId, user.role);
+    await this.sessionAccess.assertCourtSessionAccess(
+      id,
+      user.userId,
+      user.role,
+      'COURTS'
+    );
     return this.courtsService.startMatch(id);
   }
 
@@ -79,7 +99,12 @@ export class CourtsController {
     @CurrentUser() user: { userId: string; role: string },
     @Body() endMatchDto?: EndMatchDto
   ) {
-    await this.sessionAccess.assertCourtSessionHost(id, user.userId, user.role);
+    await this.sessionAccess.assertCourtSessionAccess(
+      id,
+      user.userId,
+      user.role,
+      'COURTS'
+    );
     return this.courtsService.endMatch(id, endMatchDto);
   }
 
@@ -94,7 +119,12 @@ export class CourtsController {
     @Body() preSelectDto: PreSelectDto,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertCourtSessionHost(id, user.userId, user.role);
+    await this.sessionAccess.assertCourtSessionAccess(
+      id,
+      user.userId,
+      user.role,
+      'COURTS'
+    );
     return this.courtsService.preSelect(id, preSelectDto);
   }
 
@@ -103,7 +133,12 @@ export class CourtsController {
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertCourtSessionHost(id, user.userId, user.role);
+    await this.sessionAccess.assertCourtSessionAccess(
+      id,
+      user.userId,
+      user.role,
+      'COURTS'
+    );
     return this.courtsService.cancelPreSelect(id);
   }
 
@@ -119,7 +154,12 @@ export class CourtsController {
     @CurrentUser() user: { userId: string; role: string }
   ) {
     // Host-only tool; can trigger paid AI suggestions.
-    await this.sessionAccess.assertCourtSessionHost(id, user.userId, user.role);
+    await this.sessionAccess.assertCourtSessionAccess(
+      id,
+      user.userId,
+      user.role,
+      'COURTS'
+    );
     const count = query.topCount ? parseInt(query.topCount, 10) : undefined;
     const enableAi = query.useAi === 'true';
     return this.courtsService.getSuggestedPlayers(

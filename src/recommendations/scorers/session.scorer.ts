@@ -138,3 +138,27 @@ export function scoreSession(
 
   return builder.build();
 }
+
+/** Joinable sessions placed before each crawled one under `recommended`. */
+const JOINABLE_PER_CRAWLED = 3;
+
+/**
+ * Keeps crawled (Facebook, view-only) sessions behind joinable ones without
+ * hiding them: one crawled session after every [JOINABLE_PER_CRAWLED]
+ * joinable ones, the rest appended once the joinable ones run out. Both
+ * groups keep their incoming (ranked) order, so pages stay stable.
+ */
+export function interleaveCrawledSessions<T extends { isCrawled: boolean }>(
+  items: T[]
+): T[] {
+  const joinable = items.filter((item) => !item.isCrawled);
+  const crawled = items.filter((item) => item.isCrawled);
+  const result: T[] = [];
+  joinable.forEach((item, index) => {
+    result.push(item);
+    if ((index + 1) % JOINABLE_PER_CRAWLED === 0 && crawled.length > 0) {
+      result.push(crawled.shift()!);
+    }
+  });
+  return result.concat(crawled);
+}

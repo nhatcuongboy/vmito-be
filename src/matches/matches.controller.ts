@@ -39,7 +39,13 @@ export class MatchesController {
     @Body() updateMatchDto: UpdateMatchDto,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertMatchSessionHost(id, user.userId, user.role);
+    await this.sessionAccess.assertMatchSessionAccess(
+      id,
+      user.userId,
+      user.role,
+      'COURTS',
+      'match.update'
+    );
     return this.matchesService.update(id, updateMatchDto);
   }
 
@@ -48,7 +54,13 @@ export class MatchesController {
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertMatchSessionHost(id, user.userId, user.role);
+    await this.sessionAccess.assertMatchSessionAccess(
+      id,
+      user.userId,
+      user.role,
+      'SESSION',
+      'match.delete'
+    );
     return this.matchesService.remove(id);
   }
 }
@@ -78,10 +90,11 @@ export class SessionMatchesController {
     @Body() createMatchDto: CreateMatchDto,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertSessionHost(
+    await this.sessionAccess.assertSessionAccess(
       sessionId,
       user.userId,
-      user.role
+      user.role,
+      'COURTS'
     );
     return this.matchesService.createMatch(
       sessionId,

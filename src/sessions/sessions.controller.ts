@@ -156,10 +156,17 @@ export class SessionsController {
     @Query('district') district?: string,
     @Query('sportType') sportTypeRaw?: string,
     @Query('sessionType') sessionType?: 'all' | 'regular' | 'facebook',
-    @Query('favoriteOnly') favoriteOnly?: string
+    @Query('favoriteOnly') favoriteOnly?: string,
+    @Query('managedByMe') managedByMe?: string
   ) {
-    // Security: non-admin users can only see their own hosted sessions
-    const effectiveHostId = user.role === 'ADMIN' ? hostId : user.userId;
+    // Security: non-admin users can only see their own hosted sessions, or
+    // the ones they co-host when they ask for those instead.
+    const isManagedList = managedByMe === 'true';
+    const effectiveHostId = isManagedList
+      ? undefined
+      : user.role === 'ADMIN'
+        ? hostId
+        : user.userId;
     const excludeStatuses = excludeStatusesRaw
       ? (excludeStatusesRaw.split(',') as SessionStatus[])
       : undefined;
@@ -168,6 +175,7 @@ export class SessionsController {
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
       hostId: effectiveHostId,
+      managedByUserId: isManagedList ? user.userId : undefined,
       searchQuery,
       sortBy,
       sortOrder,
@@ -519,7 +527,12 @@ export class SessionsController {
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertSessionHost(id, user.userId, user.role);
+    await this.sessionAccess.assertSessionAccess(
+      id,
+      user.userId,
+      user.role,
+      'COURTS'
+    );
     return this.sessionsService.start(id);
   }
 
@@ -528,7 +541,12 @@ export class SessionsController {
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertSessionHost(id, user.userId, user.role);
+    await this.sessionAccess.assertSessionAccess(
+      id,
+      user.userId,
+      user.role,
+      'COURTS'
+    );
     return this.sessionsService.end(id);
   }
 
@@ -620,7 +638,12 @@ export class SessionsController {
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertSessionHost(id, user.userId, user.role);
+    await this.sessionAccess.assertSessionAccess(
+      id,
+      user.userId,
+      user.role,
+      'COURTS'
+    );
     return this.sessionsService.autoAssign(id);
   }
 
@@ -635,7 +658,12 @@ export class SessionsController {
     @Body() updateWaitTimesDto: UpdateWaitTimesDto,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertSessionHost(id, user.userId, user.role);
+    await this.sessionAccess.assertSessionAccess(
+      id,
+      user.userId,
+      user.role,
+      'COURTS'
+    );
     return this.sessionsService.updateWaitTimes(id, updateWaitTimesDto);
   }
 

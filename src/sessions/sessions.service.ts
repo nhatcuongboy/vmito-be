@@ -60,7 +60,11 @@ import { generateSessionAccessCode } from './utils/session-access-code.util';
 import { UserRecommendationContextService } from '../recommendations/user-recommendation-context.service';
 import { Recommendation } from '../recommendations/recommendation.types';
 import { sortByRecommendation } from '../recommendations/recommendation.utils';
-import { scoreSession } from '../recommendations/scorers/session.scorer';
+import {
+  interleaveCrawledSessions,
+  scoreSession,
+} from '../recommendations/scorers/session.scorer';
+import { SessionAccessService } from '../common/session-access/session-access.service';
 
 /** Upcoming sessions considered by `sortBy=recommended`. */
 const RECOMMENDATION_CANDIDATES = 300;
@@ -78,7 +82,8 @@ export class SessionsService {
     private favoritesService: FavoritesService,
     private activityFeedService: ActivityFeedService,
     private pointsService: PointsService,
-    private recommendationContext: UserRecommendationContextService
+    private recommendationContext: UserRecommendationContextService,
+    private sessionAccess: SessionAccessService
   ) {}
 
   /**
@@ -382,6 +387,7 @@ export class SessionsService {
       page?: number;
       limit?: number;
       hostId?: string;
+      managedByUserId?: string;
       searchQuery?: string;
       sortBy?: string;
       sortOrder?: 'asc' | 'desc';
@@ -419,7 +425,9 @@ export class SessionsService {
     const where: Prisma.SessionWhereInput = {};
 
     // If hostId is provided in filters, use it (could add security check here)
-    if (filters?.hostId) {
+    if (filters?.managedByUserId) {
+      where.managers = { some: { userId: filters.managedByUserId } };
+    } else if (filters?.hostId) {
       where.hostId = filters.hostId;
     } else if (user && user.role !== 'ADMIN') {
       // Default to filtering by current user if not admin
@@ -534,7 +542,10 @@ export class SessionsService {
 
     // Non-host viewers (e.g. public host profile) cannot see internal sessions
     const isHostOrAdmin =
-      user && (filters?.hostId === user.userId || user.role === 'ADMIN');
+      user &&
+      (filters?.hostId === user.userId ||
+        filters?.managedByUserId === user.userId ||
+        user.role === 'ADMIN');
     if (!isHostOrAdmin) {
       where.isInternal = false;
     }
@@ -937,9 +948,11 @@ export class SessionsService {
 
     if (recommendationContext) {
       // Never suggest what the viewer already joined, requested or hosts.
+      // Crawled Facebook sessions never take players here but are still
+      // worth showing; they are ranked behind joinable ones below.
       andConditions.push({
         hostId: { not: userId },
-        allowNewPlayers: true,
+        OR: [{ allowNewPlayers: true }, { isCrawled: true }],
         registrationOpen: true,
         NOT: {
           players: {
@@ -1067,15 +1080,24 @@ export class SessionsService {
         sessions.map((s) => s.id),
         recommendationContext.friendIds
       );
-      sessionsToReturn = sortByRecommendation(
-        sessions.map((session) => ({
-          ...session,
-          recommendation: scoreSession(
-            session,
-            recommendationContext,
-            friendCounts.get(session.id) ?? 0
-          ),
-        }))
+      sessionsToReturn = interleaveCrawledSessions(
+        sortByRecommendation(
+          sessions.map((session) => {
+            const recommendation = scoreSession(
+              session,
+              recommendationContext,
+              friendCounts.get(session.id) ?? 0
+            );
+            // No reasons for crawled sessions: their score only orders them
+            // among the other Facebook ones.
+            return {
+              ...session,
+              recommendation: session.isCrawled
+                ? { ...recommendation, reasons: [] }
+                : recommendation,
+            };
+          })
+        )
       );
     } else if (isDistanceSort) {
       // Calculate distance for each session using Haversine formula
@@ -1355,7 +1377,10 @@ export class SessionsService {
 
     if (session.isInternal) {
       const isHost =
-        user && (user.userId === session.hostId || user.role === 'ADMIN');
+        user &&
+        (user.userId === session.hostId ||
+          user.role === 'ADMIN' ||
+          (await this.sessionAccess.isManager(session.id, user.userId)));
       const isParticipant =
         user &&
         session.players.some(
@@ -2066,7 +2091,7 @@ export class SessionsService {
   async update(
     id: string,
     updateSessionDto: UpdateSessionDto,
-    userId?: string,
+    userId: string,
     role?: string
   ) {
     const existingSession = await this.prisma.session.findUnique({
@@ -2083,10 +2108,13 @@ export class SessionsService {
       );
     }
 
-    // Authorization check: only session owner or admin can update
-    if (userId && role !== 'ADMIN' && existingSession.hostId !== userId) {
-      throw new ForbiddenException('Not authorized to modify this session');
-    }
+    await this.sessionAccess.assertAccess(
+      existingSession,
+      userId,
+      role,
+      'SESSION',
+      'session.update'
+    );
 
     // Validate requiredLevels if provided
     if (updateSessionDto.requiredLevels !== undefined) {
@@ -2454,7 +2482,7 @@ export class SessionsService {
    */
   async bulkUpdate(
     items: { id: string; changes: UpdateSessionDto }[],
-    userId?: string,
+    userId: string,
     role?: string
   ) {
     const seen = new Set<string>();
@@ -2692,7 +2720,7 @@ export class SessionsService {
     }
 
     // Authorization check: only session owner or admin can delete
-    if (userId && role !== 'ADMIN' && existingSession.hostId !== userId) {
+    if (role !== 'ADMIN' && existingSession.hostId !== userId) {
       throw new ForbiddenException('Not authorized to delete this session');
     }
 
@@ -3692,7 +3720,7 @@ export class SessionsService {
   async uploadCoverPhoto(
     sessionId: string,
     file: Express.Multer.File,
-    userId?: string,
+    userId: string,
     role?: string
   ) {
     const session = await this.prisma.session.findUnique({
@@ -3703,10 +3731,7 @@ export class SessionsService {
       throw new NotFoundException('Session not found');
     }
 
-    // Authorization check: only session owner or admin can upload cover photo
-    if (userId && role !== 'ADMIN' && session.hostId !== userId) {
-      throw new ForbiddenException('Not authorized to modify this session');
-    }
+    await this.sessionAccess.assertAccess(session, userId, role, 'SESSION');
 
     // Delete old cover photo if exists
     if (session.coverPhotoPublicId) {
@@ -3750,7 +3775,7 @@ export class SessionsService {
     return updatedSession;
   }
 
-  async deleteCoverPhoto(sessionId: string, userId?: string, role?: string) {
+  async deleteCoverPhoto(sessionId: string, userId: string, role?: string) {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
     });
@@ -3759,10 +3784,7 @@ export class SessionsService {
       throw new NotFoundException('Session not found');
     }
 
-    // Authorization check: only session owner or admin can delete cover photo
-    if (userId && role !== 'ADMIN' && session.hostId !== userId) {
-      throw new ForbiddenException('Not authorized to modify this session');
-    }
+    await this.sessionAccess.assertAccess(session, userId, role, 'SESSION');
 
     // Delete cover photo from Cloudinary if exists
     if (session.coverPhotoPublicId) {
@@ -3796,7 +3818,7 @@ export class SessionsService {
     sessionId: string,
     images: string[],
     imagePublicIds: string[],
-    userId?: string,
+    userId: string,
     role?: string
   ) {
     const session = await this.prisma.session.findUnique({
@@ -3807,9 +3829,7 @@ export class SessionsService {
       throw new NotFoundException('Session not found');
     }
 
-    if (userId && role !== 'ADMIN' && session.hostId !== userId) {
-      throw new ForbiddenException('Not authorized to modify this session');
-    }
+    await this.sessionAccess.assertAccess(session, userId, role, 'SESSION');
 
     if (images.length > 5) {
       throw new BadRequestException('Maximum 5 images allowed per session');
@@ -3847,7 +3867,7 @@ export class SessionsService {
     sessionId: string,
     coverPhoto: string,
     coverPhotoPublicId: string,
-    userId?: string,
+    userId: string,
     role?: string
   ) {
     const session = await this.prisma.session.findUnique({
@@ -3858,9 +3878,7 @@ export class SessionsService {
       throw new NotFoundException('Session not found');
     }
 
-    if (userId && role !== 'ADMIN' && session.hostId !== userId) {
-      throw new ForbiddenException('Not authorized to modify this session');
-    }
+    await this.sessionAccess.assertAccess(session, userId, role, 'SESSION');
 
     const updatedSession = await this.prisma.session.update({
       where: { id: sessionId },

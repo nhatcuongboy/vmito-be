@@ -1,7 +1,6 @@
 import {
   Injectable,
   NotFoundException,
-  ForbiddenException,
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
@@ -14,6 +13,7 @@ import {
   RegistrationStatus,
 } from '@prisma/client';
 import { ClubsService } from '../clubs/clubs.service';
+import { SessionAccessService } from '../common/session-access/session-access.service';
 
 @Injectable()
 export class FeeService {
@@ -34,7 +34,8 @@ export class FeeService {
 
   constructor(
     private prisma: PrismaService,
-    private clubsService: ClubsService
+    private clubsService: ClubsService,
+    private access: SessionAccessService
   ) {}
 
   async findBySessionId(sessionId: string) {
@@ -53,16 +54,20 @@ export class FeeService {
     // Verify session exists and user is the host
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
-      select: { id: true, hostId: true },
+      select: { id: true, hostId: true, status: true },
     });
 
     if (!session) {
       throw new NotFoundException('Session not found');
     }
 
-    if (role !== 'ADMIN' && session.hostId !== userId) {
-      throw new ForbiddenException('Only session host can create fee config');
-    }
+    await this.access.assertAccess(
+      session,
+      userId,
+      role,
+      'SESSION',
+      'fee.create'
+    );
 
     // Check if fee config already exists
     const existing = await this.prisma.sessionFeeConfig.findUnique({
@@ -111,16 +116,20 @@ export class FeeService {
     // Verify session exists and user is the host
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
-      select: { id: true, hostId: true },
+      select: { id: true, hostId: true, status: true },
     });
 
     if (!session) {
       throw new NotFoundException('Session not found');
     }
 
-    if (role !== 'ADMIN' && session.hostId !== userId) {
-      throw new ForbiddenException('Only session host can update fee config');
-    }
+    await this.access.assertAccess(
+      session,
+      userId,
+      role,
+      'SESSION',
+      'fee.update'
+    );
 
     // Check if fee config exists
     const existing = await this.prisma.sessionFeeConfig.findUnique({
@@ -174,16 +183,20 @@ export class FeeService {
     // Verify session exists and user is the host
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
-      select: { id: true, hostId: true },
+      select: { id: true, hostId: true, status: true },
     });
 
     if (!session) {
       throw new NotFoundException('Session not found');
     }
 
-    if (role !== 'ADMIN' && session.hostId !== userId) {
-      throw new ForbiddenException('Only session host can delete fee config');
-    }
+    await this.access.assertAccess(
+      session,
+      userId,
+      role,
+      'SESSION',
+      'fee.delete'
+    );
 
     // Check if fee config exists
     const existing = await this.prisma.sessionFeeConfig.findUnique({
@@ -382,18 +395,20 @@ export class FeeService {
     // Verify session exists and user is the host
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
-      select: { id: true, hostId: true, startTime: true },
+      select: { id: true, hostId: true, status: true, startTime: true },
     });
 
     if (!session) {
       throw new NotFoundException('Session not found');
     }
 
-    if (role !== 'ADMIN' && session.hostId !== userId) {
-      throw new ForbiddenException(
-        'Only session host can recalculate payments'
-      );
-    }
+    await this.access.assertAccess(
+      session,
+      userId,
+      role,
+      'SESSION',
+      'fee.recalculate'
+    );
 
     // Check if fee config exists
     const feeConfig = await this.prisma.sessionFeeConfig.findUnique({

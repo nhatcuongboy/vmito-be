@@ -50,6 +50,9 @@ export enum SessionEventType {
   SESSION_OVERTIME = 'session_overtime',
   SESSION_CANCELLED = 'session_cancelled',
   SESSION_STARTED = 'session_started',
+  // Co-host events
+  SESSION_MANAGER_JOINED = 'session_manager_joined',
+  SESSION_MANAGER_CHANGED = 'session_manager_changed',
   // Newsfeed events
   NEW_POST_CREATED = 'new_post_created',
 }
