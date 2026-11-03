@@ -8,7 +8,7 @@ export class TrackViewDto {
   targetType: ViewTargetType;
 
   @ApiProperty({
-    description: 'ID of the venue, club, or session being viewed',
+    description: 'ID of the venue, club, class, or session being viewed',
   })
   @IsString()
   targetId: string;

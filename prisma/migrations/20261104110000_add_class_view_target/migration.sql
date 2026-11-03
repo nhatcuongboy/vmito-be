@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "ViewTargetType" ADD VALUE IF NOT EXISTS 'CLASS';
