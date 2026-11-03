@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   Inject,
   forwardRef,
 } from '@nestjs/common';
@@ -236,6 +237,7 @@ export class CourtsService {
     const validPlayers = await this.prisma.player.findMany({
       where: {
         id: { in: finalPlayerIds },
+        sessionId: court.sessionId,
         registrationStatus: 'APPROVED',
       },
     });
@@ -265,6 +267,18 @@ export class CourtsService {
     // All validations passed, prepare for transaction
     const result = await this.prisma.$transaction(
       async (tx) => {
+        // Host and co-hosts can pick the same player at once: the checks above
+        // ran outside this transaction, so claim the players atomically.
+        const claimed = await tx.player.updateMany({
+          where: { id: { in: finalPlayerIds }, status: 'WAITING' },
+          data: { status: 'READY' },
+        });
+        if (claimed.count !== finalPlayerIds.length) {
+          throw new ConflictException(
+            'One or more players have just been assigned to another court'
+          );
+        }
+
         if (positionInfo) {
           const sortedPositionInfo = positionInfo.sort(
             (a, b) => a.position - b.position
@@ -623,6 +637,16 @@ export class CourtsService {
 
     const result = await this.prisma.$transaction(
       async (tx) => {
+        // Two managers can press start together, and the check above ran
+        // outside this transaction: the row lock lets exactly one through.
+        const claimed = await tx.court.updateMany({
+          where: { id, currentMatchId: null },
+          data: { status: 'IN_USE' },
+        });
+        if (!claimed.count) {
+          throw new ConflictException('Court already has an active match');
+        }
+
         const currentTime = new Date();
         const isExtra = court.session.endTime
           ? currentTime > court.session.endTime
@@ -676,10 +700,7 @@ export class CourtsService {
 
         const updatedCourt = await tx.court.update({
           where: { id },
-          data: {
-            currentMatchId: match.id,
-            status: 'IN_USE',
-          },
+          data: { currentMatchId: match.id },
           include: {
             currentPlayers: true,
             currentMatch: true,
@@ -750,6 +771,18 @@ export class CourtsService {
 
     const { promoted, ...result } = await this.prisma.$transaction(
       async (tx) => {
+        // Free the court first: the parked lineups below (this court's own
+        // and other courts') are only promoted once everyone in them is free.
+        // Conditional because a second manager ending the same match would
+        // otherwise overwrite the score and re-queue the players.
+        const claimed = await tx.court.updateMany({
+          where: { id, currentMatchId: court.currentMatchId },
+          data: { status: 'EMPTY', currentMatchId: null },
+        });
+        if (!claimed.count) {
+          throw new ConflictException('This match has already ended');
+        }
+
         const match = await tx.match.update({
           where: { id: court.currentMatchId! },
           data: {
@@ -784,13 +817,6 @@ export class CourtsService {
         );
 
         await Promise.all(playerUpdatePromises);
-
-        // Free the court first: the parked lineups below (this court's own
-        // and other courts') are only promoted once everyone in them is free.
-        await tx.court.update({
-          where: { id },
-          data: { status: 'EMPTY', currentMatchId: null },
-        });
 
         const promoted = await promotePendingPreSelections(tx, court.sessionId);
 

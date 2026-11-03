@@ -10,6 +10,7 @@ import {
 } from '@prisma/client';
 import { PLAYER_VIP_ENABLED } from '../common/constants/feature-flags';
 import { PrismaService } from '../prisma/prisma.service';
+import { SessionAccessService } from '../common/session-access/session-access.service';
 
 const COUNT_CONCURRENCY = 20;
 
@@ -68,15 +69,6 @@ const EMPTY_BADGE: BadgeCounts = {
   total: 0,
 };
 
-/** Who may act on session join requests — `hostFeatureAccess` on clients. */
-function canManageSessions(role: Role) {
-  return (
-    role === Role.HOST ||
-    role === Role.ADMIN ||
-    ((role === Role.PLAYER || role === Role.REFEREE) && PLAYER_VIP_ENABLED)
-  );
-}
-
 /** Mirrors the guards on `GET /clubs/my/join-requests` (no REFEREE). */
 function canManageClubRequests(role: Role) {
   return (
@@ -98,7 +90,10 @@ function canManageClubRequests(role: Role) {
  */
 @Injectable()
 export class NotificationUnreadCountService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: SessionAccessService
+  ) {}
 
   async badgeCountsForUser(userId: string): Promise<BadgeCounts> {
     const user = await this.prisma.user.findUnique({
@@ -109,14 +104,14 @@ export class NotificationUnreadCountService {
     const [unread, sessionRequests, clubRequests, venueRequests] =
       await Promise.all([
         this.unreadCount(userId, user.createdAt),
-        canManageSessions(user.role)
-          ? this.prisma.player.count({
-              where: {
-                registrationStatus: 'PENDING',
-                session: { hostId: userId },
-              },
-            })
-          : 0,
+        // No role gate: a co-host can be a plain PLAYER, and the scoped where
+        // already returns nothing for someone with no session to manage.
+        this.prisma.player.count({
+          where: {
+            registrationStatus: 'PENDING',
+            session: this.access.managedSessionWhere(userId, 'PLAYERS'),
+          },
+        }),
         canManageClubRequests(user.role)
           ? this.prisma.clubJoinRequest.count({
               where: {

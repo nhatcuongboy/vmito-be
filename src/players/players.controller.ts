@@ -74,13 +74,19 @@ export class PlayersController {
   // ============ Authenticated Endpoints ============
 
   @Get('host-recent')
-  @ApiOperation({ summary: 'Get recent players and roster for host to re-use in sessions' })
+  @ApiOperation({
+    summary: 'Get recent players and roster for host to re-use in sessions',
+  })
   getHostRecentPlayers(
     @CurrentUser() user: { userId: string; role: string },
     @Query('clubId') clubId?: string,
     @Query('search') search?: string
   ) {
-    return this.playersService.getHostRecentPlayers(user.userId, clubId, search);
+    return this.playersService.getHostRecentPlayers(
+      user.userId,
+      clubId,
+      search
+    );
   }
 
   // Declared before the `:id` routes so "host-recent-users" is not read as an id.
@@ -261,10 +267,11 @@ export class PlayersController {
     @Body() updatePlayerDto: UpdatePlayerDto,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertPlayerSelfOrSessionHost(
+    await this.sessionAccess.assertPlayerSelfOrSessionAccess(
       id,
       user.userId,
-      user.role
+      user.role,
+      'PLAYERS'
     );
     return this.playersService.update(id, updatePlayerDto);
   }
@@ -274,7 +281,7 @@ export class PlayersController {
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertPlayerSelfOrSessionHost(
+    await this.sessionAccess.assertPlayerRemovalAccess(
       id,
       user.userId,
       user.role
@@ -299,16 +306,28 @@ export class SessionPlayersController {
     private readonly sessionAccess: SessionAccessService
   ) {}
 
+  private touchesAccountOrApproval(player: UpdatePlayerInSessionDto): boolean {
+    const raw = player as { registrationStatus?: unknown; userId?: unknown };
+    return raw.registrationStatus !== undefined || raw.userId !== undefined;
+  }
+
   @Post()
   async create(
     @Param('sessionId') sessionId: string,
     @Body() createPlayerDto: CreatePlayerDto,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertSessionHost(
+    await this.sessionAccess.assertSessionAccess(
       sessionId,
       user.userId,
-      user.role
+      user.role,
+      'PLAYERS'
+    );
+    await this.sessionAccess.assertNotOwnSessionRecord(
+      sessionId,
+      user.userId,
+      user.role,
+      [createPlayerDto.userId]
     );
     return this.playersService.createInSession(sessionId, createPlayerDto);
   }
@@ -319,10 +338,17 @@ export class SessionPlayersController {
     @Body() playersData: CreatePlayerDto[],
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertSessionHost(
+    await this.sessionAccess.assertSessionAccess(
       sessionId,
       user.userId,
-      user.role
+      user.role,
+      'PLAYERS'
+    );
+    await this.sessionAccess.assertNotOwnSessionRecord(
+      sessionId,
+      user.userId,
+      user.role,
+      playersData.map((player) => player.userId)
     );
     return this.playersService.createBulkInSession(sessionId, playersData);
   }
@@ -333,10 +359,11 @@ export class SessionPlayersController {
     @Param('sessionId') sessionId: string,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertSessionHost(
+    await this.sessionAccess.assertSessionAccess(
       sessionId,
       user.userId,
-      user.role
+      user.role,
+      'PLAYERS'
     );
     return this.playersService.getBulkPlayersInfo(sessionId);
   }
@@ -348,11 +375,21 @@ export class SessionPlayersController {
     @Body() body: { players: UpdatePlayerInSessionDto[] },
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertSessionHost(
+    await this.sessionAccess.assertSessionAccess(
       sessionId,
       user.userId,
-      user.role
+      user.role,
+      'PLAYERS'
     );
+    // This route writes the body straight to the row, so a co-host could
+    // approve or re-link themselves here without the self-approval check.
+    if (body.players.some((player) => this.touchesAccountOrApproval(player))) {
+      await this.sessionAccess.assertSessionHost(
+        sessionId,
+        user.userId,
+        user.role
+      );
+    }
     return this.playersService.bulkUpdatePlayers(sessionId, body.players);
   }
 
@@ -378,10 +415,11 @@ export class SessionPlayersController {
     @Body() body: { playerId: string },
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertSessionHost(
+    await this.sessionAccess.assertSessionAccess(
       sessionId,
       user.userId,
-      user.role
+      user.role,
+      'PLAYERS'
     );
     return this.playersService.toggleInactive(sessionId, body.playerId);
   }
@@ -393,10 +431,11 @@ export class SessionPlayersController {
     @Body() body: { playerId: string },
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertSessionHost(
+    await this.sessionAccess.assertSessionAccess(
       sessionId,
       user.userId,
-      user.role
+      user.role,
+      'PLAYERS'
     );
     return this.playersService.checkIn(sessionId, body.playerId);
   }
@@ -425,11 +464,19 @@ export class SessionPlayersController {
     @Body() updateDto: UpdatePlayerInSessionDto,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertSessionHost(
+    await this.sessionAccess.assertSessionAccess(
       sessionId,
       user.userId,
-      user.role
+      user.role,
+      'PLAYERS'
     );
+    if (this.touchesAccountOrApproval(updateDto)) {
+      await this.sessionAccess.assertSessionHost(
+        sessionId,
+        user.userId,
+        user.role
+      );
+    }
     return this.playersService.updatePlayerInSession(
       sessionId,
       playerId,
@@ -443,7 +490,7 @@ export class SessionPlayersController {
     @Param('playerId') playerId: string,
     @CurrentUser() user: { userId: string; role: string }
   ) {
-    await this.sessionAccess.assertPlayerSelfOrSessionHost(
+    await this.sessionAccess.assertPlayerRemovalAccess(
       playerId,
       user.userId,
       user.role

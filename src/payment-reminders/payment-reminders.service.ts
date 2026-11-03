@@ -21,6 +21,7 @@ import {
   RejectReminderDto,
   QueryRemindersDto,
 } from './dto';
+import { SessionAccessService } from '../common/session-access/session-access.service';
 
 const formatVnd = (amount: number) => `${amount.toLocaleString('vi-VN')}đ`;
 
@@ -65,7 +66,8 @@ export class PaymentRemindersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly paymentsService: PaymentsService,
-    private readonly notifications: NotificationsService
+    private readonly notifications: NotificationsService,
+    private readonly access: SessionAccessService
   ) {}
 
   private assertHostAccess(role?: string) {
@@ -93,21 +95,30 @@ export class PaymentRemindersService {
     return `payment-reminder:${reminder.id}:pending`;
   }
 
-  async createSingle(hostUserId: string, dto: CreateSingleReminderDto) {
+  async createSingle(
+    userId: string,
+    role: string | undefined,
+    dto: CreateSingleReminderDto
+  ) {
     const payment = await this.prisma.paymentRecord.findUnique({
       where: { id: dto.paymentId },
       include: {
-        session: { select: { id: true, hostId: true } },
+        session: { select: { id: true, hostId: true, status: true } },
         player: { select: { userId: true } },
       },
     });
 
     if (!payment) throw new NotFoundException('Payment record not found');
-    if (payment.session.hostId !== hostUserId) {
-      throw new ForbiddenException(
-        'Only the session host can send this reminder'
-      );
-    }
+    await this.access.assertAccess(
+      payment.session,
+      userId,
+      role,
+      'FINANCE',
+      'payment.remind'
+    );
+    // The debt is owed to the host, so the reminder stays theirs whoever sent
+    // it: proof of payment and mark-collected follow creatorId.
+    const hostUserId = payment.session.hostId;
     if (payment.status !== PaymentStatus.PENDING) {
       throw new BadRequestException('Can only remind about a PENDING payment');
     }

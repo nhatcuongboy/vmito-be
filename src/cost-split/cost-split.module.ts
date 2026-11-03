@@ -5,6 +5,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { SessionsGatewayModule } from '../sessions/sessions-gateway.module';
 import { CostSplitController } from './cost-split.controller';
 import { CostSplitService } from './cost-split.service';
+import { SessionAccessModule } from '../common/session-access/session-access.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { CostSplitService } from './cost-split.service';
     ClubsModule,
     NotificationsModule,
     SessionsGatewayModule,
+    SessionAccessModule,
   ],
   controllers: [CostSplitController],
   providers: [CostSplitService],

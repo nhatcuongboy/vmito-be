@@ -8,9 +8,10 @@ import { NotificationDispatchService } from './notification-dispatch.service';
 import { NotificationMaintenanceService } from './notification-maintenance.service';
 import { NotificationUnreadCountService } from './notification-unread-count.service';
 import { NotificationPushDispatchService } from './notification-push-dispatch.service';
+import { SessionAccessModule } from '../common/session-access/session-access.module';
 
 @Module({
-  imports: [PrismaModule, SessionsGatewayModule],
+  imports: [PrismaModule, SessionsGatewayModule, SessionAccessModule],
   controllers: [NotificationsController],
   providers: [
     NotificationsService,

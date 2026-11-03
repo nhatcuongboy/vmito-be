@@ -19,6 +19,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SessionsGateway } from '../sessions/sessions.gateway';
 import { computeCostSplit } from './cost-split.calculator';
 import { ApplyCostSplitDto } from './dto/apply-cost-split.dto';
+import { SessionAccessService } from '../common/session-access/session-access.service';
 
 const formatVnd = (amount: number) => `${amount.toLocaleString('vi-VN')}đ`;
 
@@ -32,7 +33,8 @@ export class CostSplitService {
     private readonly prisma: PrismaService,
     private readonly clubs: ClubsService,
     private readonly notifications: NotificationsService,
-    private readonly gateway: SessionsGateway
+    private readonly gateway: SessionsGateway,
+    private readonly access: SessionAccessService
   ) {}
 
   async getContext(sessionId: string, userId: string, role?: string) {
@@ -251,9 +253,7 @@ export class CostSplitService {
     if (!session) {
       throw new NotFoundException('Session not found');
     }
-    if (role !== 'ADMIN' && session.hostId !== userId) {
-      throw new ForbiddenException('Only session host can split costs');
-    }
+    await this.access.assertAccess(session, userId, role, 'SESSION');
     return session;
   }
 

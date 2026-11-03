@@ -40,6 +40,7 @@ import { LevelDescriptionsModule } from './level-descriptions/level-descriptions
 import { ViewsModule } from './views/views.module';
 import { UmpiresModule } from './umpires/umpires.module';
 import { TournamentManagersModule } from './tournament-managers/tournament-managers.module';
+import { SessionManagersModule } from './session-managers/session-managers.module';
 import { TournamentRegistrationsModule } from './tournament-registrations/tournament-registrations.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { FavoritesModule } from './favorites/favorites.module';
@@ -106,6 +107,7 @@ import configuration from './config';
     ViewsModule,
     UmpiresModule,
     TournamentManagersModule,
+    SessionManagersModule,
     TournamentRegistrationsModule,
     WebhooksModule,
     FavoritesModule,

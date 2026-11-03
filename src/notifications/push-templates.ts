@@ -525,6 +525,18 @@ export const PUSH_TEMPLATES: Record<string, PushTemplate> = {
       zh: '再次提醒：你有一笔 {amount} 的付款待处理。',
     },
   },
+  session_manager_added: {
+    title: {
+      vi: 'Bạn được thêm làm host phụ',
+      en: "You're now a co-host",
+      zh: '你已成为副主持人',
+    },
+    message: {
+      vi: 'Bạn có thể cùng quản lý kèo "{sessionName}".',
+      en: 'You can now help manage "{sessionName}".',
+      zh: '你现在可以协助管理"{sessionName}"。',
+    },
+  },
   session_split_applied: {
     title: {
       vi: 'Đã có số tiền cần thanh toán',

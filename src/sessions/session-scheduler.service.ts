@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SessionsGateway, SessionEventType } from './sessions.gateway';
 import { SessionsService } from './sessions.service';
+import { SessionAccessService } from '../common/session-access/session-access.service';
 
 @Injectable()
 export class SessionSchedulerService {
@@ -13,8 +14,44 @@ export class SessionSchedulerService {
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
     private readonly sessionsGateway: SessionsGateway,
-    private readonly sessionsService: SessionsService
+    private readonly sessionsService: SessionsService,
+    private readonly sessionAccess: SessionAccessService
   ) {}
+
+  /** Co-hosts running the floor get the host's start and end reminders. */
+  private async notifyCoHosts(
+    session: { id: string; hostId: string; name: string },
+    reminder: {
+      title: string;
+      message: string;
+      action: string;
+      event: SessionEventType;
+    }
+  ) {
+    const recipients = await this.sessionAccess.recipients(session, 'COURTS');
+    for (const userId of recipients) {
+      if (userId === session.hostId) continue;
+      await this.notificationsService.createForUser(
+        userId,
+        'SESSION',
+        reminder.title,
+        reminder.message,
+        {
+          sessionId: session.id,
+          sessionName: session.name,
+          action: reminder.action,
+        },
+        {
+          dedupeKey: `session:${session.id}:${reminder.action}:${userId}`,
+          conflictMode: 'ONCE',
+        }
+      );
+      this.sessionsGateway.notifyUser(userId, reminder.event, {
+        sessionId: session.id,
+        sessionName: session.name,
+      });
+    }
+  }
 
   /**
    * Runs every minute to handle session lifecycle events:
@@ -98,6 +135,12 @@ export class SessionSchedulerService {
           SessionEventType.SESSION_START_REMINDER,
           { sessionId: session.id, sessionName: session.name }
         );
+        await this.notifyCoHosts(session, {
+          title: 'Session starting in 15 minutes',
+          message: `"${session.name}" will automatically start in about 15 minutes. You can also start it early if you're already at the court.`,
+          action: 'start_reminder',
+          event: SessionEventType.SESSION_START_REMINDER,
+        });
         sentCount++;
       }
 
@@ -264,6 +307,12 @@ export class SessionSchedulerService {
           SessionEventType.SESSION_END_WARNING,
           { sessionId: session.id, sessionName: session.name }
         );
+        await this.notifyCoHosts(session, {
+          title: 'Session ending soon',
+          message: `"${session.name}" is ending in about 15 minutes.`,
+          action: 'end_warning',
+          event: SessionEventType.SESSION_END_WARNING,
+        });
         sentCount++;
       }
 

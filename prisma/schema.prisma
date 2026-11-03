@@ -46,6 +46,7 @@ model User {
   sessions                       AuthSession[]
   hostedTournaments              Tournament[]                     @relation("HostedTournaments")
   managedTournaments             TournamentManager[]              @relation("ManagedTournaments")
+  managedSessions                SessionManager[]                 @relation("ManagedSessions")
   tournamentPlayers              TournamentPlayer[]               @relation("TournamentPlayers")
   tournamentRegistrationRequests TournamentRegistrationRequest[]  @relation("TournamentRegistrationRequester")
   refreshTokens                  RefreshToken[]
@@ -647,12 +648,65 @@ model Session {
   clubSessions        ClubSession[]
   venueRentalRequests VenueRentalRequest[]
   videos              SessionVideo[]
+  managers            SessionManager[]
+  managerInvites      SessionManagerInvite[]
 
   @@index([isCrawled])
   @@index([isInternal])
   @@index([clubId])
   @@index([sportType])
   @@map("sessions")
+}
+
+// Per-session permission scopes that a host can grant to a co-host. Cancelling
+// or deleting a session, cloning, bulk edits, the co-host list and host bank
+// details are outside every scope: they stay with the host.
+enum SessionPermission {
+  COURTS // Courts, matches, scores, wait times, starting and ending the session
+  PLAYERS // Registrations, roster, check-in
+  FINANCE // Payment ledger: view, approve, reject, remind
+  SESSION // Session info, fee config, expenses, cost split, and irreversible edits
+}
+
+// A user (other than the host) granted scoped rights over one session. This is
+// a grant on a real account, never a separate identity: User.role is untouched
+// and Session.hostId stays the owner for money, awards and points.
+model SessionManager {
+  id          String              @id @default(cuid())
+  sessionId   String
+  userId      String
+  permissions SessionPermission[]
+  addedById   String? // User who granted the access (host, admin, or the host's QR invite)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  // Relations
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User    @relation("ManagedSessions", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, userId])
+  @@index([userId])
+  @@map("session_managers")
+}
+
+// One-time, short-lived code behind the on-court co-host QR. Only the SHA-256
+// of the code is stored, so a database read cannot produce a usable QR.
+model SessionManagerInvite {
+  id           String              @id @default(cuid())
+  sessionId    String
+  codeHash     String              @unique
+  permissions  SessionPermission[]
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  consumedById String?
+  createdById  String
+  createdAt    DateTime            @default(now())
+
+  // Relations
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("session_manager_invites")
 }
 
 // Match recordings the host links to a session ("Clip trận đấu"). Private to
@@ -2231,6 +2285,7 @@ model PaymentRecord {
   hostNotes          String?
   submittedAt        DateTime?
   approvedAt         DateTime?
+  approvedById       String? // Who approved it: hostId alone cannot tell a co-host's approval from the host's
   rejectedAt         DateTime?
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt

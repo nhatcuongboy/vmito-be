@@ -33,6 +33,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { FavoritesService } from '../favorites/favorites.service';
 import { calculatePlayerPointDifferentials } from './player-statistics.utils';
 import { liveWaitTime } from '../common/wait-time.utils';
+import { SessionAccessService } from '../common/session-access/session-access.service';
 
 @Injectable()
 export class PlayersService {
@@ -42,7 +43,8 @@ export class PlayersService {
     private sessionsGateway: SessionsGateway,
     private feeService: FeeService,
     private notificationsService: NotificationsService,
-    private favoritesService: FavoritesService
+    private favoritesService: FavoritesService,
+    private access: SessionAccessService
   ) {}
 
   private async resolveClubMembershipForPlayer(input: {
@@ -882,7 +884,9 @@ export class PlayersService {
     // Validate access for internal sessions
     if (session.isInternal) {
       const isHostOrAdmin =
-        session.hostId === currentUserId || role === 'ADMIN';
+        session.hostId === currentUserId ||
+        role === 'ADMIN' ||
+        (await this.access.isManager(sessionId, currentUserId));
       const isAlreadyInSession = session.players?.some(
         (p: { userId?: string | null }) => p.userId === currentUserId
       );
@@ -1020,25 +1024,32 @@ export class PlayersService {
       );
     }
 
-    if (registrationStatus === 'PENDING') {
-      this.notificationsService.syncBadges([session.hostId]);
-    }
+    const approvers =
+      registrationStatus === 'PENDING'
+        ? await this.access.recipients(session, 'PLAYERS')
+        : [];
+    this.notificationsService.syncBadges(approvers);
 
-    // Notify Host if there are pending registrations and host is not an ADMIN
-    if (registrationStatus === 'PENDING' && session.host?.role !== 'ADMIN') {
+    // Notify whoever can approve, skipping a host who is an ADMIN
+    if (registrationStatus === 'PENDING') {
       const pendingPlayerNames = createdPlayers
         .map((p) => p.name || 'Guest')
         .join(', ');
-      this.sessionsGateway.notifyUser(
-        session.hostId,
-        SessionEventType.REGISTRATION_REQUEST,
-        {
-          sessionId,
-          sessionName: session.name || 'Badminton Session',
-          playerName: pendingPlayerNames,
-          count: createdPlayers.length,
+      for (const approverId of approvers) {
+        if (approverId === session.hostId && session.host?.role === 'ADMIN') {
+          continue;
         }
-      );
+        this.sessionsGateway.notifyUser(
+          approverId,
+          SessionEventType.REGISTRATION_REQUEST,
+          {
+            sessionId,
+            sessionName: session.name || 'Badminton Session',
+            playerName: pendingPlayerNames,
+            count: createdPlayers.length,
+          }
+        );
+      }
     }
 
     // Notify users who were directly approved (host-added) - skip if host adds themselves
@@ -1092,18 +1103,14 @@ export class PlayersService {
     // Check if session exists and user is Host
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
-      select: { hostId: true, name: true },
+      select: { id: true, hostId: true, status: true, name: true },
     });
 
     if (!session) {
       throw new NotFoundException('Session not found');
     }
 
-    if (session.hostId !== currentUserId && role !== 'ADMIN') {
-      throw new ForbiddenException(
-        'Only the host or admin can approve/reject players'
-      );
-    }
+    await this.access.assertAccess(session, currentUserId, role, 'PLAYERS');
 
     // Check if player is in this session
     const existingPlayer = await this.prisma.player.findFirst({
@@ -1113,6 +1120,11 @@ export class PlayersService {
     if (!existingPlayer) {
       throw new NotFoundException('Player not found in this session');
     }
+
+    this.access.assertNotOwnRecord(session.hostId, currentUserId, role, [
+      existingPlayer.userId,
+      existingPlayer.createdByUserId,
+    ]);
 
     // Update status
     const updatedPlayer = await this.prisma.player.update({
@@ -1132,7 +1144,9 @@ export class PlayersService {
     );
 
     if (existingPlayer.registrationStatus === 'PENDING') {
-      this.notificationsService.syncBadges([session.hostId]);
+      this.notificationsService.syncBadges(
+        await this.access.recipients(session, 'PLAYERS')
+      );
     }
 
     // Notify User specifically about their status update
@@ -1169,7 +1183,7 @@ export class PlayersService {
   async findPendingRequests(hostId: string, page = 1, limit = 20) {
     const where: Prisma.PlayerWhereInput = {
       registrationStatus: 'PENDING',
-      session: { hostId },
+      session: this.access.managedSessionWhere(hostId, 'PLAYERS'),
     };
 
     const skip = (page - 1) * limit;
@@ -1305,7 +1319,7 @@ export class PlayersService {
   async countPendingRequests(hostId: string) {
     const where: Prisma.PlayerWhereInput = {
       registrationStatus: 'PENDING',
-      session: { hostId },
+      session: this.access.managedSessionWhere(hostId, 'PLAYERS'),
     };
 
     const count = await this.prisma.player.count({ where });
@@ -1323,9 +1337,7 @@ export class PlayersService {
     };
 
     if (role !== 'ADMIN') {
-      where.session = {
-        hostId: hostId,
-      };
+      where.session = this.access.managedSessionWhere(hostId, 'PLAYERS');
     }
 
     const player = await this.prisma.player.findFirst({
@@ -1439,7 +1451,9 @@ export class PlayersService {
         registrationStatus: 'PENDING',
       },
       include: {
-        session: { select: { id: true, hostId: true, name: true } },
+        session: {
+          select: { id: true, hostId: true, status: true, name: true },
+        },
       },
     });
 
@@ -1448,15 +1462,17 @@ export class PlayersService {
     }
 
     // Verify authorization for all sessions
-    if (role !== 'ADMIN') {
-      const unauthorized = players.find(
-        (p) => p.session.hostId !== currentUserId
+    const sessions = new Map(players.map((p) => [p.session.id, p.session]));
+    for (const session of sessions.values()) {
+      await this.access.assertAccess(session, currentUserId, role, 'PLAYERS');
+    }
+    for (const player of players) {
+      this.access.assertNotOwnRecord(
+        player.session.hostId,
+        currentUserId,
+        role,
+        [player.userId, player.createdByUserId]
       );
-      if (unauthorized) {
-        throw new ForbiddenException(
-          'Only the host or admin can approve/reject players'
-        );
-      }
     }
 
     // Batch update
@@ -1499,9 +1515,11 @@ export class PlayersService {
       }
     }
 
-    this.notificationsService.syncBadges(
-      players.map((player) => player.session.hostId)
-    );
+    for (const session of sessions.values()) {
+      this.notificationsService.syncBadges(
+        await this.access.recipients(session, 'PLAYERS')
+      );
+    }
 
     return { updated: players.length, status };
   }
@@ -2625,12 +2643,18 @@ export class PlayersService {
       SessionEventType.PLAYER_REMOVED,
       { playerIds, withdrawnByUserId: userId }
     );
-    this.sessionsGateway.notifyUser(
-      pendingPlayers[0].session.hostId,
-      SessionEventType.NOTIFICATION_RECEIVED,
-      { sessionId, playerIds, type: 'JOIN_REQUEST_WITHDRAWN' }
+    const approvers = await this.access.recipients(
+      { id: sessionId, hostId: pendingPlayers[0].session.hostId },
+      'PLAYERS'
     );
-    this.notificationsService.syncBadges([pendingPlayers[0].session.hostId]);
+    for (const approverId of approvers) {
+      this.sessionsGateway.notifyUser(
+        approverId,
+        SessionEventType.NOTIFICATION_RECEIVED,
+        { sessionId, playerIds, type: 'JOIN_REQUEST_WITHDRAWN' }
+      );
+    }
+    this.notificationsService.syncBadges(approvers);
 
     return { deleted: result.count };
   }
@@ -2687,12 +2711,18 @@ export class PlayersService {
       SessionEventType.PLAYER_REMOVED,
       { playerIds: [playerId], withdrawnByUserId: userId }
     );
-    this.sessionsGateway.notifyUser(
-      player.session.hostId,
-      SessionEventType.NOTIFICATION_RECEIVED,
-      { sessionId, playerIds: [playerId], type: 'JOIN_REQUEST_WITHDRAWN' }
+    const approvers = await this.access.recipients(
+      { id: sessionId, hostId: player.session.hostId },
+      'PLAYERS'
     );
-    this.notificationsService.syncBadges([player.session.hostId]);
+    for (const approverId of approvers) {
+      this.sessionsGateway.notifyUser(
+        approverId,
+        SessionEventType.NOTIFICATION_RECEIVED,
+        { sessionId, playerIds: [playerId], type: 'JOIN_REQUEST_WITHDRAWN' }
+      );
+    }
+    this.notificationsService.syncBadges(approvers);
 
     return { deleted: result.count };
   }

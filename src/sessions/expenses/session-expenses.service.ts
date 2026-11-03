@@ -1,15 +1,15 @@
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateSessionExpenseDto } from './dto/create-session-expense.dto';
 import { UpdateSessionExpenseDto } from './dto/update-session-expense.dto';
+import { SessionAccessService } from '../../common/session-access/session-access.service';
 
 @Injectable()
 export class SessionExpensesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: SessionAccessService
+  ) {}
 
   private async verifySessionOwnership(
     sessionId: string,
@@ -18,16 +18,20 @@ export class SessionExpensesService {
   ) {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
-      select: { hostId: true },
+      select: { id: true, hostId: true, status: true },
     });
 
     if (!session) {
       throw new NotFoundException('Session not found');
     }
 
-    if (role !== 'ADMIN' && session.hostId !== userId) {
-      throw new ForbiddenException('Only the session host can manage expenses');
-    }
+    await this.access.assertAccess(
+      session,
+      userId,
+      role,
+      'SESSION',
+      'expense.manage'
+    );
   }
 
   findAll(sessionId: string) {
