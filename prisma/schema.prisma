@@ -2982,6 +2982,20 @@ model FeatureFlag {
   @@map("feature_flags")
 }
 
+// Per-platform force-update switch for the mobile apps. Clients read it at
+// launch; when enabled and the installed version is below minVersion they show
+// a blocking "update" popup. Edited directly in the DB (no admin UI yet).
+model AppUpdatePolicy {
+  id         String   @id @default(cuid())
+  platform   String   @unique // 'ios' | 'android'
+  enabled    Boolean  @default(false)
+  minVersion String   @default("0.0.0")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("app_update_policies")
+}
+
 // Admin-configurable announcement popup shown to end users on page load.
 // Frontend dismissal is keyed by id + updatedAt, so editing content here
 // makes it reappear for users who already dismissed the previous version.

@@ -46,6 +46,7 @@ import { FavoritesModule } from './favorites/favorites.module';
 import { VenueRentalsModule } from './venue-rentals/venue-rentals.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
+import { AppUpdatePolicyModule } from './app-update-policy/app-update-policy.module';
 import { ClassesModule } from './classes/classes.module';
 import { WelcomePopupsModule } from './welcome-popups/welcome-popups.module';
 import { ArticlesModule } from './articles/articles.module';
@@ -111,6 +112,7 @@ import configuration from './config';
     VenueRentalsModule,
     DashboardModule,
     FeatureFlagsModule,
+    AppUpdatePolicyModule,
     ClassesModule,
     WelcomePopupsModule,
     ArticlesModule,
