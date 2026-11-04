@@ -149,21 +149,16 @@ docker run -p 3001:3001 badminton-backend
 
 ## Deployment
 
-### Vercel
-1. Connect repository
-2. Set environment variables
-3. Deploy
+The application is deployed on a **DigitalOcean VPS** using Docker Compose and GitHub Actions CI/CD.
 
-### Railway/Render
-1. Connect repository
-2. Configure PostgreSQL database
-3. Set environment variables
-4. Deploy
+- For complete infrastructure and server configuration details, see [INFRASTRUCTURE.md](../INFRASTRUCTURE.md).
+- For architecture overview and CI/CD pipelines, see [SERVER_ARCHITECTURE_CICD.md](./SERVER_ARCHITECTURE_CICD.md).
+- For staging environment guide, see [STAGING_SETUP.md](./STAGING_SETUP.md).
 
-### Manual
+### Production Build & Run (Local / Server)
 ```bash
-pnpm run build
-pnpm run start:prod
+docker build -t badminton-backend .
+docker run -p 3001:3001 --env-file .env badminton-backend
 ```
 
 ---

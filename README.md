@@ -24,6 +24,7 @@ NestJS RESTful API for Badminton Session & Tournament Management.
 - [Cloudinary Setup](./docs/CLOUDINARY-SETUP.md)
 
 ### Deployment
+- [Server Infrastructure & Configuration](./INFRASTRUCTURE.md)
 - [Server Architecture & CI/CD](./docs/SERVER_ARCHITECTURE_CICD.md)
 - [Server Migration](./docs/SERVER-MIGRATION.md)
 - [Staging Setup](./docs/STAGING_SETUP.md)
@@ -51,7 +52,7 @@ pnpm run start:dev
 
 ## Tech Stack
 
-- **Framework**: NestJS 10.x
+- **Framework**: NestJS 11.x
 - **Database**: PostgreSQL + Prisma ORM
 - **Auth**: JWT + Google OAuth
 - **Language**: TypeScript
