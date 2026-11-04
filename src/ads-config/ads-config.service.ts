@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 /** Screens the mobile app may place a native ad on. */
-export const AD_PLACEMENTS = ['home', 'feed', 'news'] as const;
+export const AD_PLACEMENTS = ['home', 'feed', 'news', 'venue', 'class'] as const;
 export type AdPlacement = (typeof AD_PLACEMENTS)[number];
 
 export interface AdsConfigResponse {
