@@ -78,7 +78,7 @@ jobs:
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
 
     steps:
-      - name: Deploy to Vultr Server
+      - name: Deploy to DigitalOcean Server
         uses: appleboy/ssh-action@v1.0.3
         env:
           CRAWLER_USE_AI: ${{ vars.CRAWLER_USE_AI }}

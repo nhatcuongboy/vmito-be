@@ -1,6 +1,6 @@
 # Backend Architecture
 
-**Framework**: NestJS 10.x  
+**Framework**: NestJS 11.x  
 **Pattern**: Modular Monolith  
 **Last Updated**: January 22, 2026
 
