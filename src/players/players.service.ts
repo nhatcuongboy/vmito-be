@@ -5,6 +5,7 @@ import {
   Inject,
   forwardRef,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePlayerDto } from './dto/create-player.dto';
@@ -37,6 +38,8 @@ import { SessionAccessService } from '../common/session-access/session-access.se
 
 @Injectable()
 export class PlayersService {
+  private readonly logger = new Logger(PlayersService.name);
+
   constructor(
     private prisma: PrismaService,
     @Inject(forwardRef(() => SessionsGateway))
@@ -1035,10 +1038,12 @@ export class PlayersService {
       const pendingPlayerNames = createdPlayers
         .map((p) => p.name || 'Guest')
         .join(', ');
-      for (const approverId of approvers) {
-        if (approverId === session.hostId && session.host?.role === 'ADMIN') {
-          continue;
-        }
+      const activeApprovers = approvers.filter(
+        (approverId) =>
+          !(approverId === session.hostId && session.host?.role === 'ADMIN')
+      );
+
+      for (const approverId of activeApprovers) {
         this.sessionsGateway.notifyUser(
           approverId,
           SessionEventType.REGISTRATION_REQUEST,
@@ -1050,6 +1055,26 @@ export class PlayersService {
           }
         );
       }
+
+      void this.notificationsService
+        .sendPushNotification(activeApprovers, {
+          id: `session-reg-${sessionId}-${Date.now()}`,
+          type: 'SESSION',
+          title: 'Yêu cầu tham gia kèo mới',
+          message: `${pendingPlayerNames} muốn tham gia kèo "${session.name || 'Badminton Session'}".`,
+          data: {
+            action: 'session_registration_request',
+            sessionId,
+            sessionName: session.name || 'Badminton Session',
+            playerName: pendingPlayerNames,
+            count: createdPlayers.length,
+          },
+        })
+        .catch((error: unknown) => {
+          this.logger.warn(
+            `Failed to send session registration push: ${error instanceof Error ? error.message : String(error)}`
+          );
+        });
     }
 
     // Notify users who were directly approved (host-added) - skip if host adds themselves
@@ -1150,9 +1175,10 @@ export class PlayersService {
     }
 
     // Notify User specifically about their status update
-    if (existingPlayer.userId) {
+    const targetUserId = existingPlayer.userId || existingPlayer.createdByUserId;
+    if (targetUserId) {
       this.sessionsGateway.notifyUser(
-        existingPlayer.userId,
+        targetUserId,
         SessionEventType.REGISTRATION_STATUS_UPDATED,
         {
           sessionId,
@@ -1161,6 +1187,40 @@ export class PlayersService {
           playerId,
         }
       );
+
+      const isApproved = status === 'APPROVED';
+      const action = isApproved
+        ? 'session_registration_approved'
+        : 'session_registration_rejected';
+      const notifTitle = isApproved
+        ? 'Yêu cầu tham gia kèo được duyệt'
+        : 'Yêu cầu tham gia kèo bị từ chối';
+      const notifMessage = isApproved
+        ? `Yêu cầu tham gia kèo "${session.name || 'Badminton Session'}" của bạn đã được duyệt.`
+        : `Yêu cầu tham gia kèo "${session.name || 'Badminton Session'}" của bạn không được chấp thuận.`;
+
+      void this.notificationsService
+        .createForUser(
+          targetUserId,
+          'SESSION',
+          notifTitle,
+          notifMessage,
+          {
+            action,
+            sessionId,
+            sessionName: session.name || 'Badminton Session',
+            playerId: existingPlayer.id,
+          },
+          {
+            dedupeKey: `session:${sessionId}:player:${existingPlayer.id}:${status.toLowerCase()}`,
+            conflictMode: 'ONCE',
+          }
+        )
+        .catch((error: unknown) => {
+          this.logger.warn(
+            `Failed to send session registration ${status.toLowerCase()} notification: ${error instanceof Error ? error.message : String(error)}`
+          );
+        });
     }
 
     // If Approved, create payment record if session has fee config
@@ -1493,9 +1553,10 @@ export class PlayersService {
         { playerId: player.id, registrationStatus: status }
       );
 
-      if (player.userId) {
+      const targetUserId = player.userId || player.createdByUserId;
+      if (targetUserId) {
         this.sessionsGateway.notifyUser(
-          player.userId,
+          targetUserId,
           SessionEventType.REGISTRATION_STATUS_UPDATED,
           {
             sessionId: player.sessionId,
@@ -1504,6 +1565,40 @@ export class PlayersService {
             playerId: player.id,
           }
         );
+
+        const isApproved = status === 'APPROVED';
+        const action = isApproved
+          ? 'session_registration_approved'
+          : 'session_registration_rejected';
+        const notifTitle = isApproved
+          ? 'Yêu cầu tham gia kèo được duyệt'
+          : 'Yêu cầu tham gia kèo bị từ chối';
+        const notifMessage = isApproved
+          ? `Yêu cầu tham gia kèo "${player.session.name || 'Badminton Session'}" của bạn đã được duyệt.`
+          : `Yêu cầu tham gia kèo "${player.session.name || 'Badminton Session'}" của bạn không được chấp thuận.`;
+
+        void this.notificationsService
+          .createForUser(
+            targetUserId,
+            'SESSION',
+            notifTitle,
+            notifMessage,
+            {
+              action,
+              sessionId: player.sessionId,
+              sessionName: player.session.name || 'Badminton Session',
+              playerId: player.id,
+            },
+            {
+              dedupeKey: `session:${player.sessionId}:player:${player.id}:${status.toLowerCase()}`,
+              conflictMode: 'ONCE',
+            }
+          )
+          .catch((error: unknown) => {
+            this.logger.warn(
+              `Failed to send session registration bulk ${status.toLowerCase()} notification: ${error instanceof Error ? error.message : String(error)}`
+            );
+          });
       }
 
       if (status === 'APPROVED') {
@@ -2655,8 +2750,48 @@ export class PlayersService {
       );
     }
     this.notificationsService.syncBadges(approvers);
+    void this.notifyApproversWithdrawn(approvers, userId, sessionId);
 
     return { deleted: result.count };
+  }
+
+  private async notifyApproversWithdrawn(
+    approvers: string[],
+    userId: string,
+    sessionId: string
+  ) {
+    if (approvers.length === 0) return;
+    try {
+      const [user, session] = await Promise.all([
+        this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { name: true },
+        }),
+        this.prisma.session.findUnique({
+          where: { id: sessionId },
+          select: { name: true },
+        }),
+      ]);
+      const playerName = user?.name?.trim() || 'Người chơi';
+      const sessionName = session?.name?.trim() || 'Kèo đấu';
+
+      await this.notificationsService.sendPushNotification(approvers, {
+        id: `session-withdraw-${sessionId}-${Date.now()}`,
+        type: 'SESSION',
+        title: 'Người chơi đã hủy đăng ký kèo',
+        message: `${playerName} đã hủy yêu cầu tham gia kèo "${sessionName}".`,
+        data: {
+          action: 'session_registration_withdrawn',
+          sessionId,
+          sessionName,
+          playerName,
+        },
+      });
+    } catch (err: unknown) {
+      this.logger.warn(
+        `Failed to push withdrawn notification to approvers: ${String(err)}`
+      );
+    }
   }
 
   async withdrawMyJoinRequestPlayer(
@@ -2723,6 +2858,7 @@ export class PlayersService {
       );
     }
     this.notificationsService.syncBadges(approvers);
+    void this.notifyApproversWithdrawn(approvers, userId, sessionId);
 
     return { deleted: result.count };
   }

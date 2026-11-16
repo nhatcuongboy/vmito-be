@@ -784,7 +784,59 @@ export class PostsService {
       { commentId: comment.id }
     );
 
+    void this.notifyCommentReplies(post.id, userId, post.authorId, comment);
+
     return comment;
+  }
+
+  private async notifyCommentReplies(
+    postId: string,
+    actorId: string,
+    postAuthorId: string,
+    comment: { id: string; user: { name: string | null; image: string | null } }
+  ) {
+    try {
+      const otherCommenters = await this.prisma.postComment.findMany({
+        where: {
+          postId,
+          userId: { notIn: [actorId, postAuthorId] },
+        },
+        distinct: ['userId'],
+        select: { userId: true },
+      });
+
+      const actorName = comment.user.name || 'Ai đó';
+      for (const commenter of otherCommenters) {
+        void this.notificationsService
+          .createForUser(
+            commenter.userId,
+            'POST',
+            'Bình luận mới',
+            `${actorName} cũng đã bình luận về bài viết.`,
+            {
+              action: 'post_comment_reply',
+              postId,
+              actorId,
+              actorName,
+              actorAvatar: comment.user.image,
+              commentId: comment.id,
+            },
+            {
+              dedupeKey: `post:${postId}:reply:${comment.id}:${commenter.userId}`,
+              conflictMode: 'ONCE',
+            }
+          )
+          .catch((err: unknown) => {
+            this.logger.warn(
+              `Failed to notify commenter ${commenter.userId} of reply: ${String(err)}`
+            );
+          });
+      }
+    } catch (err: unknown) {
+      this.logger.warn(
+        `Failed to query comment replies for post ${postId}: ${String(err)}`
+      );
+    }
   }
 
   async getComments(postId: string, page = 1, limit = 20) {

@@ -23,12 +23,14 @@ import {
   TournamentsGateway,
   TournamentEventType,
 } from '../realtime/tournaments.gateway';
+import { NotificationsService } from '../../notifications/notifications.service';
 
 @Injectable()
 export class ScheduleService {
   constructor(
     private prisma: PrismaService,
-    private gateway: TournamentsGateway
+    private gateway: TournamentsGateway,
+    private notificationsService: NotificationsService
   ) {}
 
   /**
@@ -528,12 +530,78 @@ export class ScheduleService {
     ]);
 
     this.notifyScheduleChanged(tournamentId);
+    void this.notifyMatchParticipants(nextMatch, availableCourt);
     return {
       success: true,
       matchId: nextMatch.id,
       courtId: availableCourt.id,
       assignedAt: now,
     };
+  }
+
+  /**
+   * Push a court-call notification to all registered users in a match.
+   * Fire-and-forget: scheduling must not fail the HTTP response.
+   */
+  private async notifyMatchParticipants(
+    match: {
+      id: string;
+      participants: { categoryRegistrationId: string }[];
+    },
+    court: { courtName: string | null; courtNumber: number }
+  ) {
+    if (match.participants.length === 0) return;
+
+    const courtName = court.courtName || `Sân ${court.courtNumber}`;
+    const registrationIds = match.participants
+      .map((p) => p.categoryRegistrationId)
+      .filter(Boolean);
+
+    if (registrationIds.length === 0) return;
+
+    try {
+      // Collect user IDs from each registration (player or pair members).
+      const registrations = await this.prisma.categoryRegistration.findMany({
+        where: { id: { in: registrationIds } },
+        select: {
+          player: { select: { userId: true } },
+          pair: {
+            select: {
+              members: {
+                select: { player: { select: { userId: true } } },
+              },
+            },
+          },
+        },
+      });
+
+      const userIds = new Set<string>();
+      for (const reg of registrations) {
+        if (reg.player?.userId) userIds.add(reg.player.userId);
+        if (reg.pair) {
+          for (const member of reg.pair.members) {
+            if (member.player?.userId) userIds.add(member.player.userId);
+          }
+        }
+      }
+
+      const targetUserIds = [...userIds];
+      if (targetUserIds.length === 0) return;
+
+      await this.notificationsService.sendPushNotification(targetUserIds, {
+        id: `tournament-match-call-${match.id}`,
+        type: 'TOURNAMENT',
+        title: 'Đến lượt bạn thi đấu!',
+        message: `Trận đấu của bạn đã được xếp vào ${courtName}. Vui lòng chuẩn bị ra sân!`,
+        data: {
+          action: 'tournament_match_calling',
+          matchId: match.id,
+          courtName,
+        },
+      });
+    } catch {
+      // Notifications are best-effort; never fail the auto-assign.
+    }
   }
 
   /**

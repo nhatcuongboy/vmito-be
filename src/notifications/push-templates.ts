@@ -25,6 +25,114 @@ export interface PushTemplate {
 }
 
 export const PUSH_TEMPLATES: Record<string, PushTemplate> = {
+  session_registration_request: {
+    title: {
+      vi: 'Yêu cầu tham gia kèo mới',
+      en: 'New session join request',
+      zh: '新场次加入申请',
+    },
+    message: {
+      vi: '{playerName} muốn tham gia kèo "{sessionName}".',
+      en: '{playerName} wants to join session "{sessionName}".',
+      zh: '{playerName} 申请加入场次 "{sessionName}"。',
+    },
+  },
+  session_registration_approved: {
+    title: {
+      vi: 'Yêu cầu tham gia kèo được duyệt',
+      en: 'Session registration approved',
+      zh: '场次报名已通过',
+    },
+    message: {
+      vi: 'Yêu cầu tham gia kèo "{sessionName}" của bạn đã được duyệt.',
+      en: 'Your registration for session "{sessionName}" was approved.',
+      zh: '您加入场次 "{sessionName}" 的申请已通过。',
+    },
+  },
+  session_registration_rejected: {
+    title: {
+      vi: 'Yêu cầu tham gia kèo bị từ chối',
+      en: 'Session registration rejected',
+      zh: '场次报名已被拒绝',
+    },
+    message: {
+      vi: 'Yêu cầu tham gia kèo "{sessionName}" của bạn không được chấp thuận.',
+      en: 'Your registration for session "{sessionName}" was rejected.',
+      zh: '您加入场次 "{sessionName}" 的申请已被拒绝。',
+    },
+  },
+  session_registration_withdrawn: {
+    title: {
+      vi: 'Người chơi đã hủy đăng ký kèo',
+      en: 'Session join request withdrawn',
+      zh: '场次报名已撤回',
+    },
+    message: {
+      vi: '{playerName} đã hủy yêu cầu tham gia kèo "{sessionName}".',
+      en: '{playerName} withdrew their registration for "{sessionName}".',
+      zh: '{playerName} 撤回了加入场次 "{sessionName}" 的申请。',
+    },
+  },
+  club_join_request: {
+    title: {
+      vi: 'Yêu cầu gia nhập CLB mới',
+      en: 'New club join request',
+      zh: '新的俱乐部加入申请',
+    },
+    message: {
+      vi: '{playerName} muốn tham gia CLB "{clubName}".',
+      en: '{playerName} requested to join club "{clubName}".',
+      zh: '{playerName} 申请加入俱乐部 "{clubName}"。',
+    },
+  },
+  club_join_approved: {
+    title: {
+      vi: 'Yêu cầu gia nhập CLB được duyệt',
+      en: 'Club join request approved',
+      zh: '俱乐部加入申请已通过',
+    },
+    message: {
+      vi: 'Chúc mừng bạn đã trở thành thành viên của CLB "{clubName}".',
+      en: 'Congratulations! You are now a member of "{clubName}".',
+      zh: '恭喜！您已成为 "{clubName}" 的成员。',
+    },
+  },
+  club_join_rejected: {
+    title: {
+      vi: 'Yêu cầu gia nhập CLB bị từ chối',
+      en: 'Club join request rejected',
+      zh: '俱乐部加入申请已被拒绝',
+    },
+    message: {
+      vi: 'Yêu cầu gia nhập CLB "{clubName}" của bạn không được chấp thuận.',
+      en: 'Your request to join club "{clubName}" was rejected.',
+      zh: '您加入俱乐部 "{clubName}" 的申请已被拒绝。',
+    },
+  },
+  club_member_role_updated: {
+    title: {
+      vi: 'Cập nhật vai trò trong CLB',
+      en: 'Club role updated',
+      zh: '俱乐部角色已更新',
+    },
+    message: {
+      vi: 'Bạn đã được bổ nhiệm làm {roleName} của CLB "{clubName}".',
+      en: 'Your role in club "{clubName}" was updated to {roleName}.',
+      zh: '你在俱乐部 "{clubName}" 中的角色已变更为 {roleName}。',
+    },
+  },
+  club_member_removed: {
+    title: {
+      vi: 'Thông báo rời CLB',
+      en: 'Removed from club',
+      zh: '已从俱乐部移除',
+    },
+    message: {
+      vi: 'Bạn đã rời khỏi CLB "{clubName}".',
+      en: 'You were removed from club "{clubName}".',
+      zh: '你已被移出俱乐部 "{clubName}"。',
+    },
+  },
   start_reminder: {
     title: {
       vi: 'Kèo sắp bắt đầu!',
@@ -265,6 +373,18 @@ export const PUSH_TEMPLATES: Record<string, PushTemplate> = {
       zh: '{actorName} 评论了你的帖子。',
     },
   },
+  post_comment_reply: {
+    title: {
+      vi: 'Bình luận mới',
+      en: 'New comment on post',
+      zh: '帖子有新评论',
+    },
+    message: {
+      vi: '{actorName} cũng đã bình luận về bài viết.',
+      en: '{actorName} also commented on the post.',
+      zh: '{actorName} 也评论了该帖子。',
+    },
+  },
   session_favorited: {
     title: {
       vi: 'Có người Thích kèo của bạn',
@@ -357,6 +477,18 @@ export const PUSH_TEMPLATES: Record<string, PushTemplate> = {
       },
     },
   },
+  tournament_match_calling: {
+    title: {
+      vi: 'Đến lượt bạn thi đấu!',
+      en: 'Your match is starting!',
+      zh: '轮到你比赛了!',
+    },
+    message: {
+      vi: 'Trận đấu của bạn đã được xếp vào {courtName}. Vui lòng chuẩn bị ra sân!',
+      en: 'Your match has been assigned to {courtName}. Please head to the court!',
+      zh: '您的比赛已分配到 {courtName}。请前往球场！',
+    },
+  },
   admin_new_venue_claim: {
     title: {
       vi: 'Yêu cầu nhận chủ sân mới',
@@ -367,6 +499,18 @@ export const PUSH_TEMPLATES: Record<string, PushTemplate> = {
       vi: '{userName} yêu cầu nhận chủ sân "{venueName}".',
       en: '{userName} claims to own "{venueName}".',
       zh: '{userName} 申请认领场馆“{venueName}”。',
+    },
+  },
+  venue_request_created: {
+    title: {
+      vi: 'Yêu cầu sân mới cần duyệt',
+      en: 'New venue request to review',
+      zh: '新的场地申请待审核',
+    },
+    message: {
+      vi: '{userName} đã gửi yêu cầu cho sân "{venueName}".',
+      en: '{userName} submitted a request for venue "{venueName}".',
+      zh: '{userName} 提交了场地 "{venueName}" 的申请。',
     },
   },
   venue_owner_claim_approved: {
