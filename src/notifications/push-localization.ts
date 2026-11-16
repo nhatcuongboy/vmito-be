@@ -70,6 +70,12 @@ const TIER_NAMES: Record<string, LocalizedText> = {
   DIAMOND: { vi: 'Kim cương', en: 'Diamond', zh: '钻石' },
 };
 
+const ROLE_NAMES: Record<string, LocalizedText> = {
+  ADMIN: { vi: 'Quản trị viên', en: 'Administrator', zh: '管理员' },
+  MODERATOR: { vi: 'Kiểm duyệt viên', en: 'Moderator', zh: '协管员' },
+  MEMBER: { vi: 'Thành viên', en: 'Member', zh: '成员' },
+};
+
 /** Integer VND, no minor units: `100.000đ` for vi, `₫100,000` otherwise. */
 function formatVnd(amount: number, locale: PushLocale): string {
   const grouped = (sep: string) =>
@@ -113,9 +119,14 @@ function extractParams(
   ]) {
     read(key, key);
   }
+  read('playerName', 'playerName', 'name');
   read('venueName', 'venueName', 'name');
   read('rejectionReason', 'rejectionReason', 'adminNote');
   read('courtName', 'courtName', 'courtDisplayName', 'court');
+  read('roleName', 'roleName');
+  if (typeof data.role === 'string') {
+    params.roleName = ROLE_NAMES[data.role]?.[locale] ?? (params.roleName || data.role);
+  }
   // The rejected-with-reason string names its placeholder `{reason}`.
   if (!params.reason && params.response) params.reason = params.response;
 

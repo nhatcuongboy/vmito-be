@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { TournamentsGatewayModule } from './realtime/tournaments-gateway.module';
 import { ScheduleService } from './services/schedule.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 /**
  * Standalone module for the runtime "Next Available Court" scheduling service.
@@ -12,7 +13,7 @@ import { ScheduleService } from './services/schedule.service';
  * dependency between those two.
  */
 @Module({
-  imports: [PrismaModule, TournamentsGatewayModule],
+  imports: [PrismaModule, TournamentsGatewayModule, NotificationsModule],
   providers: [ScheduleService],
   exports: [ScheduleService],
 })

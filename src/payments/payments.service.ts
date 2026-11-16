@@ -3,8 +3,10 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   SubmitPaymentDto,
   ApprovePaymentDto,
@@ -22,6 +24,8 @@ import { SessionAccessService } from '../common/session-access/session-access.se
 
 @Injectable()
 export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+
   private readonly paymentSelect = {
     id: true,
     sessionId: true,
@@ -72,7 +76,8 @@ export class PaymentsService {
 
   constructor(
     private prisma: PrismaService,
-    private access: SessionAccessService
+    private access: SessionAccessService,
+    private notifications: NotificationsService
   ) {}
 
   // Get all payments for a session (host view)
@@ -262,7 +267,7 @@ export class PaymentsService {
     const payment = await this.prisma.paymentRecord.findUnique({
       where: { id: paymentId },
       include: {
-        session: { select: { id: true, hostId: true, status: true } },
+        session: { select: { id: true, hostId: true, status: true, name: true } },
         player: { select: { userId: true } },
       },
     });
@@ -322,6 +327,33 @@ export class PaymentsService {
 
     await this.syncRemindersForPayment(paymentId);
 
+    const payerId = payment.player.userId || payment.registeredByUserId;
+    if (payerId && payerId !== userId) {
+      void this.notifications
+        .createForUser(
+          payerId,
+          'PAYMENT',
+          'Đã xác nhận thu tiền',
+          `Khoản thanh toán ${updated.amount.toLocaleString('vi-VN')}đ cho kèo "${payment.session.name || 'Badminton Session'}" đã được xác nhận là đã thu.`,
+          {
+            action: 'payment_collected',
+            sessionId: payment.session.id,
+            sessionName: payment.session.name || 'Badminton Session',
+            paymentId: updated.id,
+            amount: updated.amount,
+          },
+          {
+            dedupeKey: `session:${payment.session.id}:payment:${updated.id}:approved`,
+            conflictMode: 'ONCE',
+          }
+        )
+        .catch((error: unknown) => {
+          this.logger.warn(
+            `Payment approve push failed: ${error instanceof Error ? error.message : String(error)}`
+          );
+        });
+    }
+
     return updated;
   }
 
@@ -335,7 +367,7 @@ export class PaymentsService {
     const payment = await this.prisma.paymentRecord.findUnique({
       where: { id: paymentId },
       include: {
-        session: { select: { id: true, hostId: true, status: true } },
+        session: { select: { id: true, hostId: true, status: true, name: true } },
         player: { select: { userId: true } },
       },
     });
@@ -383,6 +415,34 @@ export class PaymentsService {
     });
 
     await this.syncRemindersForPayment(paymentId);
+
+    const payerId = payment.player.userId || payment.registeredByUserId;
+    if (payerId && payerId !== userId) {
+      void this.notifications
+        .createForUser(
+          payerId,
+          'PAYMENT',
+          'Minh chứng thanh toán bị từ chối',
+          `Minh chứng thanh toán cho kèo "${payment.session.name || 'Badminton Session'}" đã bị từ chối.${dto.hostNotes ? ` Lý do: ${dto.hostNotes}` : ''}`,
+          {
+            action: 'payment_proof_rejected',
+            sessionId: payment.session.id,
+            sessionName: payment.session.name || 'Badminton Session',
+            paymentId: updated.id,
+            amount: updated.amount,
+            ...(dto.hostNotes ? { hostNotes: dto.hostNotes } : {}),
+          },
+          {
+            dedupeKey: `session:${payment.session.id}:payment:${updated.id}:rejected`,
+            conflictMode: 'ONCE',
+          }
+        )
+        .catch((error: unknown) => {
+          this.logger.warn(
+            `Payment reject push failed: ${error instanceof Error ? error.message : String(error)}`
+          );
+        });
+    }
 
     return updated;
   }

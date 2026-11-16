@@ -27,6 +27,7 @@ import {
 import { VenueRequestPayloadDto } from './dto/venue-request-payload.dto';
 import { VenueOwnershipClaimsService } from './venue-ownership-claims.service';
 import { VENUE_REQUEST_INCLUDE } from './venue-request.include';
+import type { VenueRequestWithRelations } from './venue-request.include';
 
 type VenuePatchPayload = Partial<{
   name: string;
@@ -109,6 +110,7 @@ export class VenueRequestsService {
       include: VENUE_REQUEST_INCLUDE,
     });
     this.syncAdminBadges();
+    void this.notifyAdminsNewRequest(request);
     return request;
   }
 
@@ -125,6 +127,42 @@ export class VenueRequestsService {
       .catch((err: unknown) =>
         this.logger.warn(`Venue request badge sync failed: ${String(err)}`)
       );
+  }
+
+  private async notifyAdminsNewRequest(request: VenueRequestWithRelations) {
+    try {
+      const admins = await this.prisma.user.findMany({
+        where: { role: Role.ADMIN, id: { not: request.submittedByUserId } },
+        select: { id: true },
+      });
+      if (admins.length === 0) return;
+
+      const userName = request.submittedBy?.name?.trim() || 'Người dùng';
+      const payload = request.payload as VenueRequestPayloadDto | null;
+      const venueName =
+        request.venue?.name || payload?.name || 'Sân cầu lông';
+
+      await this.notificationsService.sendPushNotification(
+        admins.map((admin) => admin.id),
+        {
+          id: `venue-req-${request.id}`,
+          type: 'VENUE_REQUEST',
+          title: 'Yêu cầu sân mới cần duyệt',
+          message: `${userName} đã gửi yêu cầu cho sân "${venueName}".`,
+          data: {
+            action: 'venue_request_created',
+            requestId: request.id,
+            venueId: request.venueId ?? '',
+            venueName,
+            userName,
+          },
+        }
+      );
+    } catch (err: unknown) {
+      this.logger.warn(
+        `Failed to push venue request notification to admins: ${String(err)}`
+      );
+    }
   }
 
   async findMine(userId: string, query: QueryVenueRequestsDto) {

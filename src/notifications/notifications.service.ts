@@ -19,7 +19,10 @@ import {
   QueryNotificationsDto,
   RegisterNotificationDeviceDto,
 } from './dto';
-import { PushNotificationsService } from './push-notifications.service';
+import {
+  PushContent,
+  PushNotificationsService,
+} from './push-notifications.service';
 import {
   broadcastWhereForUser,
   latestDate,
@@ -490,6 +493,31 @@ export class NotificationsService {
   syncBadges(userIds: Array<string | null | undefined>) {
     const ids = userIds.filter((id): id is string => Boolean(id));
     void this.pushNotifications.syncBadges(ids);
+  }
+
+  /**
+   * Sends an immediate FCM push without saving an inbox row in `notifications`.
+   * Used for items that already live in their own dedicated review queue
+   * (e.g. pending session join requests), where an inbox row would cause
+   * double-counting in badgeTotals.
+   */
+  async sendPushNotification(
+    recipients: Array<string | null | undefined>,
+    content: Omit<PushContent, 'id'> & { id?: string }
+  ): Promise<void> {
+    const userIds = [
+      ...new Set(recipients.filter((id): id is string => Boolean(id))),
+    ];
+    if (userIds.length === 0) return;
+    const notifications = userIds.map((userId) => ({
+      id: content.id ?? `push_${Date.now()}_${userId}`,
+      userId,
+      type: content.type,
+      title: content.title,
+      message: content.message,
+      data: content.data,
+    }));
+    await this.pushNotifications.sendMany(notifications);
   }
 
   async registerDevice(userId: string, dto: RegisterNotificationDeviceDto) {

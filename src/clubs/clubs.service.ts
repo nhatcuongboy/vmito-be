@@ -1127,6 +1127,50 @@ export class ClubsService {
 
     this.syncReviewerBadges(clubId);
 
+    void this.prisma.user
+      .findUnique({ where: { id: userId }, select: { name: true } })
+      .then(async (user) => {
+        const club = await this.prisma.club.findUnique({
+          where: { id: clubId },
+          select: {
+            name: true,
+            hostId: true,
+            members: {
+              where: {
+                status: MemberStatus.ACTIVE,
+                role: { in: [MemberRole.ADMIN, MemberRole.MODERATOR] },
+              },
+              select: { userId: true },
+            },
+          },
+        });
+        if (!club) return;
+        const requesterName = user?.name || 'Someone';
+        const reviewers = [
+          club.hostId,
+          ...club.members.map((m) => m.userId),
+        ].filter((id) => id !== userId);
+
+        await this.notificationsService.sendPushNotification(reviewers, {
+          id: `club-join-${clubId}-${joinRequest.id}-${Date.now()}`,
+          type: 'CLUB',
+          title: 'Yêu cầu gia nhập CLB mới',
+          message: `${requesterName} muốn tham gia CLB "${club.name}".`,
+          data: {
+            action: 'club_join_request',
+            clubId,
+            clubName: club.name,
+            playerName: requesterName,
+            requestId: joinRequest.id,
+          },
+        });
+      })
+      .catch((error: unknown) => {
+        this.logger.warn(
+          `Failed to send club join request push: ${error instanceof Error ? error.message : String(error)}`
+        );
+      });
+
     return {
       status: 'pending',
       message: `Your request to join ${joinRequest.club.name} has been submitted`,
@@ -2118,9 +2162,27 @@ export class ClubsService {
       userRole
     );
 
+    const club = await this.prisma.club.findUnique({
+      where: { id: clubId },
+      select: { name: true },
+    });
+    const clubName = club?.name || 'CLB';
+
     await this.prisma.clubMember.delete({
       where: { id: member.id },
     });
+
+    void this.notificationsService.createForUser(
+      userId,
+      NotificationType.CLUB,
+      'Thông báo rời CLB',
+      `Bạn đã rời khỏi CLB "${clubName}".`,
+      {
+        action: 'club_member_removed',
+        clubId,
+        clubName,
+      }
+    );
 
     return { success: true };
   }
@@ -2142,10 +2204,39 @@ export class ClubsService {
       userRole
     );
 
-    return this.prisma.clubMember.update({
+    const updated = await this.prisma.clubMember.update({
       where: { id: member.id },
       data: { role },
+      include: { club: { select: { name: true } } },
     });
+
+    const clubName = updated.club?.name || 'CLB';
+    const roleName =
+      role === MemberRole.ADMIN
+        ? 'Quản trị viên'
+        : role === MemberRole.MODERATOR
+        ? 'Kiểm duyệt viên'
+        : 'Thành viên';
+
+    void this.notificationsService.createForUser(
+      userId,
+      NotificationType.CLUB,
+      'Cập nhật vai trò trong CLB',
+      `Bạn đã được bổ nhiệm làm ${roleName} của CLB "${clubName}".`,
+      {
+        action: 'club_member_role_updated',
+        clubId,
+        clubName,
+        role,
+        roleName,
+      },
+      {
+        dedupeKey: `club:${clubId}:member:${userId}:role:${role}`,
+        conflictMode: 'COALESCE',
+      }
+    );
+
+    return updated;
   }
 
   /**
@@ -2314,6 +2405,7 @@ export class ClubsService {
 
     const request = await this.prisma.clubJoinRequest.findUnique({
       where: { id: requestId },
+      include: { club: { select: { name: true } } },
     });
 
     if (!request || request.clubId !== clubId) {
@@ -2358,6 +2450,25 @@ export class ClubsService {
       await this.activityFeedService.postClubMemberJoined(club, request.userId);
     }
 
+    void this.notificationsService
+      .createForUser(
+        request.userId,
+        'CLUB',
+        'Yêu cầu gia nhập CLB được duyệt',
+        `Chúc mừng bạn đã trở thành thành viên của CLB "${club.name}".`,
+        {
+          action: 'club_join_approved',
+          clubId,
+          clubName: club.name,
+        },
+        { dedupeKey: `club:${clubId}:user:${request.userId}:approved` }
+      )
+      .catch((error: unknown) => {
+        this.logger.warn(
+          `Failed to send club join approved push: ${error instanceof Error ? error.message : String(error)}`
+        );
+      });
+
     return result;
   }
 
@@ -2375,6 +2486,7 @@ export class ClubsService {
 
     const request = await this.prisma.clubJoinRequest.findUnique({
       where: { id: requestId },
+      include: { club: { select: { name: true } } },
     });
 
     if (!request || request.clubId !== clubId) {
@@ -2393,6 +2505,28 @@ export class ClubsService {
       },
     });
     this.syncReviewerBadges(clubId);
+
+    const clubName = request.club?.name || 'Club';
+    void this.notificationsService
+      .createForUser(
+        request.userId,
+        'CLUB',
+        'Yêu cầu gia nhập CLB bị từ chối',
+        `Yêu cầu gia nhập CLB "${clubName}" của bạn không được chấp thuận.`,
+        {
+          action: 'club_join_rejected',
+          clubId,
+          clubName,
+          ...(response ? { rejectionReason: response } : {}),
+        },
+        { dedupeKey: `club:${clubId}:user:${request.userId}:rejected` }
+      )
+      .catch((error: unknown) => {
+        this.logger.warn(
+          `Failed to send club join rejected push: ${error instanceof Error ? error.message : String(error)}`
+        );
+      });
+
     return rejected;
   }
 

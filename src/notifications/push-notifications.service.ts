@@ -196,7 +196,9 @@ export class PushNotificationsService {
   ): Message {
     const customData = this.serializeData(notification.data);
     const isCourtCall =
-      customData.action === 'court_call' || customData.courtNumber != null;
+      customData.action === 'court_call' ||
+      customData.action === 'tournament_match_calling' ||
+      customData.courtNumber != null;
 
     return {
       token,
