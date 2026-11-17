@@ -810,6 +810,7 @@ enum ViewTargetType {
   CLUB
   SESSION
   CLASS
+  SHUTTLECOCK
 }
 
 model ViewCount {

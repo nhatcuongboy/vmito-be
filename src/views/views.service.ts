@@ -93,6 +93,13 @@ export class ViewsService {
             select: { id: true },
           })
         );
+      case ViewTargetType.SHUTTLECOCK:
+        return Boolean(
+          await this.prisma.shuttlecock.findUnique({
+            where: { id: targetId },
+            select: { id: true },
+          })
+        );
       default:
         return false;
     }
