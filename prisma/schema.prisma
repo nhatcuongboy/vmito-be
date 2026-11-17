@@ -62,6 +62,7 @@ model User {
   broadcastStates                BroadcastNotificationUserState[]
   notificationInboxState         NotificationInboxState?
   venueReviews                   VenueReview[]
+  clubReviews                    ClubReview[]
 
   chatConversationsAsParticipantA ChatConversation[] @relation("ChatParticipantA")
   chatConversationsAsParticipantB ChatConversation[] @relation("ChatParticipantB")
@@ -2490,6 +2491,11 @@ model Club {
   invite         ClubInvite?
   schedules      ClubSchedule[]
   playerProfiles HostPlayerProfile[]
+  reviews        ClubReview[]
+
+  // Review aggregate over VISIBLE reviews only; recomputed from the DB on every review write
+  averageRating Float?
+  reviewCount   Int    @default(0)
 
   @@unique([hostId, name])
   @@index([hostId])
@@ -2588,6 +2594,31 @@ enum JoinRequestStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+// Member-only reviews of a club (one per user), moderated by admins.
+model ClubReview {
+  id        String           @id @default(cuid())
+  clubId    String
+  userId    String
+  rating    Int // 1-5
+  comment   String? // up to 500 chars
+  status    ClubReviewStatus @default(VISIBLE)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clubId, userId])
+  @@index([clubId, status, createdAt])
+  @@index([status, createdAt])
+  @@map("club_reviews")
+}
+
+enum ClubReviewStatus {
+  VISIBLE
+  HIDDEN
 }
 
 enum ClubStatus {

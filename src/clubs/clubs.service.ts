@@ -561,6 +561,8 @@ export class ClubsService {
       maxMembers: club.maxMembers,
       memberCount: club._count.members + (guestProfileCounts.get(club.id) ?? 0),
       sessionCount: club.sessionCount,
+      averageRating: club.averageRating,
+      reviewCount: club.reviewCount,
       host: club.host,
       schedules: club.schedules,
       defaultVenue: club.defaultVenue,
@@ -891,6 +893,8 @@ export class ClubsService {
       maxMembers: club.maxMembers,
       memberCount: club._count.members + club.playerProfiles.length,
       sessionCount: club.sessionCount,
+      averageRating: club.averageRating,
+      reviewCount: club.reviewCount,
       totalPlayersServed: club.totalPlayersServed,
       hostName: clubRecord.hostName ?? undefined,
       host: {

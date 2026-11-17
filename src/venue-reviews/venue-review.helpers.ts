@@ -19,17 +19,10 @@ export interface IVenueReviewSummary {
 
 type ReviewClient = Pick<Prisma.TransactionClient, 'venueReview'>;
 
-/** Aggregate over VISIBLE reviews only, always recomputed from the DB. */
-export async function computeVenueReviewSummary(
-  client: ReviewClient,
-  venueId: string
-): Promise<IVenueReviewSummary> {
-  const groups = await client.venueReview.groupBy({
-    by: ['rating'],
-    where: { venueId, status: VenueReviewStatus.VISIBLE },
-    _count: { _all: true },
-  });
-
+/** Builds the summary from `groupBy rating` rows (shared by venue and club reviews). */
+export function summarizeRatingGroups(
+  groups: { rating: number; _count: { _all: number } }[]
+): IVenueReviewSummary {
   const distribution: IVenueReviewSummary['distribution'] = {
     1: 0,
     2: 0,
@@ -51,6 +44,19 @@ export async function computeVenueReviewSummary(
     reviewCount: total,
     distribution,
   };
+}
+
+/** Aggregate over VISIBLE reviews only, always recomputed from the DB. */
+export async function computeVenueReviewSummary(
+  client: ReviewClient,
+  venueId: string
+): Promise<IVenueReviewSummary> {
+  const groups = await client.venueReview.groupBy({
+    by: ['rating'],
+    where: { venueId, status: VenueReviewStatus.VISIBLE },
+    _count: { _all: true },
+  });
+  return summarizeRatingGroups(groups);
 }
 
 /**
