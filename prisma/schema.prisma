@@ -3280,3 +3280,71 @@ model HostAwardSanction {
   @@index([hostId])
   @@map("host_award_sanctions")
 }
+
+// Shuttlecock catalogue (public product pages + affiliate offers).
+// Replaces the in-memory SEED_SHUTTLECOCKS array. Sessions still reference a
+// shuttlecock by free text (Session.shuttlecock) matched against searchAliases.
+model Shuttlecock {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  brand          String
+  name           String
+  vietnameseName String
+  featuredImage  String
+  galleryImages  String[]
+
+  featherType  ShuttlecockFeatherType
+  featherCount Int                      @default(16)
+  corkType     ShuttlecockCorkType
+  speedOptions Int[]
+  bwfApproved  Boolean                  @default(false)
+  suitability  ShuttlecockSuitability[]
+
+  // Prices in VND
+  minTubePrice   Int
+  maxTubePrice   Int
+  minCartonPrice Int
+  maxCartonPrice Int
+
+  ratingOverall         Float @default(4.5)
+  ratingFlightStability Float @default(4.5)
+  ratingDurability      Float @default(4.5)
+  ratingFeelAndImpact   Float @default(4.5)
+  totalReviews          Int   @default(1)
+
+  pros            String[]
+  cons            String[]
+  description     String
+  searchAliases   String[] // matched (ILIKE) against Session.shuttlecock
+  searchTerms     String? // Lowercased name + brand + aliases, for text search
+  affiliateStores Json     @default("[]") // IShuttlecockAffiliateStore[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([brand])
+  @@index([featherType])
+  @@index([totalReviews])
+  @@map("shuttlecocks")
+}
+
+enum ShuttlecockFeatherType {
+  DUCK
+  GOOSE
+  SYNTHETIC
+  HYBRID_3IN1
+}
+
+enum ShuttlecockCorkType {
+  NATURAL
+  COMPOSITE
+  SANDWICH
+  FOAM
+}
+
+enum ShuttlecockSuitability {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  TOURNAMENT
+}

@@ -1,26 +1,38 @@
+import {
+  ShuttlecockCorkType,
+  ShuttlecockFeatherType,
+  ShuttlecockSuitability,
+} from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsEnum,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  Min,
   ValidateNested,
 } from 'class-validator';
 
 export class PriceRangeDto {
-  @IsNumber()
+  @IsInt()
+  @Min(0)
   minTube: number;
 
-  @IsNumber()
+  @IsInt()
+  @Min(0)
   maxTube: number;
 
-  @IsNumber()
+  @IsInt()
+  @Min(0)
   @IsOptional()
   minCarton?: number;
 
-  @IsNumber()
+  @IsInt()
+  @Min(0)
   @IsOptional()
   maxCarton?: number;
 }
@@ -38,7 +50,8 @@ export class RatingDto {
   @IsNumber()
   feelAndImpact: number;
 
-  @IsNumber()
+  @IsInt()
+  @Min(0)
   @IsOptional()
   totalReviews?: number;
 }
@@ -99,17 +112,19 @@ export class CreateShuttlecockDto {
   @IsOptional()
   galleryImages?: string[];
 
-  @IsString()
-  featherType: 'DUCK' | 'GOOSE' | 'SYNTHETIC' | 'HYBRID_3IN1';
+  @IsEnum(ShuttlecockFeatherType)
+  featherType: ShuttlecockFeatherType;
 
-  @IsNumber()
+  @IsInt()
+  @Min(1)
   @IsOptional()
   featherCount?: number = 16;
 
-  @IsString()
-  corkType: 'NATURAL' | 'COMPOSITE' | 'SANDWICH' | 'FOAM';
+  @IsEnum(ShuttlecockCorkType)
+  corkType: ShuttlecockCorkType;
 
   @IsArray()
+  @IsInt({ each: true })
   speedOptions: number[];
 
   @IsBoolean()
@@ -117,7 +132,8 @@ export class CreateShuttlecockDto {
   bwfApproved?: boolean = false;
 
   @IsArray()
-  suitability: Array<'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED' | 'TOURNAMENT'>;
+  @IsEnum(ShuttlecockSuitability, { each: true })
+  suitability: ShuttlecockSuitability[];
 
   @ValidateNested()
   @Type(() => PriceRangeDto)

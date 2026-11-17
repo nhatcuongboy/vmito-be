@@ -1,9 +1,19 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma, Shuttlecock, ShuttlecockFeatherType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { QueryShuttlecocksDto } from './dto/query-shuttlecocks.dto';
 import { CreateShuttlecockDto } from './dto/create-shuttlecock.dto';
+import { QueryShuttlecocksDto } from './dto/query-shuttlecocks.dto';
 import { UpdateShuttlecockDto } from './dto/update-shuttlecock.dto';
-import { IShuttlecockItem, SEED_SHUTTLECOCKS } from './shuttlecocks.data';
+import {
+  toShuttlecockCreateInput,
+  toShuttlecockItem,
+  toShuttlecockUpdateInput,
+} from './shuttlecocks.mapper';
+import { IShuttlecockItem } from './shuttlecocks.types';
 
 export interface IShuttlecockSummary {
   id: string;
@@ -40,10 +50,10 @@ export interface IShuttlecockDetailResponse extends IShuttlecockItem {
   activeSessionsCount: number;
 }
 
+const FEATHER_TYPES = new Set<string>(Object.values(ShuttlecockFeatherType));
+
 @Injectable()
 export class ShuttlecocksService {
-  private items: IShuttlecockItem[] = [...SEED_SHUTTLECOCKS];
-
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -58,106 +68,61 @@ export class ShuttlecocksService {
   }> {
     const page = query.page || 1;
     const limit = query.limit || 20;
-    let list = [...this.items];
 
-    // Filter by text search query
+    const where: Prisma.ShuttlecockWhereInput = {};
+
     if (query.q) {
-      const qLower = query.q.toLowerCase().trim();
-      list = list.filter(
-        (item) =>
-          item.name.toLowerCase().includes(qLower) ||
-          item.brand.toLowerCase().includes(qLower) ||
-          item.searchAliases.some((alias) => alias.toLowerCase().includes(qLower)),
-      );
+      where.searchTerms = { contains: query.q.toLowerCase().trim() };
     }
-
-    // Filter by Brand
     if (query.brand) {
-      const brandLower = query.brand.toLowerCase().trim();
-      list = list.filter((item) => item.brand.toLowerCase() === brandLower);
+      where.brand = { equals: query.brand.trim(), mode: 'insensitive' };
     }
-
-    // Filter by Speed
     if (query.speed) {
-      list = list.filter((item) => item.speedOptions.includes(query.speed!));
+      where.speedOptions = { has: query.speed };
     }
-
-    // Filter by Feather Type
     if (query.featherType) {
-      list = list.filter((item) => item.featherType === query.featherType);
+      // An unknown feather type can never match; avoid Prisma's enum error.
+      if (!FEATHER_TYPES.has(query.featherType)) {
+        return { data: [], total: 0, page, limit, totalPages: 0 };
+      }
+      where.featherType = query.featherType as ShuttlecockFeatherType;
     }
 
-    // Sorting
-    switch (query.sort) {
-      case 'rating':
-        list.sort((a, b) => b.rating.overall - a.rating.overall);
-        break;
-      case 'price_asc':
-        list.sort((a, b) => a.priceRange.minTube - b.priceRange.minTube);
-        break;
-      case 'price_desc':
-        list.sort((a, b) => b.priceRange.minTube - a.priceRange.minTube);
-        break;
-      case 'durability':
-        list.sort((a, b) => b.rating.durability - a.rating.durability);
-        break;
-      case 'popular':
-      default:
-        list.sort((a, b) => b.rating.totalReviews - a.rating.totalReviews);
-        break;
-    }
-
-    const total = list.length;
-    const startIndex = (page - 1) * limit;
-    const paginated = list.slice(startIndex, startIndex + limit);
-
-    // Fetch session counts concurrently from database
-    const summaries: IShuttlecockSummary[] = await Promise.all(
-      paginated.map(async (item) => {
-        const sessionsCount = await this.countSessionsByAliases(item.searchAliases);
-        return {
-          id: item.id,
-          slug: item.slug,
-          brand: item.brand,
-          name: item.name,
-          vietnameseName: item.vietnameseName,
-          featuredImage: item.featuredImage,
-          featherType: item.featherType,
-          corkType: item.corkType,
-          speedOptions: item.speedOptions,
-          bwfApproved: item.bwfApproved,
-          priceRange: item.priceRange,
-          rating: {
-            overall: item.rating.overall,
-            durability: item.rating.durability,
-            flightStability: item.rating.flightStability,
-            totalReviews: item.rating.totalReviews,
-          },
-          sessionsCount,
-          affiliateStoreCount: item.affiliateStores.length,
-        };
+    const [total, rows] = await Promise.all([
+      this.prisma.shuttlecock.count({ where }),
+      this.prisma.shuttlecock.findMany({
+        where,
+        orderBy: this.buildOrderBy(query.sort),
+        skip: (page - 1) * limit,
+        take: limit,
       }),
+    ]);
+
+    // Session counts come from the free-text Session.shuttlecock column.
+    const data = await Promise.all(
+      rows.map(async (row) =>
+        this.toSummary(
+          row,
+          await this.countSessionsByAliases(row.searchAliases)
+        )
+      )
     );
 
-    return {
-      data: summaries,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   /**
    * Find shuttlecock details by slug.
    */
   async findBySlug(slug: string): Promise<IShuttlecockDetailResponse> {
-    const item = this.items.find((s) => s.slug === slug);
-    if (!item) {
+    const row = await this.prisma.shuttlecock.findUnique({ where: { slug } });
+    if (!row) {
       throw new NotFoundException(`Shuttlecock with slug "${slug}" not found`);
     }
 
-    const activeSessionsCount = await this.countSessionsByAliases(item.searchAliases);
+    const activeSessionsCount = await this.countSessionsByAliases(
+      row.searchAliases
+    );
 
     // Calculate real telemetry from recorded matches if available
     let avgShuttlesPerMatch = 1.6;
@@ -169,7 +134,9 @@ export class ShuttlecocksService {
         },
       });
       if (matchWithCount._avg.shuttlecockCount) {
-        avgShuttlesPerMatch = Number(matchWithCount._avg.shuttlecockCount.toFixed(1));
+        avgShuttlesPerMatch = Number(
+          matchWithCount._avg.shuttlecockCount.toFixed(1)
+        );
       }
     } catch {
       // Fallback telemetry value if aggregate fails
@@ -177,7 +144,7 @@ export class ShuttlecocksService {
     }
 
     return {
-      ...item,
+      ...toShuttlecockItem(row),
       telemetry: {
         avgShuttlesPerMatch,
         totalSessionsRecorded: Math.max(activeSessionsCount, 35),
@@ -189,60 +156,60 @@ export class ShuttlecocksService {
   /**
    * Get list of all distinct brands.
    */
-  findBrands(): string[] {
-    const brands = new Set(this.items.map((s) => s.brand));
-    return Array.from(brands);
+  async findBrands(): Promise<string[]> {
+    const rows = await this.prisma.shuttlecock.findMany({
+      distinct: ['brand'],
+      select: { brand: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map((r) => r.brand);
   }
 
   /**
    * Get list of all distinct speeds.
    */
-  findSpeeds(): number[] {
+  async findSpeeds(): Promise<number[]> {
+    const rows = await this.prisma.shuttlecock.findMany({
+      select: { speedOptions: true },
+    });
     const speeds = new Set<number>();
-    this.items.forEach((s) => s.speedOptions.forEach((speed) => speeds.add(speed)));
+    rows.forEach((r) => r.speedOptions.forEach((speed) => speeds.add(speed)));
     return Array.from(speeds).sort((a, b) => a - b);
   }
 
   /**
-   * Find related shuttlecocks.
+   * Find related shuttlecocks (same brand or same feather type).
    */
-  findRelated(slug: string, limit: number = 4): IShuttlecockSummary[] {
-    const current = this.items.find((s) => s.slug === slug);
+  async findRelated(
+    slug: string,
+    limit: number = 4
+  ): Promise<IShuttlecockSummary[]> {
+    const current = await this.prisma.shuttlecock.findUnique({
+      where: { slug },
+    });
     if (!current) return [];
 
-    const candidates = this.items.filter(
-      (s) => s.slug !== slug && (s.brand === current.brand || s.featherType === current.featherType),
-    );
-
-    return candidates.slice(0, limit).map((item) => ({
-      id: item.id,
-      slug: item.slug,
-      brand: item.brand,
-      name: item.name,
-      vietnameseName: item.vietnameseName,
-      featuredImage: item.featuredImage,
-      featherType: item.featherType,
-      corkType: item.corkType,
-      speedOptions: item.speedOptions,
-      bwfApproved: item.bwfApproved,
-      priceRange: item.priceRange,
-      rating: {
-        overall: item.rating.overall,
-        durability: item.rating.durability,
-        flightStability: item.rating.flightStability,
-        totalReviews: item.rating.totalReviews,
+    const rows = await this.prisma.shuttlecock.findMany({
+      where: {
+        slug: { not: slug },
+        OR: [{ brand: current.brand }, { featherType: current.featherType }],
       },
-      sessionsCount: 0,
-      affiliateStoreCount: item.affiliateStores.length,
-    }));
+      orderBy: [{ totalReviews: 'desc' }, { slug: 'asc' }],
+      take: limit,
+    });
+
+    return rows.map((row) => this.toSummary(row, 0));
   }
 
   /**
    * Get active sessions on Vmito playing this shuttlecock.
    */
   async findActiveSessions(slug: string, limit: number = 6) {
-    const item = this.items.find((s) => s.slug === slug);
-    if (!item) return [];
+    const item = await this.prisma.shuttlecock.findUnique({
+      where: { slug },
+      select: { searchAliases: true },
+    });
+    if (!item || item.searchAliases.length === 0) return [];
 
     try {
       const sessions = await this.prisma.session.findMany({
@@ -292,127 +259,152 @@ export class ShuttlecocksService {
   /**
    * Slugs and last updated timestamps for sitemap.
    */
-  findForSitemap() {
-    return this.items.map((item) => ({
-      slug: item.slug,
-      updatedAt: new Date().toISOString(),
+  async findForSitemap() {
+    const rows = await this.prisma.shuttlecock.findMany({
+      select: { slug: true, updatedAt: true },
+      orderBy: { slug: 'asc' },
+    });
+    return rows.map((row) => ({
+      slug: row.slug,
+      updatedAt: row.updatedAt.toISOString(),
     }));
   }
 
   /**
    * Find all shuttlecocks for admin management.
    */
-  findAllAdmin(): IShuttlecockItem[] {
-    return this.items;
+  async findAllAdmin(): Promise<IShuttlecockItem[]> {
+    const rows = await this.prisma.shuttlecock.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toShuttlecockItem);
   }
 
   /**
    * Find single item by id or slug for admin.
    */
-  findById(id: string): IShuttlecockItem {
-    const item = this.items.find((s) => s.id === id || s.slug === id);
-    if (!item) {
-      throw new NotFoundException(`Shuttlecock with id or slug "${id}" not found`);
-    }
-    return item;
+  async findById(id: string): Promise<IShuttlecockItem> {
+    return toShuttlecockItem(await this.getByIdOrSlug(id));
   }
 
   /**
    * Create a new shuttlecock (Admin).
    */
-  create(dto: CreateShuttlecockDto): IShuttlecockItem {
-    const slugExists = this.items.some((s) => s.slug === dto.slug);
-    if (slugExists) {
-      throw new ConflictException(`Shuttlecock with slug "${dto.slug}" already exists`);
+  async create(dto: CreateShuttlecockDto): Promise<IShuttlecockItem> {
+    try {
+      const row = await this.prisma.shuttlecock.create({
+        data: toShuttlecockCreateInput(dto),
+      });
+      return toShuttlecockItem(row);
+    } catch (error) {
+      this.rethrowSlugConflict(error, dto.slug);
+      throw error;
     }
-
-    const newItem: IShuttlecockItem = {
-      id: `sc-${Date.now()}`,
-      slug: dto.slug,
-      brand: dto.brand,
-      name: dto.name,
-      vietnameseName: dto.vietnameseName,
-      featuredImage: dto.featuredImage,
-      galleryImages: dto.galleryImages || [dto.featuredImage],
-      featherType: dto.featherType,
-      featherCount: dto.featherCount || 16,
-      corkType: dto.corkType,
-      speedOptions: dto.speedOptions,
-      bwfApproved: dto.bwfApproved || false,
-      suitability: dto.suitability,
-      priceRange: {
-        minTube: dto.priceRange.minTube,
-        maxTube: dto.priceRange.maxTube,
-        minCarton: dto.priceRange.minCarton || dto.priceRange.minTube * 48,
-        maxCarton: dto.priceRange.maxCarton || dto.priceRange.maxTube * 50,
-      },
-      rating: {
-        overall: dto.rating?.overall ?? 4.5,
-        flightStability: dto.rating?.flightStability ?? 4.5,
-        durability: dto.rating?.durability ?? 4.5,
-        feelAndImpact: dto.rating?.feelAndImpact ?? 4.5,
-        totalReviews: dto.rating?.totalReviews ?? 1,
-      },
-      pros: dto.pros || [],
-      cons: dto.cons || [],
-      description: dto.description,
-      searchAliases: dto.searchAliases || [dto.name.toLowerCase()],
-      affiliateStores: (dto.affiliateStores as any) || [],
-    };
-
-    this.items.unshift(newItem);
-    return newItem;
   }
 
   /**
    * Update an existing shuttlecock (Admin).
    */
-  update(id: string, dto: UpdateShuttlecockDto): IShuttlecockItem {
-    const index = this.items.findIndex((s) => s.id === id || s.slug === id);
-    if (index === -1) {
-      throw new NotFoundException(`Shuttlecock with id or slug "${id}" not found`);
+  async update(
+    id: string,
+    dto: UpdateShuttlecockDto
+  ): Promise<IShuttlecockItem> {
+    const current = await this.getByIdOrSlug(id);
+    try {
+      const row = await this.prisma.shuttlecock.update({
+        where: { id: current.id },
+        data: toShuttlecockUpdateInput(current, dto),
+      });
+      return toShuttlecockItem(row);
+    } catch (error) {
+      this.rethrowSlugConflict(error, dto.slug);
+      throw error;
     }
-
-    const current = this.items[index];
-    const updated: IShuttlecockItem = {
-      ...current,
-      ...dto,
-      priceRange: dto.priceRange
-        ? {
-            ...current.priceRange,
-            ...dto.priceRange,
-          }
-        : current.priceRange,
-      rating: dto.rating
-        ? {
-            ...current.rating,
-            ...dto.rating,
-          }
-        : current.rating,
-      affiliateStores: (dto.affiliateStores as any) || current.affiliateStores,
-    };
-
-    this.items[index] = updated;
-    return updated;
   }
 
   /**
    * Delete a shuttlecock (Admin).
    */
-  remove(id: string): { success: boolean; id: string } {
-    const index = this.items.findIndex((s) => s.id === id || s.slug === id);
-    if (index === -1) {
-      throw new NotFoundException(`Shuttlecock with id or slug "${id}" not found`);
-    }
+  async remove(id: string): Promise<{ success: boolean; id: string }> {
+    const current = await this.getByIdOrSlug(id);
+    await this.prisma.shuttlecock.delete({ where: { id: current.id } });
+    return { success: true, id: current.id };
+  }
 
-    const removed = this.items.splice(index, 1)[0];
-    return { success: true, id: removed.id };
+  private async getByIdOrSlug(idOrSlug: string): Promise<Shuttlecock> {
+    const row = await this.prisma.shuttlecock.findFirst({
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
+    });
+    if (!row) {
+      throw new NotFoundException(
+        `Shuttlecock with id or slug "${idOrSlug}" not found`
+      );
+    }
+    return row;
+  }
+
+  private rethrowSlugConflict(error: unknown, slug?: string): void {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      throw new ConflictException(
+        `Shuttlecock with slug "${slug}" already exists`
+      );
+    }
+  }
+
+  private buildOrderBy(
+    sort: QueryShuttlecocksDto['sort']
+  ): Prisma.ShuttlecockOrderByWithRelationInput[] {
+    switch (sort) {
+      case 'rating':
+        return [{ ratingOverall: 'desc' }, { slug: 'asc' }];
+      case 'price_asc':
+        return [{ minTubePrice: 'asc' }, { slug: 'asc' }];
+      case 'price_desc':
+        return [{ minTubePrice: 'desc' }, { slug: 'asc' }];
+      case 'durability':
+        return [{ ratingDurability: 'desc' }, { slug: 'asc' }];
+      case 'popular':
+      default:
+        return [{ totalReviews: 'desc' }, { slug: 'asc' }];
+    }
+  }
+
+  private toSummary(
+    row: Shuttlecock,
+    sessionsCount: number
+  ): IShuttlecockSummary {
+    const item = toShuttlecockItem(row);
+    return {
+      id: item.id,
+      slug: item.slug,
+      brand: item.brand,
+      name: item.name,
+      vietnameseName: item.vietnameseName,
+      featuredImage: item.featuredImage,
+      featherType: item.featherType,
+      corkType: item.corkType,
+      speedOptions: item.speedOptions,
+      bwfApproved: item.bwfApproved,
+      priceRange: item.priceRange,
+      rating: {
+        overall: item.rating.overall,
+        durability: item.rating.durability,
+        flightStability: item.rating.flightStability,
+        totalReviews: item.rating.totalReviews,
+      },
+      sessionsCount,
+      affiliateStoreCount: item.affiliateStores.length,
+    };
   }
 
   /**
    * Helper to count sessions that match any alias of a shuttlecock.
    */
   private async countSessionsByAliases(aliases: string[]): Promise<number> {
+    if (aliases.length === 0) return 0;
     try {
       return await this.prisma.session.count({
         where: {
