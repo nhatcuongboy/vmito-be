@@ -52,6 +52,11 @@ import {
 
 import { UserRecommendationContextService } from '../recommendations/user-recommendation-context.service';
 import { sortByRecommendation } from '../recommendations/recommendation.utils';
+import {
+  buildFriendPreviews,
+  FriendPreview,
+  idsWithFriends,
+} from '../recommendations/friend-preview.util';
 import { scoreTournament } from '../recommendations/scorers/tournament.scorer';
 
 @Injectable()
@@ -175,6 +180,21 @@ export class TournamentsService {
           { endDate: { gte: getVietnamTodayDate() } },
         ],
       });
+    }
+
+    if (query.registrationOpenOnly) {
+      // Mirrors the self-registration rule on `model Tournament`.
+      andConditions.push(
+        { isPublished: true },
+        { status: TournamentStatus.PREPARING },
+        { registrationOpen: true },
+        {
+          OR: [
+            { registrationDeadline: null },
+            { registrationDeadline: { gt: new Date() } },
+          ],
+        }
+      );
     }
 
     const where: Prisma.TournamentWhereInput = {
@@ -354,18 +374,56 @@ export class TournamentsService {
       ...t,
       isFavorite: favoriteSet.has(t.id),
     }));
-    if (!recommendationContext) return withFavorites;
+    const limit = query.limit;
+    if (!recommendationContext) {
+      return limit ? withFavorites.slice(0, limit) : withFavorites;
+    }
     const friendCounts = await this.countFriendPlayers(
       tournaments.map((t) => t.id),
       recommendationContext.friendIds
     );
-    return sortByRecommendation(
+    const ranked = sortByRecommendation(
       withFavorites.map((t) => ({
         ...t,
         recommendation: scoreTournament(t, recommendationContext, {
           friendPlayers: friendCounts.get(t.id) ?? 0,
         }),
       }))
+    );
+    const served = limit ? ranked.slice(0, limit) : ranked;
+    const friendPreviews = await this.loadFriendPreviews(
+      served.map((t) => t.id),
+      recommendationContext.friendIds,
+      friendCounts
+    );
+    return served.map((t) => ({
+      ...t,
+      friendPreview: friendPreviews.get(t.id) ?? null,
+    }));
+  }
+
+  /** See `recommendations/friend-preview.util`. One query per call. */
+  private async loadFriendPreviews(
+    tournamentIds: string[],
+    friendIds: Set<string>,
+    friendCounts: Map<string, number>
+  ): Promise<Map<string, FriendPreview>> {
+    const withFriends = idsWithFriends(tournamentIds, friendCounts);
+    if (withFriends.length === 0) return new Map();
+    const rows = await this.prisma.tournamentPlayer.findMany({
+      where: {
+        tournamentId: { in: withFriends },
+        userId: { in: [...friendIds] },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        tournamentId: true,
+        user: { select: { id: true, name: true, image: true } },
+      },
+    });
+    return buildFriendPreviews(
+      rows.map((row) => ({ itemId: row.tournamentId, user: row.user })),
+      friendCounts
     );
   }
 
@@ -1264,8 +1322,7 @@ export class TournamentsService {
       const primaryVenue = tournament.tournamentVenues?.find(
         (tv) => tv.isPrimary
       );
-      const venueName =
-        tournament.venue?.name ?? primaryVenue?.name ?? null;
+      const venueName = tournament.venue?.name ?? primaryVenue?.name ?? null;
       void this.activityFeedService.postTournamentCreated({
         id: tournament.id,
         slug: tournament.slug,

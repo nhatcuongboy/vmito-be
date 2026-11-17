@@ -61,6 +61,11 @@ import { UserRecommendationContextService } from '../recommendations/user-recomm
 import { Recommendation } from '../recommendations/recommendation.types';
 import { sortByRecommendation } from '../recommendations/recommendation.utils';
 import {
+  buildFriendPreviews,
+  FriendPreview,
+  idsWithFriends,
+} from '../recommendations/friend-preview.util';
+import {
   interleaveCrawledSessions,
   scoreSession,
 } from '../recommendations/scorers/session.scorer';
@@ -651,6 +656,8 @@ export class SessionsService {
       sessionType?: 'all' | 'regular' | 'facebook';
       favoriteOnly?: boolean;
       includeEnded?: boolean;
+      /** Only sessions starting within this many hours from now. */
+      withinHours?: number;
     },
     userId?: string
   ) {
@@ -716,6 +723,18 @@ export class SessionsService {
 
     if (favoriteIds) {
       andConditions.push({ id: { in: favoriteIds } });
+    }
+
+    // The app's feed suggests sessions the viewer can still plan for today
+    // or tomorrow; further out they compete with the Discover list instead.
+    if (filters?.withinHours) {
+      const horizon = new Date(Date.now() + filters.withinHours * 3600_000);
+      andConditions.push({
+        OR: [
+          { startTime: { lte: horizon } },
+          { startTime: null, scheduledStartTime: { lte: horizon } },
+        ],
+      });
     }
 
     if (filters?.sportType?.length) {
@@ -1075,8 +1094,9 @@ export class SessionsService {
       recommendation?: Recommendation;
     };
     let sessionsToReturn: SessionWithDistance[] = sessions;
+    let friendCounts: Map<string, number> | null = null;
     if (recommendationContext) {
-      const friendCounts = await this.countFriendsBySession(
+      friendCounts = await this.countFriendsBySession(
         sessions.map((s) => s.id),
         recommendationContext.friendIds
       );
@@ -1086,7 +1106,7 @@ export class SessionsService {
             const recommendation = scoreSession(
               session,
               recommendationContext,
-              friendCounts.get(session.id) ?? 0
+              friendCounts!.get(session.id) ?? 0
             );
             // No reasons for crawled sessions: their score only orders them
             // among the other Facebook ones.
@@ -1156,10 +1176,22 @@ export class SessionsService {
           )
         : new Set<string>();
 
+    const friendPreviews =
+      recommendationContext && friendCounts
+        ? await this.loadFriendPreviews(
+            sessionsToReturn.map((s) => s.id),
+            recommendationContext.friendIds,
+            friendCounts
+          )
+        : null;
+
     return {
       data: sessionsToReturn.map((s) => ({
         ...s,
         isFavorite: favoriteSet.has(s.id),
+        ...(friendPreviews
+          ? { friendPreview: friendPreviews.get(s.id) ?? null }
+          : {}),
       })),
       pagination: {
         page,
@@ -1168,6 +1200,33 @@ export class SessionsService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  /** See `recommendations/friend-preview.util`. One query per page. */
+  private async loadFriendPreviews(
+    sessionIds: string[],
+    friendIds: Set<string>,
+    friendCounts: Map<string, number>
+  ): Promise<Map<string, FriendPreview>> {
+    const withFriends = idsWithFriends(sessionIds, friendCounts);
+    if (withFriends.length === 0) return new Map();
+    const rows = await this.prisma.player.findMany({
+      where: {
+        sessionId: { in: withFriends },
+        userId: { in: [...friendIds] },
+        registrationStatus: 'APPROVED',
+      },
+      // `joinedAt` is null for players a host added directly.
+      orderBy: { createdAt: 'desc' },
+      select: {
+        sessionId: true,
+        user: { select: { id: true, name: true, image: true } },
+      },
+    });
+    return buildFriendPreviews(
+      rows.map((row) => ({ itemId: row.sessionId, user: row.user })),
+      friendCounts
+    );
   }
 
   /** Approved friends (see UserRecommendationContext) per session. */

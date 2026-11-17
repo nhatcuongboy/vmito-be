@@ -4,6 +4,9 @@ import {
   IsDateString,
   IsEnum,
   IsIn,
+  IsInt,
+  Max,
+  Min,
   IsNumber,
   Matches,
   IsOptional,
@@ -81,4 +84,19 @@ export class BrowseTournamentsDto {
   @Transform(toBoolean)
   @IsBoolean()
   publishedOnly?: boolean;
+
+  // Only tournaments a player can enter right now: published, PREPARING,
+  // registration open and the deadline not passed. Used by the app's feed.
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  registrationOpenOnly?: boolean;
+
+  // Caps the (otherwise unpaginated) list after ranking.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit?: number;
 }
