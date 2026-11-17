@@ -20,6 +20,8 @@ import { CategoryMatchesModule } from './category-matches/category-matches.modul
 import { PwaModule } from './pwa/pwa.module';
 import { TasksModule } from './tasks/tasks.module';
 import { VenuesModule } from './venues/venues.module';
+import { VenueReviewsModule } from './venue-reviews/venue-reviews.module';
+import { ClubReviewsModule } from './club-reviews/club-reviews.module';
 import { FeeModule } from './fee/fee.module';
 import { PaymentSettingsModule } from './payment-settings/payment-settings.module';
 import { PaymentsModule } from './payments/payments.module';
@@ -89,6 +91,8 @@ import configuration from './config';
     TasksModule,
     PwaModule,
     VenuesModule,
+    VenueReviewsModule,
+    ClubReviewsModule,
     FeeModule,
     PaymentSettingsModule,
     PaymentsModule,

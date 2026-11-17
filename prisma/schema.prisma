@@ -61,6 +61,8 @@ model User {
   broadcastsCreated              BroadcastNotification[]          @relation("BroadcastCreator")
   broadcastStates                BroadcastNotificationUserState[]
   notificationInboxState         NotificationInboxState?
+  venueReviews                   VenueReview[]
+  clubReviews                    ClubReview[]
 
   chatConversationsAsParticipantA ChatConversation[] @relation("ChatParticipantA")
   chatConversationsAsParticipantB ChatConversation[] @relation("ChatParticipantB")
@@ -809,6 +811,7 @@ enum ViewTargetType {
   CLUB
   SESSION
   CLASS
+  SHUTTLECOCK
 }
 
 model ViewCount {
@@ -895,6 +898,11 @@ model Venue {
   courtBlocks           VenueCourtBlock[]
   courtAllocations      VenueRentalCourtAllocation[]
   rentalPaymentSettings VenueRentalPaymentSettings?
+  reviews               VenueReview[]
+
+  // Review aggregate over VISIBLE reviews only; recomputed from the DB on every review write
+  averageRating Float?
+  reviewCount   Int    @default(0)
 
   // Amenities
   hasCarParking Boolean?
@@ -927,6 +935,30 @@ model Venue {
   @@index([lat, lng])
   @@index([sportTypes], type: Gin)
   @@map("venues")
+}
+
+model VenueReview {
+  id        String            @id @default(cuid())
+  venueId   String
+  userId    String
+  rating    Int // 1-5
+  comment   String? // up to 500 chars
+  status    VenueReviewStatus @default(VISIBLE)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([venueId, userId])
+  @@index([venueId, status, createdAt])
+  @@index([status, createdAt])
+  @@map("venue_reviews")
+}
+
+enum VenueReviewStatus {
+  VISIBLE
+  HIDDEN
 }
 
 enum VenueStatus {
@@ -2459,6 +2491,11 @@ model Club {
   invite         ClubInvite?
   schedules      ClubSchedule[]
   playerProfiles HostPlayerProfile[]
+  reviews        ClubReview[]
+
+  // Review aggregate over VISIBLE reviews only; recomputed from the DB on every review write
+  averageRating Float?
+  reviewCount   Int    @default(0)
 
   @@unique([hostId, name])
   @@index([hostId])
@@ -2557,6 +2594,31 @@ enum JoinRequestStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+// Member-only reviews of a club (one per user), moderated by admins.
+model ClubReview {
+  id        String           @id @default(cuid())
+  clubId    String
+  userId    String
+  rating    Int // 1-5
+  comment   String? // up to 500 chars
+  status    ClubReviewStatus @default(VISIBLE)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clubId, userId])
+  @@index([clubId, status, createdAt])
+  @@index([status, createdAt])
+  @@map("club_reviews")
+}
+
+enum ClubReviewStatus {
+  VISIBLE
+  HIDDEN
 }
 
 enum ClubStatus {
@@ -3249,4 +3311,72 @@ model HostAwardSanction {
 
   @@index([hostId])
   @@map("host_award_sanctions")
+}
+
+// Shuttlecock catalogue (public product pages + affiliate offers).
+// Replaces the in-memory SEED_SHUTTLECOCKS array. Sessions still reference a
+// shuttlecock by free text (Session.shuttlecock) matched against searchAliases.
+model Shuttlecock {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  brand          String
+  name           String
+  vietnameseName String
+  featuredImage  String
+  galleryImages  String[]
+
+  featherType  ShuttlecockFeatherType
+  featherCount Int                      @default(16)
+  corkType     ShuttlecockCorkType
+  speedOptions Int[]
+  bwfApproved  Boolean                  @default(false)
+  suitability  ShuttlecockSuitability[]
+
+  // Prices in VND
+  minTubePrice   Int
+  maxTubePrice   Int
+  minCartonPrice Int
+  maxCartonPrice Int
+
+  ratingOverall         Float @default(4.5)
+  ratingFlightStability Float @default(4.5)
+  ratingDurability      Float @default(4.5)
+  ratingFeelAndImpact   Float @default(4.5)
+  totalReviews          Int   @default(1)
+
+  pros            String[]
+  cons            String[]
+  description     String
+  searchAliases   String[] // matched (ILIKE) against Session.shuttlecock
+  searchTerms     String? // Lowercased name + brand + aliases, for text search
+  affiliateStores Json     @default("[]") // IShuttlecockAffiliateStore[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([brand])
+  @@index([featherType])
+  @@index([totalReviews])
+  @@map("shuttlecocks")
+}
+
+enum ShuttlecockFeatherType {
+  DUCK
+  GOOSE
+  SYNTHETIC
+  HYBRID_3IN1
+}
+
+enum ShuttlecockCorkType {
+  NATURAL
+  COMPOSITE
+  SANDWICH
+  FOAM
+}
+
+enum ShuttlecockSuitability {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  TOURNAMENT
 }

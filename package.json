@@ -23,7 +23,8 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "backfill:venue-courts": "ts-node -r tsconfig-paths/register scripts/backfill-venue-court-allocations.ts",
-    "venue-photos": "ts-node -r tsconfig-paths/register scripts/venue-photos.ts"
+    "venue-photos": "ts-node -r tsconfig-paths/register scripts/venue-photos.ts",
+    "seed:shuttlecocks": "ts-node -r tsconfig-paths/register scripts/seed-shuttlecocks.ts"
   },
   "dependencies": {
     "@google/genai": "^1.50.1",
