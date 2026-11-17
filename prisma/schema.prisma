@@ -61,6 +61,7 @@ model User {
   broadcastsCreated              BroadcastNotification[]          @relation("BroadcastCreator")
   broadcastStates                BroadcastNotificationUserState[]
   notificationInboxState         NotificationInboxState?
+  venueReviews                   VenueReview[]
 
   chatConversationsAsParticipantA ChatConversation[] @relation("ChatParticipantA")
   chatConversationsAsParticipantB ChatConversation[] @relation("ChatParticipantB")
@@ -895,6 +896,11 @@ model Venue {
   courtBlocks           VenueCourtBlock[]
   courtAllocations      VenueRentalCourtAllocation[]
   rentalPaymentSettings VenueRentalPaymentSettings?
+  reviews               VenueReview[]
+
+  // Review aggregate over VISIBLE reviews only; recomputed from the DB on every review write
+  averageRating Float?
+  reviewCount   Int    @default(0)
 
   // Amenities
   hasCarParking Boolean?
@@ -927,6 +933,30 @@ model Venue {
   @@index([lat, lng])
   @@index([sportTypes], type: Gin)
   @@map("venues")
+}
+
+model VenueReview {
+  id        String            @id @default(cuid())
+  venueId   String
+  userId    String
+  rating    Int // 1-5
+  comment   String? // up to 500 chars
+  status    VenueReviewStatus @default(VISIBLE)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([venueId, userId])
+  @@index([venueId, status, createdAt])
+  @@index([status, createdAt])
+  @@map("venue_reviews")
+}
+
+enum VenueReviewStatus {
+  VISIBLE
+  HIDDEN
 }
 
 enum VenueStatus {
