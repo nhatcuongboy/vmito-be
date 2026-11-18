@@ -28,10 +28,14 @@ export class LeaderboardQueryDto {
   @Matches(/^\d{4}(-(\d{2}(-\d{2})?|S[1-4]))?$/)
   periodKey?: string;
 
-  /** Hosting rewards are ranked apart from playing. */
+  /**
+   * Hosting rewards are ranked apart from playing. `ranked` is the verified
+   * (real accounts, non-host matches) honor board; omitted keeps the old
+   * `player` board.
+   */
   @IsOptional()
-  @IsIn(['player', 'host'])
-  board?: PointsBoard;
+  @IsIn(['player', 'host', 'ranked'])
+  board?: PointsBoard | 'ranked';
 
   @IsOptional()
   @Type(() => Number)

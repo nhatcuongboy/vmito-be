@@ -32,7 +32,13 @@ const ids = (prefix: string, count: number) =>
 
 const run = (players: Player[], overrides = {}) =>
   sessionCompletionEntries(
-    { hostId: HOST, isCrawled: false, players, ...overrides },
+    {
+      hostId: HOST,
+      isCrawled: false,
+      sportType: 'BADMINTON' as const,
+      players,
+      ...overrides,
+    },
     SESSION,
     AT
   );

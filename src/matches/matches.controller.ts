@@ -46,7 +46,7 @@ export class MatchesController {
       'COURTS',
       'match.update'
     );
-    return this.matchesService.update(id, updateMatchDto);
+    return this.matchesService.update(id, updateMatchDto, user.userId);
   }
 
   @Delete(':id')

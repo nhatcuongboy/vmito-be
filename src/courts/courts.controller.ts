@@ -105,7 +105,7 @@ export class CourtsController {
       user.role,
       'COURTS'
     );
-    return this.courtsService.endMatch(id, endMatchDto);
+    return this.courtsService.endMatch(id, endMatchDto, user.userId);
   }
 
   @Get(':id/current-match')

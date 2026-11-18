@@ -44,9 +44,13 @@ export class PointsService {
     try {
       const match = await this.prisma.match.findUnique({
         where: { id: matchId },
-        include: { players: { include: { player: true } } },
+        include: {
+          players: { include: { player: true } },
+          session: { select: { sportType: true } },
+        },
       });
       if (!match || match.status !== 'FINISHED') return;
+      const sport = match.session.sportType;
 
       const winnerPlayerIds = this.parseIds(match.winnerIds);
       // No recorded result at all → participation-only match, no points.
@@ -68,7 +72,7 @@ export class PointsService {
         if (userId) {
           entries.push({
             userId,
-            sport: 'BADMINTON',
+            sport,
             reason,
             refType: 'MATCH',
             refId: matchId,
@@ -77,7 +81,7 @@ export class PointsService {
         } else if (profileId) {
           entries.push({
             guestProfileId: profileId,
-            sport: 'BADMINTON',
+            sport,
             reason,
             refType: 'MATCH',
             refId: matchId,
@@ -250,6 +254,7 @@ export class PointsService {
           endTime: true,
           hostId: true,
           isCrawled: true,
+          sportType: true,
           players: {
             select: {
               userId: true,
@@ -553,6 +558,7 @@ type SessionPlayerForPoints = {
 type SessionForPoints = {
   hostId: string | null;
   isCrawled: boolean;
+  sportType: SportType;
   players: SessionPlayerForPoints[];
 };
 
@@ -595,7 +601,7 @@ export function sessionCompletionEntries(
 
   const entries: PointEntry[] = [...activeUserIds].map((userId) => ({
     userId,
-    sport: 'BADMINTON',
+    sport: session.sportType,
     reason: 'SESSION_PARTICIPATION',
     refType: 'SESSION',
     refId: sessionId,
@@ -611,7 +617,7 @@ export function sessionCompletionEntries(
   if (hostQualifies && session.hostId) {
     entries.push({
       userId: session.hostId,
-      sport: 'BADMINTON',
+      sport: session.sportType,
       reason: 'SESSION_HOSTED',
       refType: 'SESSION',
       refId: sessionId,

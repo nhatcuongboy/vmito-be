@@ -129,6 +129,10 @@ model User {
   pointTransactions PointTransaction[] @relation("UserPointTransactions")
   pointsStates      UserPointsState[]  @relation("UserPointsStates")
 
+  // Verified (honor) ranking
+  rankedPointTransactions RankedPointTransaction[] @relation("UserRankedPoints")
+  honorReviewEntries      HonorReviewEntry[]       @relation("UserHonorReviewEntries")
+
   // Editorial articles (news / long-form content)
   authoredArticles Article[] @relation("AuthoredArticles")
 
@@ -251,6 +255,100 @@ model UserPointsState {
   @@index([sport, totalPoints])
   @@index([sport, hostPoints])
   @@map("user_points_states")
+}
+
+// ===========================================
+// Verified ranking (honor board)
+// ===========================================
+// Separate from the activity ledger above: casual matches in sessions the
+// player did not organise, real accounts only, after anti-farming caps.
+
+enum RankedResultStatus {
+  INELIGIBLE // Cannot count (no real non-host player, too short, bad winners…)
+  VERIFIED // Counts; admins may still reject it
+  DISPUTED // A player objected; waits for an admin
+  REJECTED // Rejected by an admin
+}
+
+enum HonorReviewStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum HonorDecision {
+  PENDING
+  APPROVED
+  EXCLUDED
+}
+
+// One row per ranked player per verified match (losses carry 0 points) so match
+// counts, opponent diversity and fraud signals come from the same ledger.
+model RankedPointTransaction {
+  id              String      @id @default(cuid())
+  userId          String
+  sport           SportType   @default(BADMINTON)
+  reason          PointReason
+  basePoints      Int
+  multiplier      Float
+  points          Int
+  refType         String      @default("MATCH")
+  refId           String
+  opponentUserIds String[]
+  // Guests have no account: they are not in opponentUserIds, only counted.
+  guestOpponents  Int         @default(0)
+  sessionHostId   String? // organiser of the session (fraud signal)
+  matchMinutes    Int
+  occurredAt      DateTime
+  createdAt       DateTime    @default(now())
+
+  user User @relation("UserRankedPoints", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, refType, refId])
+  @@index([sport, occurredAt])
+  @@index([userId, sport, occurredAt])
+  @@index([refType, refId])
+  @@map("ranked_point_transactions")
+}
+
+model HonorReview {
+  id            String            @id @default(cuid())
+  sport         SportType
+  period        String // month | season | year
+  periodKey     String
+  status        HonorReviewStatus @default(DRAFT)
+  generatedAt   DateTime          @default(now())
+  publishedAt   DateTime?
+  publishedById String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  entries HonorReviewEntry[]
+
+  @@unique([sport, period, periodKey])
+  @@map("honor_reviews")
+}
+
+model HonorReviewEntry {
+  id          String        @id @default(cuid())
+  reviewId    String
+  userId      String
+  rank        Int // rank on the ranked board when generated
+  points      Int
+  matches     Int
+  opponents   Int
+  signals     Json
+  flags       String[]
+  decision    HonorDecision @default(PENDING)
+  note        String?
+  decidedById String?
+  decidedAt   DateTime?
+  publicRank  Int? // set on publish, counting only APPROVED entries
+
+  review HonorReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  user   User        @relation("UserHonorReviewEntries", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, userId])
+  @@map("honor_review_entries")
 }
 
 // Notification System
@@ -1649,6 +1747,20 @@ model Match {
   notes            String?
   shuttlecockCount Float?
 
+  // Verified ranking. Results count as soon as they are recorded; players can
+  // dispute and admins can reject. Null rankedStatus = predates the system.
+  resultSubmittedById    String?
+  rankedStatus           RankedResultStatus?
+  rankedIneligibleReason String?
+  rankedResolvedAt       DateTime?
+  rankedReviewedById     String? // admin who last set VERIFIED/REJECTED by hand
+  rankedReviewNote       String?
+  // Latest dispute by a player of the match (WRONG_RESULT | NOT_PARTICIPATED | OTHER).
+  rankedDisputeReason    String?
+  rankedDisputeNote      String?
+  rankedDisputedById     String?
+
+  @@index([rankedStatus, endTime])
   @@map("matches")
 }
 

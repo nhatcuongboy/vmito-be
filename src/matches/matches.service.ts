@@ -6,12 +6,14 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateMatchDto } from './dto/update-match.dto';
 import { PointsService } from '../points/points.service';
+import { RankedMatchService } from '../points/ranked/ranked-match.service';
 
 @Injectable()
 export class MatchesService {
   constructor(
     private prisma: PrismaService,
-    private pointsService: PointsService
+    private pointsService: PointsService,
+    private rankedMatches: RankedMatchService
   ) {}
 
   async remove(id: string) {
@@ -68,6 +70,7 @@ export class MatchesService {
       .then((deleted) => {
         // The match is gone — revoke any points it granted.
         void this.pointsService.removeForRef('MATCH', id);
+        void this.rankedMatches.onMatchDeleted(id);
         return deleted;
       });
   }
@@ -150,7 +153,11 @@ export class MatchesService {
     return formattedMatch;
   }
 
-  async update(id: string, updateMatchDto: UpdateMatchDto) {
+  async update(
+    id: string,
+    updateMatchDto: UpdateMatchDto,
+    actorUserId?: string
+  ) {
     const existingMatch = await this.prisma.match.findUnique({
       where: { id },
     });
@@ -366,6 +373,8 @@ export class MatchesService {
     // A finished match's result may have changed — recompute its points.
     if (updatedMatch.status === 'FINISHED') {
       void this.pointsService.reawardSessionMatch(id);
+      // Re-evaluate the verified ranking for the new result.
+      void this.rankedMatches.onMatchEdited(id, actorUserId);
     }
 
     return updatedMatch;
