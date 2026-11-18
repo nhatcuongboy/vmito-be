@@ -19,6 +19,7 @@ import {
 } from '../sessions/sessions.gateway';
 import { GeminiService } from '../ai/gemini.service';
 import { PointsService } from '../points/points.service';
+import { RankedMatchService } from '../points/ranked/ranked-match.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Language, DEFAULT_LANGUAGE } from '../common/constants/language.enum';
 import {
@@ -70,7 +71,8 @@ export class CourtsService {
     private sessionsGateway: SessionsGateway,
     private geminiService: GeminiService,
     private pointsService: PointsService,
-    private notificationsService: NotificationsService
+    private notificationsService: NotificationsService,
+    private rankedMatches: RankedMatchService
   ) {}
 
   async findOne(id: string) {
@@ -728,7 +730,7 @@ export class CourtsService {
     return result;
   }
 
-  async endMatch(id: string, endMatchDto?: EndMatchDto) {
+  async endMatch(id: string, endMatchDto?: EndMatchDto, actorUserId?: string) {
     const court = await this.prisma.court.findUnique({
       where: { id },
       include: {
@@ -858,6 +860,8 @@ export class CourtsService {
 
     // Ranking points are best-effort and never block ending a match.
     void this.pointsService.awardSessionMatch(result.match.id);
+    // Verified ranking (separate honor board; disputes/admin review later).
+    void this.rankedMatches.onMatchEnded(result.match.id, actorUserId);
 
     return result;
   }

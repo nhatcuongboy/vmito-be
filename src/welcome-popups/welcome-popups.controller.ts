@@ -39,6 +39,12 @@ export class WelcomePopupsController {
     return this.welcomePopupsService.getActive();
   }
 
+  @Public()
+  @Get('welcome-popups/active-list')
+  getActiveList() {
+    return this.welcomePopupsService.getActiveList();
+  }
+
   @Get('admin/welcome-popups')
   @UseGuards(AdminGuard)
   findAll() {

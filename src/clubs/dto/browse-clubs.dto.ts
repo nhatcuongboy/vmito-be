@@ -79,6 +79,14 @@ export class BrowseClubsDto {
   @IsBoolean()
   favoriteOnly?: boolean;
 
+  // Drops INVITATION_ONLY clubs. Used by the app's feed suggestion cards,
+  // which offer a one-tap join that such clubs would reject with 400.
+  // Parsed by hand: `@Type(() => Boolean)` turns the string "false" into true.
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  joinableOnly?: boolean;
+
   // Required player level ids, comma-separated (e.g. "3,9"). A club with an
   // empty `requiredLevels` (open to all levels) still matches — see
   // ClubsService.browsePublicClubs.

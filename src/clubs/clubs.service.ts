@@ -42,6 +42,11 @@ import { ActivityFeedService } from '../activities/activity-feed.service';
 import { ClubActivityPeriodValue } from './dto/browse-clubs.dto';
 import { UserRecommendationContextService } from '../recommendations/user-recommendation-context.service';
 import { sortByRecommendation } from '../recommendations/recommendation.utils';
+import {
+  buildFriendPreviews,
+  FriendPreview,
+  idsWithFriends,
+} from '../recommendations/friend-preview.util';
 import { scoreClubSearchRelevance } from './utils/club-search-relevance';
 import {
   ScorableClub,
@@ -317,6 +322,7 @@ export class ClubsService {
       page = 1,
       limit = 10,
       favoriteOnly,
+      joinableOnly,
       levels,
       activeDays,
       activePeriods,
@@ -353,6 +359,12 @@ export class ClubsService {
 
     if (favoriteIds) {
       andConditions.push({ id: { in: favoriteIds } });
+    }
+
+    if (joinableOnly) {
+      andConditions.push({
+        joinPolicy: { not: ClubJoinPolicy.INVITATION_ONLY },
+      });
     }
 
     if (search) {
@@ -542,9 +554,10 @@ export class ClubsService {
     const guestProfileCounts = await this.getActiveGuestProfileCounts(
       clubs.map((club) => club.id)
     );
-    const recommendations = isRecommended
+    const recommended = isRecommended
       ? await this.recommendClubs(clubs, userId, lat, lng)
       : null;
+    const recommendations = recommended?.scores;
 
     // Post-fetch: distance calculation
     let result = clubs.map((club) => ({
@@ -619,6 +632,16 @@ export class ClubsService {
       ).slice(skip, skip + limit);
     }
 
+    // "{n} người từng chơi cùng bạn" on the app's feed cards. Fetched for the
+    // served page only, so the preview never costs more than one query.
+    const friendPreviews = recommended
+      ? await this.loadFriendPreviews(
+          result.map((club) => club.id),
+          recommended.friendIds,
+          recommended.friendCounts
+        )
+      : null;
+
     const favoriteSet = favoriteOnly
       ? new Set(result.map((c) => c.id))
       : userId
@@ -633,7 +656,13 @@ export class ClubsService {
     // pagination never promises pages it cannot serve.
     const reportedTotal = isRecommended ? clubs.length : total;
     return {
-      items: result.map((c) => ({ ...c, isFavorite: favoriteSet.has(c.id) })),
+      items: result.map((c) => ({
+        ...c,
+        isFavorite: favoriteSet.has(c.id),
+        ...(friendPreviews
+          ? { friendPreview: friendPreviews.get(c.id) ?? null }
+          : {}),
+      })),
       total: reportedTotal,
       page,
       limit,
@@ -684,7 +713,7 @@ export class ClubsService {
       if (row.clubId) recent.set(row.clubId, row._count._all);
     }
     const maxRecentSessions = Math.max(0, ...recent.values());
-    return new Map(
+    const scores = new Map(
       clubs.map((club) => [
         club.id,
         scoreClub(club, ctx, {
@@ -693,6 +722,33 @@ export class ClubsService {
           maxRecentSessions,
         }),
       ])
+    );
+    return { scores, friendIds: ctx.friendIds, friendCounts: friends };
+  }
+
+  /** See `recommendations/friend-preview.util`. One query per page. */
+  private async loadFriendPreviews(
+    clubIds: string[],
+    friendIds: ReadonlySet<string>,
+    friendCounts: Map<string, number>
+  ) {
+    const withFriends = idsWithFriends(clubIds, friendCounts);
+    if (withFriends.length === 0) return new Map<string, FriendPreview>();
+    const rows = await this.prisma.clubMember.findMany({
+      where: {
+        clubId: { in: withFriends },
+        userId: { in: [...friendIds] },
+        status: MemberStatus.ACTIVE,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        clubId: true,
+        user: { select: { id: true, name: true, image: true } },
+      },
+    });
+    return buildFriendPreviews(
+      rows.map((row) => ({ itemId: row.clubId, user: row.user })),
+      friendCounts
     );
   }
 
@@ -2219,8 +2275,8 @@ export class ClubsService {
       role === MemberRole.ADMIN
         ? 'Quản trị viên'
         : role === MemberRole.MODERATOR
-        ? 'Kiểm duyệt viên'
-        : 'Thành viên';
+          ? 'Kiểm duyệt viên'
+          : 'Thành viên';
 
     void this.notificationsService.createForUser(
       userId,

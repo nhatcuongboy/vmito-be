@@ -78,14 +78,15 @@ const parseCsv = <T extends string>(
 const parseNumber = (
   raw: string | undefined,
   name: string,
-  options: { integer?: boolean; min?: number } = {}
+  options: { integer?: boolean; min?: number; max?: number } = {}
 ): number | undefined => {
   if (raw == null || raw.trim() === '') return undefined;
   const value = Number(raw);
   if (
     !Number.isFinite(value) ||
     (options.integer && !Number.isInteger(value)) ||
-    (options.min != null && value < options.min)
+    (options.min != null && value < options.min) ||
+    (options.max != null && value > options.max)
   ) {
     throw new BadRequestException(`Invalid ${name}`);
   }
@@ -254,6 +255,7 @@ export class SessionsController {
     @Query('sessionType') sessionType?: 'all' | 'regular' | 'facebook',
     @Query('favoriteOnly') favoriteOnly?: string,
     @Query('includeEnded') includeEnded?: string,
+    @Query('withinHours') withinHours?: string,
     @CurrentUser() user?: AuthenticatedUser
   ) {
     const level = parseNumber(levelRaw, 'level', { integer: true, min: 1 });
@@ -347,6 +349,11 @@ export class SessionsController {
         sessionType: parsedSessionType,
         favoriteOnly: parsedFavoriteOnly,
         includeEnded: parsedIncludeEnded,
+        withinHours: parseNumber(withinHours, 'withinHours', {
+          integer: true,
+          min: 1,
+          max: 168,
+        }),
       },
       user?.userId
     );

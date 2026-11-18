@@ -58,6 +58,7 @@ export class PointsBackfillService {
         isDraw: true,
         endTime: true,
         createdAt: true,
+        session: { select: { sportType: true } },
         players: {
           select: { playerId: true, player: { select: { userId: true } } },
         },
@@ -73,7 +74,7 @@ export class PointsBackfillService {
         if (!mp.player.userId) continue;
         entries.push({
           userId: mp.player.userId,
-          sport: 'BADMINTON',
+          sport: match.session.sportType,
           reason: match.isDraw
             ? 'SESSION_MATCH_DRAW'
             : winnerPlayerIds.includes(mp.playerId)
@@ -97,6 +98,7 @@ export class PointsBackfillService {
         updatedAt: true,
         hostId: true,
         isCrawled: true,
+        sportType: true,
         players: {
           select: { userId: true, createdByUserId: true, matchesPlayed: true },
         },
@@ -242,6 +244,22 @@ export class PointsBackfillService {
           tier: tierForPoints(totalPoints),
         },
         update: { totalPoints, hostPoints, tier: tierForPoints(totalPoints) },
+      });
+    }
+
+    // States whose ledger rows all moved away (e.g. session points re-tagged
+    // from BADMINTON to the session's real sport) must drop back to zero.
+    const stale = await this.prisma.userPointsState.findMany({
+      where: { OR: [{ totalPoints: { gt: 0 } }, { hostPoints: { gt: 0 } }] },
+      select: { id: true, userId: true, sport: true },
+    });
+    const staleIds = stale
+      .filter((s) => !byUser.has(`${s.userId}:${s.sport}`))
+      .map((s) => s.id);
+    if (staleIds.length > 0) {
+      await this.prisma.userPointsState.updateMany({
+        where: { id: { in: staleIds } },
+        data: { totalPoints: 0, hostPoints: 0, tier: tierForPoints(0) },
       });
     }
     return byUser.size;

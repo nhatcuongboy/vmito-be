@@ -39,12 +39,38 @@
  * DATABASE_URL controls which database is targeted. Point it at the right
  * environment (local / staging / production) before running with --apply.
  */
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import * as fs from 'fs';
+import configuration from '../src/config';
+import { AuditLogsModule } from '../src/audit-logs/audit-logs.module';
+import { PrismaModule } from '../src/prisma/prisma.module';
 import { VenuesModule } from '../src/venues/venues.module';
 import { VenuesService } from '../src/venues/venues.service';
 import { CreateVenueDto } from '../src/venues/dto/create-venue.dto';
 import { SportType, VenueStatus, ClosureStatus } from '@prisma/client';
+
+/**
+ * VenuesModule's dependency tree relies on @Global() providers that only
+ * AppModule registers (ConfigModule, PrismaModule, AuditLogsModule — the
+ * latter is needed by SessionAccessService). Bootstrapping VenuesModule on
+ * its own fails with UnknownDependenciesException, so load those globals
+ * alongside it here instead of spinning up the full AppModule.
+ */
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: configuration,
+      envFilePath: ['.env.local', '.env'],
+    }),
+    PrismaModule,
+    AuditLogsModule,
+    VenuesModule,
+  ],
+})
+class BulkImportModule {}
 
 const NUMBER_FIELDS = new Set([
   'lat',
@@ -242,7 +268,7 @@ async function main() {
     return;
   }
 
-  const app = await NestFactory.createApplicationContext(VenuesModule, {
+  const app = await NestFactory.createApplicationContext(BulkImportModule, {
     logger: ['error', 'warn'],
   });
   const venuesService = app.get(VenuesService);

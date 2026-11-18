@@ -12,6 +12,9 @@ import {
   LeaderboardQueryDto,
   PointTransactionsQueryDto,
 } from './dto/leaderboard-query.dto';
+import { RankedLeaderboardService } from './ranked/ranked-leaderboard.service';
+import { HonorReviewService } from './ranked/honor-review.service';
+import { HonorQueryDto, RankedMeQueryDto } from './ranked/dto/ranked.dto';
 
 @ApiTags('leaderboard')
 @ApiBearerAuth('JWT-auth')
@@ -21,14 +24,36 @@ export class LeaderboardController {
   constructor(
     private readonly leaderboardService: LeaderboardService,
     private readonly backfillService: PointsBackfillService,
-    private readonly pointsAdminService: PointsAdminService
+    private readonly pointsAdminService: PointsAdminService,
+    private readonly rankedLeaderboard: RankedLeaderboardService,
+    private readonly honorReviews: HonorReviewService
   ) {}
 
   @Public()
   @Get()
   @ApiOperation({ summary: 'Ranked leaderboard for a sport and time period' })
   getLeaderboard(@Query() query: LeaderboardQueryDto) {
-    return this.leaderboardService.getLeaderboard(query);
+    const { board, ...rest } = query;
+    if (board === 'ranked') return this.rankedLeaderboard.getLeaderboard(rest);
+    return this.leaderboardService.getLeaderboard({ ...rest, board });
+  }
+
+  @Get('ranked/me')
+  @ApiOperation({
+    summary: "Current user's verified ranking and progress to eligibility",
+  })
+  getMyRanked(
+    @CurrentUser() user: { userId: string },
+    @Query() query: RankedMeQueryDto
+  ) {
+    return this.rankedLeaderboard.getMine(user.userId, query);
+  }
+
+  @Public()
+  @Get('honors')
+  @ApiOperation({ summary: 'Published honor list for a sport and period' })
+  getHonors(@Query() query: HonorQueryDto) {
+    return this.honorReviews.getPublished(query);
   }
 
   @Get('me')
