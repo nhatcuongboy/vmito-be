@@ -18,9 +18,10 @@ import {
 } from '../venue-reviews/venue-review.helpers';
 import { SaveClubReviewDto } from './dto/club-review.dto';
 import {
-  CLUB_REVIEW_INCLUDE,
+  MIN_REVIEWS_TO_LIST,
   computeClubReviewSummary,
   refreshClubAggregate,
+  toAnonymousClubReview,
 } from './club-review.helpers';
 
 const ADMIN_ROLE = 'ADMIN';
@@ -57,7 +58,6 @@ export class ClubReviewsService {
     const [data, total, summary] = await Promise.all([
       this.prisma.clubReview.findMany({
         where,
-        include: CLUB_REVIEW_INCLUDE,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: paging.skip,
         take: paging.limit,
@@ -66,9 +66,16 @@ export class ClubReviewsService {
       computeClubReviewSummary(this.prisma, clubId),
     ]);
 
+    // Below the threshold the list is withheld, but the summary still
+    // counts them; the caller's own review comes from `GET .../me`.
+    const isListHidden = total < MIN_REVIEWS_TO_LIST;
     return {
-      data,
-      pagination: buildPagination(paging.page, paging.limit, total),
+      data: isListHidden ? [] : data.map(toAnonymousClubReview),
+      pagination: buildPagination(
+        paging.page,
+        paging.limit,
+        isListHidden ? 0 : total
+      ),
       summary,
     };
   }
@@ -76,10 +83,10 @@ export class ClubReviewsService {
   /** The caller's own review; `null` when none or when it was hidden. */
   async findMine(idOrSlug: string, userId: string) {
     const { id: clubId } = await this.resolveClub(idOrSlug);
-    return this.prisma.clubReview.findFirst({
+    const review = await this.prisma.clubReview.findFirst({
       where: { clubId, userId, status: ClubReviewStatus.VISIBLE },
-      include: CLUB_REVIEW_INCLUDE,
     });
+    return review ? toAnonymousClubReview(review) : null;
   }
 
   /**
@@ -131,10 +138,9 @@ export class ClubReviewsService {
             rating: dto.rating,
             comment: dto.comment ?? null,
           },
-          include: CLUB_REVIEW_INCLUDE,
         });
         const summary = await refreshClubAggregate(tx, club.id);
-        return { review, summary };
+        return { review: toAnonymousClubReview(review), summary };
       });
     } catch (error) {
       // Two concurrent submits can both pass the findUnique check.
@@ -173,10 +179,9 @@ export class ClubReviewsService {
       const review = await tx.clubReview.update({
         where: { id: reviewId },
         data: { rating: dto.rating, comment: dto.comment ?? null },
-        include: CLUB_REVIEW_INCLUDE,
       });
       const summary = await refreshClubAggregate(tx, clubId);
-      return { review, summary };
+      return { review: toAnonymousClubReview(review), summary };
     });
   }
 

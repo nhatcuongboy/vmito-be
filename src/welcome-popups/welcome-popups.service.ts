@@ -11,17 +11,32 @@ export class WelcomePopupsService {
     private cloudinary: CloudinaryService
   ) {}
 
-  async getActive() {
+  private activeWhere() {
     const now = new Date();
+    return {
+      isActive: true,
+      AND: [
+        { OR: [{ startDate: null }, { startDate: { lte: now } }] },
+        { OR: [{ endDate: null }, { endDate: { gte: now } }] },
+      ],
+    };
+  }
+
+  // Single popup — kept for installed clients that predate the carousel.
+  async getActive() {
     return this.prisma.welcomePopup.findFirst({
-      where: {
-        isActive: true,
-        AND: [
-          { OR: [{ startDate: null }, { startDate: { lte: now } }] },
-          { OR: [{ endDate: null }, { endDate: { gte: now } }] },
-        ],
-      },
+      where: this.activeWhere(),
       orderBy: [{ displayOrder: 'desc' }, { createdAt: 'desc' }],
+    });
+  }
+
+  /** Every currently-active popup, highest priority first, capped so a
+   *  carousel never grows an unreadable row of page dots. */
+  async getActiveList() {
+    return this.prisma.welcomePopup.findMany({
+      where: this.activeWhere(),
+      orderBy: [{ displayOrder: 'desc' }, { createdAt: 'desc' }],
+      take: 5,
     });
   }
 
