@@ -83,18 +83,30 @@ export interface StreetKey {
  * house number can be found (e.g. "Lan Anh Village").
  */
 export function parseStreet(raw: string | null | undefined): StreetKey | null {
-  let s = norm(
-    (raw ?? '')
-      .replace(/\([^)]*\)/g, ' ')
-      .split(/,\s*(?:phường|xã|p\.|quận|thành phố|tp)/i)[0]
-  );
-  for (const [re, to] of STREET_ALIASES) s = s.replace(re, to);
-  s = s
-    .replace(/\b(tang|lau) [a-z0-9]+\b/g, ' ')
-    .replace(/\b(so|doi dien|ke ben|canh|hem|kiet|ngo)\b/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const m = s.match(/(?:^|\s)(\d[0-9a-z/\-]*)\s+(.+)$/);
+  const clean = (part: string) => {
+    let s = norm(part);
+    for (const [re, to] of STREET_ALIASES) s = s.replace(re, to);
+    return s
+      .replace(/\b(tang|lau) [a-z0-9]+\b/g, ' ')
+      .replace(/\b(so|doi dien|ke ben|canh|hem|kiet|ngo)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+  // Only the comma segment holding the house number is the street: DB rows
+  // often keep a bare ward after it ("1A222/1 Đ. Vĩnh Lộc, Tân Vĩnh Lộc").
+  const segments = (raw ?? '')
+    .replace(/\([^)]*\)/g, ' ')
+    .split(/,\s*(?:phường|xã|p\.|quận|thành phố|tp)/i)[0]
+    .split(',')
+    .map(clean);
+  let m: RegExpMatchArray | null = null;
+  for (let i = 0; i < segments.length && !m; i++) {
+    m = segments[i].match(/(?:^|\s)(\d[0-9a-z/\-]*)\s+(.+)$/);
+    if (!m && /(?:^|\s)\d[0-9a-z/\-]*$/.test(segments[i]) && segments[i + 1]) {
+      // "Số 4, Đường số 65": house number and street in separate segments
+      m = `${segments[i]} ${segments[i + 1]}`.match(/(?:^|\s)(\d[0-9a-z/\-]*)\s+(.+)$/);
+    }
+  }
   if (!m) return null;
   const street = m[2]
     .replace(/^(duong|d|pho)\s+/, '')
