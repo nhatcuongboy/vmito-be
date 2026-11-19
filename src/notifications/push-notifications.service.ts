@@ -195,6 +195,7 @@ export class PushNotificationsService {
     badgeCount?: number
   ): Message {
     const customData = this.serializeData(notification.data);
+    const imageUrl = this.imageUrlOf(customData.imageUrl);
     const isCourtCall =
       customData.action === 'court_call' ||
       customData.action === 'tournament_match_calling' ||
@@ -205,6 +206,7 @@ export class PushNotificationsService {
       notification: {
         title: notification.title,
         body: notification.message,
+        ...(imageUrl ? { imageUrl } : {}),
       },
       data: {
         ...customData,
@@ -231,10 +233,25 @@ export class PushNotificationsService {
             sound: 'default',
             ...(badgeCount != null ? { badge: badgeCount } : {}),
             ...(isCourtCall ? { interruptionLevel: 'time-sensitive' } : {}),
+            // Wakes vmito_app's Notification Service Extension, which
+            // downloads `fcm_options.image` and attaches it. Apps without the
+            // extension show the text as before.
+            ...(imageUrl ? { mutableContent: true } : {}),
           },
         },
+        ...(imageUrl ? { fcmOptions: { imageUrl } } : {}),
       },
     };
+  }
+
+  /** Only a public https image: FCM and iOS refuse anything else. */
+  private imageUrlOf(value: string | undefined): string | undefined {
+    if (!value) return undefined;
+    try {
+      return new URL(value).protocol === 'https:' ? value : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private buildBadgeMessage(

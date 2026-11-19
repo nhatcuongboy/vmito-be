@@ -655,9 +655,14 @@ export class NotificationsService {
       : undefined;
     let broadcast: BroadcastNotification;
     try {
-      const notificationData = dto.link?.trim()
-        ? { link: dto.link.trim() }
-        : undefined;
+      const extras = Object.fromEntries(
+        (['link', 'imageUrl', 'route'] as const).flatMap((key) => {
+          const value = dto[key]?.trim();
+          return value ? [[key, value]] : [];
+        })
+      );
+      const notificationData =
+        Object.keys(extras).length > 0 ? extras : undefined;
       broadcast = await this.prisma.broadcastNotification.create({
         data: {
           type: NotificationType.SYSTEM,
