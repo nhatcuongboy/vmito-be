@@ -47,6 +47,29 @@ export class NotificationMaintenanceService {
     return { deleted };
   }
 
+  /**
+   * Signed-out installs have no account whose deletion would remove them, and
+   * the app refreshes `lastSeenAt` on every cold start, so a row untouched for
+   * this long is a removed or dead install. Signed-in devices are left to the
+   * (currently disabled) job below.
+   */
+  @Cron('30 3 * * *')
+  async cleanupStaleGuestDevices() {
+    const cutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+    const result = await this.prisma.notificationDevice.deleteMany({
+      where: { userId: null, lastSeenAt: { lt: cutoff } },
+    });
+    if (result.count > 0) {
+      this.logger.log(
+        JSON.stringify({
+          event: 'notification_stale_guest_devices_cleanup',
+          deleted: result.count,
+        })
+      );
+    }
+    return { deleted: result.count };
+  }
+
   // Temporarily disabled per request
   // @Cron('0 4 * * *')
   // async cleanupStaleDevices() {

@@ -538,9 +538,12 @@ model BroadcastNotificationDispatchJob {
   @@map("broadcast_notification_dispatch_jobs")
 }
 
+/// `userId` is null for a signed-out install that registered for general
+/// admin broadcasts only (POST /notifications/guest-devices). Signing in
+/// upserts the same token, which attaches the user.
 model NotificationDevice {
   id         String   @id @default(cuid())
-  userId     String
+  userId     String?
   token      String   @unique
   platform   String
   appVersion String?
@@ -550,7 +553,7 @@ model NotificationDevice {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([userId, deviceId])

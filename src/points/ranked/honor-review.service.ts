@@ -294,7 +294,7 @@ export class HonorReviewService {
 
     const deviceIdsByUser = new Map<string, string[]>();
     for (const d of devices) {
-      if (!d.deviceId) continue;
+      if (!d.deviceId || !d.userId) continue;
       deviceIdsByUser.set(d.userId, [
         ...(deviceIdsByUser.get(d.userId) ?? []),
         d.deviceId,

@@ -77,12 +77,14 @@ export class PushNotificationsService {
       select: { token: true, userId: true, locale: true },
     });
     const badgeCounts = await this.unreadCounts.badgeTotalsForUsers(
-      devices.map((device) => device.userId)
+      devices.flatMap((device) => (device.userId ? [device.userId] : []))
     );
     const messages: Message[] = [];
     const tokens: string[] = [];
 
     for (const device of devices) {
+      // The `in` filter already excludes signed-out installs (userId null).
+      if (!device.userId) continue;
       const notification = byUserId.get(device.userId);
       if (!notification) continue;
       const { title, message } = localizePush(
@@ -118,11 +120,12 @@ export class PushNotificationsService {
       });
       if (devices.length === 0) return;
       const totals = await this.unreadCounts.badgeTotalsForUsers(
-        devices.map((device) => device.userId)
+        devices.flatMap((device) => (device.userId ? [device.userId] : []))
       );
       const messages: Message[] = [];
       const tokens: string[] = [];
       for (const device of devices) {
+        if (!device.userId) continue;
         const badge = totals.get(device.userId);
         if (badge == null) continue;
         messages.push(
@@ -195,6 +198,7 @@ export class PushNotificationsService {
     badgeCount?: number
   ): Message {
     const customData = this.serializeData(notification.data);
+    const imageUrl = this.imageUrlOf(customData.imageUrl);
     const isCourtCall =
       customData.action === 'court_call' ||
       customData.action === 'tournament_match_calling' ||
@@ -205,6 +209,7 @@ export class PushNotificationsService {
       notification: {
         title: notification.title,
         body: notification.message,
+        ...(imageUrl ? { imageUrl } : {}),
       },
       data: {
         ...customData,
@@ -231,10 +236,25 @@ export class PushNotificationsService {
             sound: 'default',
             ...(badgeCount != null ? { badge: badgeCount } : {}),
             ...(isCourtCall ? { interruptionLevel: 'time-sensitive' } : {}),
+            // Wakes vmito_app's Notification Service Extension, which
+            // downloads `fcm_options.image` and attaches it. Apps without the
+            // extension show the text as before.
+            ...(imageUrl ? { mutableContent: true } : {}),
           },
         },
+        ...(imageUrl ? { fcmOptions: { imageUrl } } : {}),
       },
     };
+  }
+
+  /** Only a public https image: FCM and iOS refuse anything else. */
+  private imageUrlOf(value: string | undefined): string | undefined {
+    if (!value) return undefined;
+    try {
+      return new URL(value).protocol === 'https:' ? value : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private buildBadgeMessage(
