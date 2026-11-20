@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { NotificationsController } from './notifications.controller';
+import { GuestDevicesController } from './guest-devices.controller';
 import { NotificationsService } from './notifications.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SessionsGatewayModule } from '../sessions/sessions-gateway.module';
@@ -12,7 +13,7 @@ import { SessionAccessModule } from '../common/session-access/session-access.mod
 
 @Module({
   imports: [PrismaModule, SessionsGatewayModule, SessionAccessModule],
-  controllers: [NotificationsController],
+  controllers: [NotificationsController, GuestDevicesController],
   providers: [
     NotificationsService,
     PushNotificationsService,

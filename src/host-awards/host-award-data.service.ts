@@ -187,6 +187,7 @@ export class HostAwardDataService {
         select: { userId: true, deviceId: true },
       });
       for (const row of rows) {
+        if (!row.userId) continue;
         const list = devices.get(row.userId) ?? [];
         if (row.deviceId && !list.includes(row.deviceId)) {
           list.push(row.deviceId);

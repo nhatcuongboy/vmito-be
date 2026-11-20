@@ -544,6 +544,44 @@ export class NotificationsService {
     return { removed: result.count > 0 };
   }
 
+  /**
+   * Registers a signed-out install for general admin broadcasts only. The
+   * upsert never writes `userId`: a token that already belongs to a user keeps
+   * that owner (a late guest call must not strip it), and signing in later
+   * attaches the user through [registerDevice] on the same token.
+   */
+  async registerGuestDevice(dto: RegisterNotificationDeviceDto) {
+    if (dto.deviceId) {
+      // The token rotated: drop the guest rows this install left behind.
+      await this.prisma.notificationDevice.deleteMany({
+        where: {
+          userId: null,
+          deviceId: dto.deviceId,
+          token: { not: dto.token },
+        },
+      });
+    }
+    await this.prisma.notificationDevice.upsert({
+      where: { token: dto.token },
+      create: { userId: null, ...dto },
+      update: {
+        platform: dto.platform,
+        appVersion: dto.appVersion,
+        locale: dto.locale,
+        lastSeenAt: new Date(),
+      },
+    });
+    return { registered: true };
+  }
+
+  /** Only ever removes a guest row; a user's device needs their own JWT. */
+  async unregisterGuestDevice(token: string) {
+    const result = await this.prisma.notificationDevice.deleteMany({
+      where: { userId: null, token },
+    });
+    return { removed: result.count > 0 };
+  }
+
   async markAsRead(id: string, userId: string) {
     const direct = await this.prisma.notification.findFirst({
       where: { id, userId },

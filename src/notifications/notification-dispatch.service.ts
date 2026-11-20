@@ -66,9 +66,22 @@ export class NotificationDispatchService {
       }
       const devices = await this.prisma.notificationDevice.findMany({
         where: {
-          user: {
-            is: { createdAt: { lte: candidate.broadcast.audienceCutoffAt } },
-          },
+          // Signed-in users by account age, plus signed-out installs by when
+          // they registered, so a device that opted in after the campaign
+          // was created never receives it.
+          OR: [
+            {
+              user: {
+                is: {
+                  createdAt: { lte: candidate.broadcast.audienceCutoffAt },
+                },
+              },
+            },
+            {
+              userId: null,
+              createdAt: { lte: candidate.broadcast.audienceCutoffAt },
+            },
+          ],
           ...(candidate.cursor ? { id: { gt: candidate.cursor } } : {}),
         },
         select: { id: true, token: true },

@@ -77,12 +77,14 @@ export class PushNotificationsService {
       select: { token: true, userId: true, locale: true },
     });
     const badgeCounts = await this.unreadCounts.badgeTotalsForUsers(
-      devices.map((device) => device.userId)
+      devices.flatMap((device) => (device.userId ? [device.userId] : []))
     );
     const messages: Message[] = [];
     const tokens: string[] = [];
 
     for (const device of devices) {
+      // The `in` filter already excludes signed-out installs (userId null).
+      if (!device.userId) continue;
       const notification = byUserId.get(device.userId);
       if (!notification) continue;
       const { title, message } = localizePush(
@@ -118,11 +120,12 @@ export class PushNotificationsService {
       });
       if (devices.length === 0) return;
       const totals = await this.unreadCounts.badgeTotalsForUsers(
-        devices.map((device) => device.userId)
+        devices.flatMap((device) => (device.userId ? [device.userId] : []))
       );
       const messages: Message[] = [];
       const tokens: string[] = [];
       for (const device of devices) {
+        if (!device.userId) continue;
         const badge = totals.get(device.userId);
         if (badge == null) continue;
         messages.push(
